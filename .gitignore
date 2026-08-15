@@ -1,0 +1,15 @@
+node_modules/
+dist/
+data/raw/
+# third-party-derived game data — regenerate with tools/ (docs/DATA.md)
+app/public/data/parts.json
+*.log
+.DS_Store
+app/dev-dist/
+server/relay/relay.exe
+server/relay/relay
+server/relay/webroot/*
+!server/relay/webroot/.gitkeep
+android/
+ios/
+.capacitor/

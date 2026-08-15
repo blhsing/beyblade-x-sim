@@ -1,0 +1,1 @@
+# placeholder so go:embed has a target before build-relay.ps1 copies app/dist here

@@ -1,0 +1,16 @@
+{
+  "name": "BEYBLADE X 模擬對戰",
+  "short_name": "BeyX模擬",
+  "description": "非官方 BEYBLADE X 戰鬥陀螺擬真模擬對戰（開發版）",
+  "lang": "zh-Hant-TW",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#0b1020",
+  "theme_color": "#0b1020",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "maskable" }
+  ]
+}
