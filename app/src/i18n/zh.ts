@@ -58,6 +58,7 @@ export const ZH = {
     wrongPassword: "房間密碼錯誤",
     waitingHost: "等待房主開始…",
   },
+  deckDupError: "3on3 配置不合法：同名零件不可在隊伍中重複使用（不同顏色視為相同零件）",
   replay: "重播",
   share: "分享",
   linkCopied: "連結已複製！",

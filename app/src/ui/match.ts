@@ -267,6 +267,7 @@ export async function runMatch(
   hooks: MatchHooks = {},
   mode = "快速對戰",
 ): Promise<void> {
+  app.stopMenuCinema(); // the real match owns the stage
   app.setScreen(null);
   const names: [string, string] = [slotDisplayName(slots[0]), slotDisplayName(slots[1])];
   const players: [PlayerSetup, PlayerSetup] = [
@@ -350,6 +351,7 @@ export async function runMatch(
   for (const i of [0, 1] as const) {
     if (slots[i].kind === "human") bumpProfile(names[i], winner === i);
   }
+  app.startMenuCinema(); // background show resumes behind the result panel
   const o = overlay();
   const panel = el("div", { class: "panel" });
   panel.append(

@@ -4,7 +4,7 @@
 import { BOT_CHARACTERS, BOT_ROSTER, BOT_SKILLS, botBuildDeck, type BotCharacter, type BotProfile, type BotSkill } from "../game/bots";
 import { getPrefs, savePrefs } from "../game/persist";
 import { comboItems, openGallery } from "./gallery";
-import { RULE_PRESETS, type RuleSet } from "../game/rules";
+import { RULE_PRESETS, deckDuplicateError, type RuleSet } from "../game/rules";
 import { STADIUMS } from "../core/stadium";
 import type { LauncherKind } from "../core/types";
 import { showGarage } from "./garage";
@@ -111,8 +111,10 @@ export function slotEditor(
     deckWrap.replaceChildren();
     deckVals.length = 0;
     const n = Math.max(1, app.rules.deckSize);
-    const fallback = cfg.kind === "bot" ? "auto" : (app.comboOptions()[0]?.value ?? "auto");
+    const opts = app.comboOptions();
     for (let i = 0; i < n; i++) {
+      // humans default to DISTINCT combos so a 3on3 deck starts legal
+      const fallback = cfg.kind === "bot" ? "auto" : (opts[i]?.value ?? opts[0]?.value ?? "auto");
       deckVals.push(cfg.deckRefs[i] ?? fallback);
       const idx = i;
       const b = button(labelFor(deckVals[idx]!), () => {
@@ -167,7 +169,7 @@ export function slotEditor(
   return card;
 }
 
-export function rulesPicker(app: GameApp): HTMLElement {
+export function rulesPicker(app: GameApp, onChange?: () => void): HTMLElement {
   const prefs = getPrefs();
   const presetSel = select(app.rulePresetOptions(), prefs.rulesPreset);
   if (!presetSel.value) presetSel.value = "official";
@@ -190,6 +192,7 @@ export function rulesPicker(app: GameApp): HTMLElement {
       pointsToWin: app.rules.pointsToWin,
       stadium: app.rules.stadium,
     });
+    onChange?.(); // e.g. 3on3 needs three deck pickers per slot
   };
   presetSel.addEventListener("change", () => {
     apply();
@@ -223,19 +226,52 @@ function restoreSlot(app: GameApp, saved: unknown, i: number): SlotConfig {
   return s;
 }
 
+/** 3on3 legality check for human-picked decks; returns an error text. */
+function humanDeckError(app: GameApp, s: SlotConfig): string | null {
+  if (s.kind !== "human" || app.rules.deckSize <= 1 || s.deckRefs.length <= 1) return null;
+  const deck = s.deckRefs.map((r) => {
+    try {
+      return app.resolveComboRef(r);
+    } catch {
+      return null;
+    }
+  });
+  if (deck.some((d) => d === null)) return ZH.deckDupError;
+  const err = deckDuplicateError(
+    app.rules,
+    deck as NonNullable<(typeof deck)[number]>[],
+    (cat, key) => app.index.get(cat as Parameters<typeof app.index.get>[0], key)?.group ?? key,
+  );
+  return err ? ZH.deckDupError : null;
+}
+
 export function showQuickSetup(app: GameApp): void {
   const o = overlay();
   const panel = el("div", { class: "panel" });
   const savedQuick = getPrefs().quickSlots;
   const a = restoreSlot(app, savedQuick?.[0], 0);
   const b = restoreSlot(app, savedQuick?.[1], 1);
+  const slotsBox = el("div", { style: "display:flex; flex-direction:column; gap:8px; width:100%" });
+  // rules changes (e.g. switching to 3on3) re-render the deck pickers
+  const renderSlots = (): void => {
+    slotsBox.replaceChildren(
+      // single-player: P1 is the signed-in human, the opponent is a bot
+      slotEditor(app, a, fmt(ZH.playerN, { n: 1 }), () => showQuickSetup(app), "human"),
+      slotEditor(app, b, fmt(ZH.playerN, { n: 2 }), () => showQuickSetup(app), "bot"),
+    );
+  };
+  const picker = rulesPicker(app, renderSlots);
+  renderSlots();
   panel.append(
     el("div", { class: "title", style: "font-size:22px" }, ZH.menu.quick),
-    rulesPicker(app),
-    // single-player: P1 is the signed-in human, the opponent is a bot
-    slotEditor(app, a, fmt(ZH.playerN, { n: 1 }), () => showQuickSetup(app), "human"),
-    slotEditor(app, b, fmt(ZH.playerN, { n: 2 }), () => showQuickSetup(app), "bot"),
+    picker,
+    slotsBox,
     button(ZH.start, () => {
+      const dupErr = humanDeckError(app, a);
+      if (dupErr) {
+        window.alert(dupErr);
+        return;
+      }
       app.enableGyroByDefault(); // inside the click gesture for iOS permission
       savePrefs({
         ...(a.kind === "human" ? { name: a.name, launcher: a.launcher } : {}),
@@ -291,10 +327,17 @@ export function showTournamentSetup(app: GameApp): void {
   rebuild();
 
   panel.append(
-    rulesPicker(app),
+    rulesPicker(app, () => rebuild()), // 3on3 re-renders slot deck pickers
     row(countSel, fmtSel),
     slotsWrap,
     button(ZH.start, () => {
+      for (const s of slots) {
+        const dupErr = humanDeckError(app, s);
+        if (dupErr) {
+          window.alert(`${s.name}：${dupErr}`);
+          return;
+        }
+      }
       savePrefs({
         tourSetup: { count: slots.length, format: fmtSel.value, slots }, // persists to next time
       });

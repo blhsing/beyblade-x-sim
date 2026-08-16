@@ -315,7 +315,7 @@ interface Spark {
   life: number;
 }
 
-export type CameraMode = "orbit" | "gyro" | "launch";
+export type CameraMode = "orbit" | "gyro" | "launch" | "cinema";
 
 export class BattleView {
   readonly renderer: THREE.WebGLRenderer;
@@ -332,6 +332,13 @@ export class BattleView {
   private orbitPitch = 0.9;
   private orbitDist = 0.5;
   launchSide: 0 | 1 = 0;
+  /** silences hums/sfx/haptics (menu-background battles) */
+  audioMuted = false;
+  private lastBeyPos: [THREE.Vector3, THREE.Vector3] = [
+    new THREE.Vector3(0.06, 0.04, 0.02),
+    new THREE.Vector3(-0.06, -0.04, 0.02),
+  ];
+  private cine = { shot: 0, t: 0, dur: 5, a0: 0, speed: 0.2, dist: 0.5, pitch: 0.9, bey: 0 as 0 | 1 };
   private ease: { p: THREE.Vector3; q: THREE.Quaternion; t: number; dur: number } | null = null;
 
   /** Smoothly blend the camera from its current pose to the next mode's. */
@@ -879,32 +886,37 @@ export class BattleView {
     sfx.stopHums();
   }
 
-  /** Consume sim events → effects + audio. Call once per rendered frame. */
+  /** Consume sim events → effects + audio. Call once per rendered frame.
+   * When audioMuted (menu-background battles), sparks still fly but no
+   * sound or haptics play. */
   consumeEvents(world: WorldState): void {
+    const m = this.audioMuted;
     for (const e of world.events) {
       if (e.kind === "hit") {
         this.spawnSparks(e.magnitude);
-        sfx.hit(e.magnitude);
-        if (navigator.vibrate) navigator.vibrate(Math.min(60, 8 + e.magnitude * 400));
+        if (!m) sfx.hit(e.magnitude);
+        if (!m && navigator.vibrate) navigator.vibrate(Math.min(60, 8 + e.magnitude * 400));
       } else if (e.kind === "click") {
-        sfx.click();
-        if (navigator.vibrate) navigator.vibrate(15);
+        if (!m) sfx.click();
+        if (!m && navigator.vibrate) navigator.vibrate(15);
       } else if (e.kind === "dashStart") {
-        sfx.dash();
+        if (!m) sfx.dash();
       } else if (e.kind === "gear") {
-        sfx.click(0.5); // rack teeth ticking under the bit gear
+        if (!m) sfx.click(0.5); // rack teeth ticking under the bit gear
       } else if (e.kind === "trip") {
         this.spawnSparks(e.magnitude * 0.6);
-        sfx.hit(0.9);
-        if (navigator.vibrate) navigator.vibrate([25, 30, 45]);
+        if (!m) sfx.hit(0.9);
+        if (!m && navigator.vibrate) navigator.vibrate([25, 30, 45]);
       } else if (e.kind === "coverHit") {
-        sfx.click(1.3); // plastic clank off the casing
-        sfx.hit(e.magnitude * 0.15);
+        if (!m) {
+          sfx.click(1.3); // plastic clank off the casing
+          sfx.hit(e.magnitude * 0.15);
+        }
       } else if (e.kind === "exit") {
-        sfx.pocket();
-        if (navigator.vibrate) navigator.vibrate([30, 40, 60]);
+        if (!m) sfx.pocket();
+        if (!m && navigator.vibrate) navigator.vibrate([30, 40, 60]);
       } else if (e.kind === "wallHit" && e.magnitude > 0.35) {
-        sfx.hit(e.magnitude * 0.35);
+        if (!m) sfx.hit(e.magnitude * 0.35);
       }
     }
     world.events.length = 0;
@@ -957,8 +969,14 @@ export class BattleView {
         } else {
           m.rotation.x = 0;
         }
+        this.lastBeyPos[i].set(b.x, b.y, m.position.z);
         const pan = Math.max(-1, Math.min(1, b.x / (s.rWall * 1.2)));
-        sfx.updateHum(i, (absOmega * 60) / (2 * Math.PI), pan, Math.hypot(b.vx, b.vy));
+        sfx.updateHum(
+          i,
+          this.audioMuted ? 0 : (absOmega * 60) / (2 * Math.PI),
+          pan,
+          Math.hypot(b.vx, b.vy),
+        );
       }
     }
     for (let i = this.sparks.length - 1; i >= 0; i--) {
@@ -976,7 +994,7 @@ export class BattleView {
   }
 
   private updateCamera(dt: number): void {
-    this.applyModeCamera();
+    this.applyModeCamera(dt);
     if (this.ease) {
       this.ease.t += dt;
       const k = Math.min(1, this.ease.t / this.ease.dur);
@@ -989,7 +1007,73 @@ export class BattleView {
     }
   }
 
-  private applyModeCamera(): void {
+  /** Pick the next cinematic shot (movie-style menu backgrounds). */
+  private nextCineShot(): void {
+    const c = this.cine;
+    c.shot = Math.floor(Math.random() * 4);
+    c.t = 0;
+    c.dur = 3.5 + Math.random() * 3;
+    c.a0 = Math.random() * Math.PI * 2;
+    c.speed = (0.12 + Math.random() * 0.25) * (Math.random() < 0.5 ? -1 : 1);
+    c.dist = 0.38 + Math.random() * 0.25;
+    c.pitch = 0.35 + Math.random() * 0.85;
+    c.bey = Math.random() < 0.5 ? 0 : 1;
+  }
+
+  /** Hard-cut the cinema camera to a launch-watching shot. */
+  cineLaunchShot(side: 0 | 1): void {
+    const c = this.cine;
+    c.shot = 4; // launch framing
+    c.t = 0;
+    c.dur = 2.2;
+    c.bey = side;
+    c.a0 = (side === 0 ? Math.PI - 0.55 : 0.55) + (Math.random() - 0.5) * 0.5;
+    c.dist = 0.2 + Math.random() * 0.08;
+  }
+
+  private applyModeCamera(dt: number): void {
+    if (this.mode === "cinema") {
+      const c = this.cine;
+      c.t += dt;
+      if (c.t > c.dur) this.nextCineShot();
+      const target = new THREE.Vector3();
+      const lookAt = new THREE.Vector3(0, 0, 0.02);
+      const yaw = c.a0 + c.t * c.speed;
+      if (c.shot === 1) {
+        // close-up: slow arc around one bey, low to the surface
+        const bp = this.lastBeyPos[c.bey];
+        target.set(bp.x + Math.cos(yaw) * 0.085, bp.y + Math.sin(yaw) * 0.085, 0.05);
+        lookAt.copy(bp);
+      } else if (c.shot === 2) {
+        // low dolly across the rim, watching the action
+        const t01 = Math.min(1, c.t / c.dur);
+        target.set(
+          Math.cos(c.a0) * 0.34 * (1 - t01) + Math.cos(c.a0 + 1.4) * 0.34 * t01,
+          Math.sin(c.a0) * 0.34 * (1 - t01) + Math.sin(c.a0 + 1.4) * 0.34 * t01,
+          0.07,
+        );
+        lookAt.copy(this.lastBeyPos[c.bey]).multiplyScalar(0.6);
+      } else if (c.shot === 3) {
+        // overhead slow spin
+        target.set(Math.cos(yaw) * 0.1, Math.sin(yaw) * 0.1, 0.55);
+      } else if (c.shot === 4) {
+        // launch framing: watch the launcher corner from just inside the bowl
+        target.set(Math.cos(c.a0) * c.dist * 0.4, Math.sin(c.a0) * c.dist * 0.4, 0.1);
+        lookAt.set(Math.cos(c.a0) * 0.075, Math.sin(c.a0) * 0.075, 0.15);
+      } else {
+        // classic orbit sweep
+        target.set(
+          Math.cos(yaw) * Math.cos(c.pitch) * c.dist,
+          Math.sin(yaw) * Math.cos(c.pitch) * c.dist,
+          Math.sin(c.pitch) * c.dist + 0.02,
+        );
+      }
+      // smooth dolly toward the shot target; hard cut when a shot begins
+      if (c.t < dt * 1.5) this.camera.position.copy(target);
+      else this.camera.position.lerp(target, 1 - Math.exp(-dt * 3.2));
+      this.camera.lookAt(lookAt);
+      return;
+    }
     if (this.mode === "gyro" && gyro.active) {
       gyro.apply(this.camera);
       return;

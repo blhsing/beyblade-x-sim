@@ -45,7 +45,7 @@ export function overlay(cls = ""): HTMLDivElement {
 export const UI_CSS = `
 .overlay { position: fixed; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 14px; padding: 18px;
-  background: rgba(11,16,32,.86); overflow-y: auto; z-index: 10; }
+  background: rgba(11,16,32,.7); overflow-y: auto; z-index: 10; }
 .overlay.transparent { background: transparent; pointer-events: none; }
 .overlay.transparent > * { pointer-events: auto; }
 .panel { background: #141b3a; border: 1px solid #35408a; border-radius: 14px;

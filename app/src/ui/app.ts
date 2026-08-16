@@ -1,10 +1,12 @@
 // GameApp: owns the parts DB, the 3D view, global settings, and screen
 // navigation. Individual screens live in setup.ts / match.ts / online.ts.
 
-import { PartIndex } from "../core/derive";
-import type { ComboPreset, ComboSelection, PartsDb } from "../core/types";
+import { PartIndex, deriveBeyParams, resolveCombo } from "../core/derive";
+import { DT, createWorld, step } from "../core/sim";
+import type { ComboPreset, ComboSelection, PartsDb, WorldConfig, WorldState } from "../core/types";
 import { BattleView } from "../render/scene";
 import { STADIUMS, type StadiumSpec } from "../core/stadium";
+import { BOT_ROSTER, botBuildDeck, botChooseLaunch } from "../game/bots";
 import { RULE_PRESETS, RULES_OFFICIAL, type RuleSet } from "../game/rules";
 import { ZH } from "../i18n/zh";
 import { UI_CSS, button, el, overlay } from "./dom";
@@ -67,9 +69,112 @@ export class GameApp {
       const dt = Math.min(0.1, (now - last) / 1000);
       last = now;
       if (this.frameHook) this.frameHook(dt);
-      else this.view.update(null, dt);
+      else this.stepCinema(dt);
     };
     requestAnimationFrame(loop);
+    this.startMenuCinema(); // live bot battles fade behind every menu
+  }
+
+  // ---- menu-background cinema: live bot matches with movie-style shots ----
+
+  private cinemaWorld: WorldState | null = null;
+  private cinemaCfg: WorldConfig | null = null;
+  private cinemaAcc = 0;
+  private cinemaPhase: "launch" | "battle" | "linger" = "linger";
+  private cinemaTimer = 0;
+  private cinemaEnabled = false;
+
+  startMenuCinema(): void {
+    this.cinemaEnabled = true;
+    this.view.audioMuted = true;
+    this.view.mode = "cinema";
+    if (!this.cinemaWorld && this.cinemaPhase !== "launch") this.newCinemaBattle();
+  }
+
+  /** Real matches/replays own the stage; the background show stops fully. */
+  stopMenuCinema(): void {
+    this.cinemaEnabled = false;
+    this.cinemaWorld = null;
+    this.cinemaCfg = null;
+    this.view.audioMuted = false;
+    this.view.removeOpponentLauncher();
+    this.view.clearBeys();
+  }
+
+  private newCinemaBattle(): void {
+    const seed = (Math.random() * 0xffffffff) >>> 0;
+    const i = Math.floor(Math.random() * BOT_ROSTER.length);
+    const botA = BOT_ROSTER[i]!;
+    const botB = BOT_ROSTER[(i + 1 + Math.floor(Math.random() * (BOT_ROSTER.length - 1))) % BOT_ROSTER.length]!;
+    const single = { ...RULES_OFFICIAL };
+    try {
+      const comboA = botBuildDeck(this.db, botA, single, seed ^ 0xa1)[0]!;
+      const comboB = botBuildDeck(this.db, botB, single, seed ^ 0xb2)[0]!;
+      const rcA = resolveCombo(this.index, comboA);
+      const rcB = resolveCombo(this.index, comboB);
+      const pA = deriveBeyParams(rcA);
+      const pB = deriveBeyParams(rcB);
+      this.view.setBeys({ rc: rcA, params: pA }, { rc: rcB, params: pB });
+      this.view.attachOpponentLauncher(rcA, pA, 0);
+      this.view.attachOpponentLauncher(rcB, pB, 1);
+      this.cinemaCfg = {
+        seed,
+        beys: [pA, pB],
+        launches: [
+          botChooseLaunch(botA, rcA.parts.blade?.rotation ?? "right", seed ^ 0xc3),
+          botChooseLaunch(botB, rcB.parts.blade?.rotation ?? "right", seed ^ 0xd4),
+        ],
+        xtremeDashEnabled: true,
+        clicksMax: 4,
+        maxTicks: 240 * 90,
+      };
+      this.cinemaWorld = null;
+      this.cinemaPhase = "launch";
+      this.cinemaTimer = 1.6;
+      this.view.cineLaunchShot(Math.random() < 0.5 ? 0 : 1);
+    } catch {
+      this.cinemaPhase = "linger";
+      this.cinemaTimer = 3;
+    }
+  }
+
+  private stepCinema(dt: number): void {
+    if (!this.cinemaEnabled) {
+      this.view.update(null, dt);
+      return;
+    }
+    if (this.cinemaPhase === "launch") {
+      this.cinemaTimer -= dt;
+      if (this.cinemaTimer <= 0 && this.cinemaCfg) {
+        void this.view.playOpponentRelease();
+        this.cinemaWorld = createWorld(this.cinemaCfg);
+        this.cinemaAcc = 0;
+        this.cinemaPhase = "battle";
+      }
+      this.view.update(null, dt);
+      return;
+    }
+    if (this.cinemaPhase === "battle" && this.cinemaWorld && this.cinemaCfg) {
+      const stadium = this.stadium();
+      this.cinemaAcc += dt;
+      let steps = 0;
+      while (this.cinemaAcc > DT && !this.cinemaWorld.finish && !this.cinemaWorld.draw && steps < 1200) {
+        step(this.cinemaWorld, this.cinemaCfg, stadium);
+        this.cinemaAcc -= DT;
+        steps++;
+      }
+      this.view.consumeEvents(this.cinemaWorld);
+      this.view.update(this.cinemaWorld, dt);
+      if (this.cinemaWorld.finish || this.cinemaWorld.draw) {
+        this.cinemaPhase = "linger"; // let the camera dwell on the outcome
+        this.cinemaTimer = 2.4;
+      }
+      return;
+    }
+    // linger on the finished battle, then start the next one
+    this.cinemaTimer -= dt;
+    this.view.update(this.cinemaWorld, dt);
+    if (this.cinemaTimer <= 0) this.newCinemaBattle();
   }
 
   stadium(): StadiumSpec {
@@ -127,8 +232,7 @@ export class GameApp {
   }
 
   showModeSelect(): void {
-    this.view.mode = "orbit";
-    this.view.clearBeys();
+    this.startMenuCinema();
     const o = overlay();
     const panel = el("div", { class: "panel" });
     panel.append(
@@ -163,8 +267,7 @@ export class GameApp {
 
   /** Single-player hub (the player + bots; multiplayer lives online). */
   showLocalMenu(): void {
-    this.view.mode = "orbit";
-    this.view.clearBeys();
+    this.startMenuCinema();
     const o = overlay();
     const panel = el("div", { class: "panel" });
     panel.append(

@@ -22,9 +22,11 @@ export async function playReplay(app: GameApp, rec: MatchRecord, onDone: () => v
   }
   const rules = rep.rules as RuleSet;
   const prevRules = app.rules;
+  app.stopMenuCinema();
   app.rules = rules;
   app.view.setStadium(app.stadium());
   app.setScreen(null);
+  app.view.mode = "orbit";
 
   const names: [string, string] = [rec.players[0]?.name ?? "A", rec.players[1]?.name ?? "B"];
   const scores: [number, number] = [0, 0];
@@ -82,6 +84,7 @@ export async function playReplay(app: GameApp, rec: MatchRecord, onDone: () => v
   app.view.clearBeys();
   app.rules = prevRules;
   app.view.setStadium(app.stadium());
+  app.startMenuCinema();
   if (!aborted) {
     const o = overlay();
     const panel = el("div", { class: "panel" });
