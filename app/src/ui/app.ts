@@ -86,6 +86,7 @@ export class GameApp {
 
   startMenuCinema(): void {
     this.cinemaEnabled = true;
+    sfx.setScore("menu"); // calm ambience behind the menus
     this.view.audioMuted = true;
     this.view.mode = "cinema";
     if (!this.cinemaWorld && this.cinemaPhase !== "launch") this.newCinemaBattle();

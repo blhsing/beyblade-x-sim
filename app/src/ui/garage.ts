@@ -1,3 +1,4 @@
+import { sfx } from "../audio/sfx";
 // 零件庫: part-by-part custom bey builder (BX/UX Blade+Ratchet+Bit, or the
 // CX stack with Lock Chip / Main Blade / Assist Blade and optional Metal /
 // Over Blades). Shows live stats + weight; saves named combos to
@@ -41,6 +42,7 @@ function partLabel(p: PartEntry): string {
 }
 
 export function showGarage(app: GameApp, onBack?: () => void): void {
+  sfx.setScore("garage"); // lighter, curious score while building
   const o = overlay();
   const panel = el("div", { class: "panel", style: "max-height:88vh; overflow-y:auto" });
   panel.append(el("div", { class: "title", style: "font-size:22px" }, ZH.menu.garage));

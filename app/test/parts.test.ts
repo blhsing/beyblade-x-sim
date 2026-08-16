@@ -20,6 +20,7 @@ import {
 } from "../src/render/parts";
 import { fingertipOffset } from "../src/render/hand";
 import { pocketDepth } from "../src/render/scene";
+import { sfx } from "../src/audio/sfx";
 import { beastOf } from "../src/render/materials";
 import { STADIUM_BX10, STADIUM_BX32 } from "../src/core/stadium";
 import type { PartsDb } from "../src/core/types";
@@ -168,6 +169,34 @@ describe("sticker beasts", () => {
     for (const b of db.parts.blade) kinds.add(beastOf(b.key + (b.name.en ?? "")));
     // the roster is varied enough that several creatures show up
     expect(kinds.size).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe("music scores", () => {
+  it("picks a battle score from the types on the dish", () => {
+    expect(sfx.battleScoreFor(["attack", "stamina"])).toBe("battleAttack");
+    expect(sfx.battleScoreFor(["defense", "stamina"])).toBe("battleDefense");
+    expect(sfx.battleScoreFor(["stamina", "stamina"])).toBe("battleStamina");
+    expect(sfx.battleScoreFor(["defense", "defense"])).toBe("battleDefense");
+    expect(sfx.battleScoreFor(["balance", "defense"])).toBe("battleBalance");
+    expect(sfx.battleScoreFor([null, undefined])).toBe("battleBalance");
+  });
+
+  it("a mirror match keeps its own archetype's colour", () => {
+    // not just "most aggressive wins" — an all-stamina field should sound
+    // like a stamina war, not like an attack fight
+    expect(sfx.battleScoreFor(["stamina", "stamina", "stamina"])).toBe("battleStamina");
+    expect(sfx.battleScoreFor(["attack", "attack"])).toBe("battleAttack");
+  });
+
+  it("setScore is a no-op for the current score and switches otherwise", () => {
+    const start = sfx.currentScore;
+    sfx.setScore(start);
+    expect(sfx.currentScore).toBe(start);
+    sfx.setScore("victory");
+    expect(sfx.currentScore).toBe("victory");
+    sfx.setScore("menu");
+    expect(sfx.currentScore).toBe("menu");
   });
 });
 

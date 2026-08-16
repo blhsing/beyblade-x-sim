@@ -102,6 +102,7 @@ export async function humanLaunch(
 }> {
   app.view.mode = app.view.mode === "gyro" ? "gyro" : "launch";
   app.view.launchSide = side;
+  sfx.setScore("launch"); // tense hold through the countdown
   if (rc && beyParams) {
     // the player's real launcher type, held in both hands at screen bottom
     app.view.attachLauncher(rc, beyParams, side === 0 ? 0x3f7bff : 0xff5b4d, launcher);
@@ -460,6 +461,15 @@ export async function runMatch(
     if (launches === "matchOver") break;
 
     app.view.setBeys({ rc: rc0, params: p0 }, { rc: rc1, params: p1 });
+    // the score follows the matchup: what is on the dish sets the mood
+    sfx.setScore(
+      mode === "錦標賽"
+        ? "tournament"
+        : sfx.battleScoreFor([
+            rc0.parts.blade?.type ?? rc0.parts.mainBlade?.type,
+            rc1.parts.blade?.type ?? rc1.parts.mainBlade?.type,
+          ]),
+    );
     app.view.beginCameraEase(0.9); // launcher pulls away → full stadium view
     app.view.mode = app.view.mode === "gyro" ? "gyro" : "orbit";
     const cfg: WorldConfig = {
@@ -543,6 +553,7 @@ export async function runMatch(
     o.remove();
     onDone(winner);
   };
+  sfx.setScore("victory");
   const o = overlay("transparent"); // see the ongoing action clearly
   const panel = el("div", { class: "panel" });
   panel.append(

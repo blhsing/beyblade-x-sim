@@ -38,6 +38,7 @@ import {
   teardownActiveLaunch,
 } from "./match";
 import { rulesPicker, type SlotConfig } from "./setup";
+import { sfx } from "../audio/sfx";
 import type { GameApp } from "./app";
 
 /** free-for-all: first to this many round wins takes the match */
@@ -576,6 +577,7 @@ async function ffaSession(
     }
   };
 
+  sfx.setScore("battleBalance");
   await flashBanner(`${ZH.mode.ffa}｜${fmt(ZH.mode.ffaTarget, { n: FFA_TARGET })}`, 1500);
   for (;;) {
     if (aborted) return;

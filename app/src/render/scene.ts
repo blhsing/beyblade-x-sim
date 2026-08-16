@@ -571,7 +571,9 @@ export class BattleView {
     deckShape.quadraticCurveTo(-hw, -hh, -hw + cr, -hh);
     deckShape.closePath();
     const hole = new THREE.Path();
-    hole.absarc(0, 0, s.rWall * 0.998, 0, Math.PI * 2, true);
+    // slightly OUTSIDE the wall: the deck must never reach in over the bowl,
+    // or its inner lip draws on top of beys running the near side
+    hole.absarc(0, 0, s.rWall * 1.004, 0, Math.PI * 2, true);
     deckShape.holes.push(hole);
     // Cut the exit pockets THROUGH the deck. Without these the deck was a
     // solid plate over the catch area, so the pockets were built but
@@ -583,17 +585,18 @@ export class BattleView {
       deckShape.holes.push(mouth);
     }
     const deck = new THREE.Mesh(
+      // No bevel: ExtrudeGeometry bevels EVERY contour including the bowl
+      // cut-out, which flared the deck's inner edge in and up over the dish
+      // — that lip is what was drawing over beys on the near side.
       new THREE.ExtrudeGeometry(deckShape, {
         depth: 0.014,
-        bevelEnabled: true,
-        bevelSize: 0.0015,
-        bevelThickness: 0.0015,
-        bevelSegments: 4,
+        bevelEnabled: false,
         curveSegments: 64,
       }),
       bodyMat,
     );
-    deck.position.z = rimZ - 0.012;
+    // top face flush with the rim, never proud of it
+    deck.position.z = rimZ - 0.014;
     deck.receiveShadow = true;
     deck.castShadow = true;
     this.stadiumGroup.add(deck);
