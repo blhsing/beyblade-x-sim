@@ -45,29 +45,31 @@ export function overlay(cls = ""): HTMLDivElement {
 export const UI_CSS = `
 .overlay { position: fixed; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 14px; padding: 18px;
-  background: rgba(11,16,32,.42); overflow-y: auto; z-index: 10; }
+  background: rgba(11,16,32,.22); overflow-y: auto; z-index: 10; }
 .overlay.transparent { background: transparent; pointer-events: none; }
 .overlay.transparent > * { pointer-events: auto; }
-.panel { background: rgba(20,27,58,.6); border: 1px solid rgba(74,93,168,.55);
-  border-radius: 14px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
-  padding: 16px; width: min(92vw, 420px); display: flex; flex-direction: column; gap: 10px; }
+.panel { background: rgba(20,27,58,.4); border: 1px solid rgba(74,93,168,.45);
+  border-radius: 14px; backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+  padding: 16px; width: min(92vw, 420px); display: flex; flex-direction: column; gap: 10px;
+  text-shadow: 0 1px 3px rgba(0,0,0,.65); }
 .title { font-size: 30px; font-weight: 900; letter-spacing: 3px;
   text-shadow: 0 0 18px #3f7bff88; text-align: center; }
 .subtitle { opacity: .7; font-size: 13px; text-align: center; }
 .btn { font: inherit; font-size: 17px; padding: 12px 20px; border-radius: 10px;
-  border: 1px solid #4b5bd7; background: rgba(26,35,80,.72); color: #e8ecff; width: 100%; }
-.btn:active { background: rgba(44,58,134,.85); }
-.btn.primary { background: rgba(44,71,201,.85); border-color: #6b83ff; font-weight: 700; }
+  border: 1px solid rgba(75,91,215,.8); background: rgba(26,35,80,.5); color: #e8ecff;
+  width: 100%; text-shadow: 0 1px 3px rgba(0,0,0,.65); }
+.btn:active { background: rgba(44,58,134,.75); }
+.btn.primary { background: rgba(44,71,201,.7); border-color: #6b83ff; font-weight: 700; }
 .btn.small { width: auto; font-size: 14px; padding: 7px 12px; }
 .sel, input[type=text], input[type=email], input[type=password] {
   font: inherit; font-size: 15px; padding: 9px 10px;
-  border-radius: 8px; border: 1px solid #35408a; background: rgba(14,20,48,.65);
+  border-radius: 8px; border: 1px solid rgba(53,64,138,.8); background: rgba(14,20,48,.5);
   color: #e8ecff; width: 100%; }
 .row { display: flex; gap: 8px; align-items: center; }
 .row > * { flex: 1; }
 .row > .fixed { flex: 0 0 auto; }
 .label { font-size: 13px; opacity: .75; }
-.card { background: rgba(14,20,48,.5); border: 1px solid rgba(42,53,110,.7);
+.card { background: rgba(14,20,48,.35); border: 1px solid rgba(42,53,110,.6);
   border-radius: 10px; padding: 10px;
   display: flex; flex-direction: column; gap: 8px; }
 .scoreboard { display: flex; justify-content: center; gap: 20px; font-size: 22px;
@@ -87,12 +89,17 @@ export const UI_CSS = `
   border: 1px solid #2a356e; border-radius: 8px; padding: 8px 10px; font-size: 14px; }
 .bracket .win { color: #7dffa8; font-weight: 700; }
 .topbar { position: fixed; top: env(safe-area-inset-top, 0); left: 0; right: 0;
-  display: flex; gap: 8px; padding: 8px 10px; z-index: 11; align-items: center; }
+  display: flex; gap: 8px; padding: 8px 10px; z-index: 13; align-items: center; }
 .topbar .spacer { flex: 1; }
-.gstrip { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory;
+.gstrip { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x proximity;
   padding: 8px 22vw; width: 100vw; -webkit-overflow-scrolling: touch; }
+.gchips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;
+  max-width: 94vw; }
+.gchip { padding: 5px 12px; border-radius: 999px; border: 1px solid rgba(53,64,138,.8);
+  background: rgba(26,35,80,.5); color: #e8ecff; font: inherit; font-size: 13px; }
+.gchip.on { background: rgba(44,71,201,.8); border-color: #6b83ff; font-weight: 700; }
 .gcard { flex: 0 0 56vw; max-width: 230px; scroll-snap-align: center;
-  background: rgba(20,27,58,.72); border: 2px solid #2a356e; border-radius: 14px;
+  background: rgba(20,27,58,.55); border: 2px solid rgba(42,53,110,.8); border-radius: 14px;
   padding: 10px; text-align: center; }
 .gcard img { width: 100%; aspect-ratio: 1/1; border-radius: 8px; background: #0e1430; }
 .gcard.focus { border-color: #6b83ff; box-shadow: 0 0 18px #3f7bff66; }

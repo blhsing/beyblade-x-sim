@@ -131,7 +131,8 @@ export interface SimEvent {
     | "exit"
     | "gear" // rack-pinion tooth engagement tick
     | "trip" // slammed into the rack too fast and got tripped
-    | "coverHit"; // bounced off the transparent casing
+    | "coverHit" // bounced off the transparent casing
+    | "land"; // dropped from the launcher onto the stadium surface
   bey: 0 | 1;
   magnitude: number;
 }
@@ -141,6 +142,11 @@ export interface BeyState {
   y: number;
   vx: number;
   vy: number;
+  /** height above the stadium plane while airborne (launch drop-in) */
+  z: number;
+  vz: number;
+  /** falling from the launcher — no ground forces/rail/walls until landing */
+  airborne: boolean;
   omega: number; // signed rad/s (sign = spin direction)
   burstDamage: number; // accumulated clicks (bursts at clicksMax)
   alive: boolean;

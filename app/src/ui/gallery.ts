@@ -16,7 +16,14 @@ export interface GalleryItem {
   sub?: string;
   desc?: string;
   bars?: { label: string; v: number; max: number; color: string }[];
+  /** filter-chip tags, e.g. type/line/source */
+  tags?: string[];
   thumb: (() => string) | null;
+}
+
+export interface GalleryFilter {
+  label: string;
+  tag: string;
 }
 
 export function openGallery(
@@ -25,6 +32,7 @@ export function openGallery(
   currentKey: string | null,
   onPick: (key: string) => void,
   onBack: () => void,
+  filters?: GalleryFilter[],
 ): void {
   const o = overlay();
   o.style.zIndex = "40";
@@ -101,6 +109,7 @@ export function openGallery(
       const mid = strip.scrollLeft + strip.clientWidth / 2;
       let best: { key: string; d: number } | null = null;
       for (const [k, c] of cards) {
+        if (c.style.display === "none") continue;
         const d = Math.abs(c.offsetLeft + c.offsetWidth / 2 - mid);
         if (!best || d < best.d) best = { key: k, d };
       }
@@ -108,8 +117,43 @@ export function openGallery(
     });
   });
 
+  // filter chips: quickly narrow the strip (type / line / custom …)
+  const chipRow = el("div", { class: "gchips" });
+  if (filters && filters.length > 0) {
+    let activeTag: string | null = null;
+    const chips = new Map<string | null, HTMLElement>();
+    const applyFilter = (): void => {
+      let firstVisible: string | null = null;
+      for (const it of items) {
+        const card = cards.get(it.key)!;
+        const show = !activeTag || (it.tags?.includes(activeTag) ?? false);
+        card.style.display = show ? "" : "none";
+        if (show && firstVisible === null) firstVisible = it.key;
+      }
+      for (const [tag, chip] of chips) chip.classList.toggle("on", tag === activeTag);
+      const focusedVisible = cards.get(focusKey)?.style.display !== "none";
+      if (!focusedVisible && firstVisible) {
+        setFocus(firstVisible);
+        cards.get(firstVisible)?.scrollIntoView({ inline: "center", block: "nearest" });
+      }
+    };
+    const addChip = (label: string, tag: string | null): void => {
+      const chip = el("button", { class: "gchip" }, label);
+      chip.addEventListener("click", () => {
+        activeTag = activeTag === tag ? null : tag;
+        applyFilter();
+      });
+      chips.set(tag, chip);
+      chipRow.append(chip);
+    };
+    addChip("全部", null);
+    for (const f of filters) addChip(f.label, f.tag);
+    chips.get(null)?.classList.add("on");
+  }
+
   o.append(
     el("div", { class: "title", style: "font-size:20px" }, title),
+    chipRow,
     strip,
     detail,
     el(
@@ -134,6 +178,29 @@ export function openGallery(
 
 const BAR_COLORS = { attack: "#d23b3b", defense: "#3b6bd2", stamina: "#3bd26b", dash: "#d2833b", burst: "#8a5ad2" };
 
+/** Standard filter chips for combo pickers (type + line + source). */
+export const COMBO_FILTERS: GalleryFilter[] = [
+  { label: "攻擊", tag: "attack" },
+  { label: "防禦", tag: "defense" },
+  { label: "持久", tag: "stamina" },
+  { label: "平衡", tag: "balance" },
+  { label: "BX", tag: "BX" },
+  { label: "UX", tag: "UX" },
+  { label: "CX", tag: "CX" },
+  { label: "⭐ 自訂", tag: "custom" },
+];
+
+/** Standard filter chips for part pickers. */
+export const PART_FILTERS: GalleryFilter[] = [
+  { label: "攻擊", tag: "attack" },
+  { label: "防禦", tag: "defense" },
+  { label: "持久", tag: "stamina" },
+  { label: "平衡", tag: "balance" },
+  { label: "BX", tag: "BX" },
+  { label: "UX", tag: "UX" },
+  { label: "CX", tag: "CX" },
+];
+
 /** Gallery items for combo selection (official + customs, optional 自動). */
 export function comboItems(app: GameApp, includeAuto: boolean): GalleryItem[] {
   const out: GalleryItem[] = [];
@@ -150,6 +217,7 @@ export function comboItems(app: GameApp, includeAuto: boolean): GalleryItem[] {
     const stats = { attack: 0, defense: 0, stamina: 0, dash: 0, burst: 0 };
     let desc: string | undefined;
     let weight = 0;
+    const tags: string[] = [opt.value.startsWith("custom:") ? "custom" : "official"];
     try {
       const rc = resolveCombo(app.index, sel);
       for (const p of Object.values(rc.parts)) {
@@ -159,7 +227,11 @@ export function comboItems(app: GameApp, includeAuto: boolean): GalleryItem[] {
         stats.dash += p.stats.dash;
         stats.burst += p.stats.burst;
         weight += p.weightG ?? 0;
-        if (!desc && (p.category === "blade" || p.category === "mainBlade")) desc = p.desc ?? undefined;
+        if (p.category === "blade" || p.category === "mainBlade") {
+          if (!desc) desc = p.desc ?? undefined;
+          if (p.type) tags.push(p.type);
+          if (p.line) tags.push(p.line);
+        }
       }
     } catch {
       /* keep zeros */
@@ -169,6 +241,7 @@ export function comboItems(app: GameApp, includeAuto: boolean): GalleryItem[] {
       title: opt.label,
       sub: `${ZH.weight} 約 ${weight.toFixed(1)} g`,
       desc,
+      tags,
       bars: [
         { label: "攻擊", v: stats.attack, max: 160, color: BAR_COLORS.attack },
         { label: "防禦", v: stats.defense, max: 160, color: BAR_COLORS.defense },
@@ -202,6 +275,7 @@ export function partItem(p: PartEntry): GalleryItem {
     title: `${zh}${p.variantLabel ? `（${p.variantLabel}）` : ""}`,
     sub: [typeZh, p.line, p.weightG ? `${p.weightG} g` : null].filter(Boolean).join("・"),
     desc: p.desc ?? undefined,
+    tags: [p.type ?? "", p.line ?? ""].filter(Boolean),
     bars: [
       { label: "攻擊", v: p.stats.attack, max: 85, color: BAR_COLORS.attack },
       { label: "防禦", v: p.stats.defense, max: 70, color: BAR_COLORS.defense },

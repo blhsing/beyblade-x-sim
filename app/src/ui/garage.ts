@@ -8,7 +8,7 @@ import type { ComboSelection, PartCategory, PartEntry } from "../core/types";
 import { pushCombo } from "../game/persist";
 import { ZH } from "../i18n/zh";
 import { button, el, overlay, row, select } from "./dom";
-import { openGallery, partItems } from "./gallery";
+import { PART_FILTERS, openGallery, partItems } from "./gallery";
 import type { GameApp } from "./app";
 
 const EMPTY: ComboSelection = {
@@ -72,6 +72,7 @@ export function showGarage(app: GameApp, onBack?: () => void): void {
           b.textContent = labelOf();
         },
         () => {},
+        PART_FILTERS,
       );
     }, "btn small");
     return el("div", {}, b, s);

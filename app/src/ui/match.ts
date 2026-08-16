@@ -31,7 +31,12 @@ async function flashBanner(text: string, ms = 1400): Promise<void> {
   b.remove();
 }
 
-function scoreboard(app: GameApp, engine: MatchEngine, names: [string, string]): HTMLElement {
+function scoreboard(
+  app: GameApp,
+  engine: MatchEngine,
+  names: [string, string],
+  onGiveUp?: () => void,
+): HTMLElement {
   const bar = el("div", { class: "topbar" });
   const score = el(
     "div",
@@ -39,8 +44,18 @@ function scoreboard(app: GameApp, engine: MatchEngine, names: [string, string]):
     `${names[0]} ${engine.scores[0]}：${engine.scores[1]} ${names[1]}`,
   );
   bar.append(score, el("div", { class: "spacer" }), app.viewControls());
+  if (onGiveUp) {
+    bar.append(
+      button(ZH.giveUp, () => {
+        if (window.confirm(ZH.confirmGiveUp)) onGiveUp();
+      }, "btn small fixed"),
+    );
+  }
   return bar;
 }
+
+/** Tears down an in-progress launch UI when a match is aborted mid-gesture. */
+let activeLaunchTeardown: (() => void) | null = null;
 
 /** Human launch: countdown + full-screen drag gesture. The launcher, the
  * player's actual bey, string and winder are a camera-attached 3D rig. */
@@ -70,6 +85,12 @@ async function humanLaunch(
   const fill = meter.firstElementChild as HTMLElement;
   zone.append(count, hint, calHint);
   document.body.append(zone, meter);
+  activeLaunchTeardown = () => {
+    app.view.removeLauncher();
+    app.view.removeOpponentLauncher();
+    zone.remove();
+    meter.remove();
+  };
 
   const shootAt = Date.now() + 2400;
   const seq = [
@@ -94,9 +115,9 @@ async function humanLaunch(
   const result = await captureLaunch(zone, {
     shootAtMs: shootAt,
     ...LAUNCH_WINDOWS,
-    onProgress: (sp, pullPx) => {
+    onProgress: (sp, _pullPx, dx, dy) => {
       fill.style.width = `${Math.min(100, (sp / 11000) * 100)}%`;
-      app.view.setLauncherPull(pullPx);
+      app.view.setLauncherPointer(dx, dy); // string follows the finger live
     },
   });
 
@@ -105,6 +126,7 @@ async function humanLaunch(
     app.view.removeOpponentLauncher(); // re-battle: everyone re-launches
     zone.remove();
     meter.remove();
+    activeLaunchTeardown = null;
     return { launch: null, mislaunch: result.mislaunch };
   }
   await app.view.releaseLauncher(); // bey rips off, launcher lifts away
@@ -112,6 +134,7 @@ async function humanLaunch(
   app.view.removeOpponentLauncher();
   zone.remove();
   meter.remove();
+  activeLaunchTeardown = null;
   const aimDeg = Math.max(-12, Math.min(12, result.releaseOffsetMs / 50));
   return {
     launch: { sp: result.sp, aimDeg, tiltDeg: 0, launcher, spinDir: 1 },
@@ -257,6 +280,9 @@ export interface MatchHooks {
   /** online: provide launches instead of local collection */
   launches?: (engine: MatchEngine, battleSeed: number) => Promise<[LaunchParams, LaunchParams] | "matchOver">;
   seed?: () => Promise<number>;
+  /** where 放棄 returns to (defaults to the main menu); online callers
+   * leave the room here — aborting forfeits the rest of the matches */
+  onAbort?: () => void;
 }
 
 /** Full match between two configured slots. Calls onDone(winnerIndex). */
@@ -277,7 +303,19 @@ export async function runMatch(
   const engine = new MatchEngine(app.rules, players);
   hooks.setup?.(engine);
   const bothBots = slots[0].kind === "bot" && slots[1].kind === "bot";
-  let hud = scoreboard(app, engine, names);
+
+  // 放棄: resolvable from ANY phase (countdown, drag, battle, online waits)
+  const abortFlag = { requested: false };
+  let fireAbort: () => void = () => {};
+  const abortPromise = new Promise<"aborted">((res) => {
+    fireAbort = () => {
+      abortFlag.requested = true;
+      res("aborted");
+    };
+  });
+  const giveUp = (): void => fireAbort();
+
+  let hud = scoreboard(app, engine, names, giveUp);
   document.body.append(hud);
 
   await flashBanner(ZH.battleStart, 1000);
@@ -289,14 +327,24 @@ export async function runMatch(
     const rc1 = resolveCombo(app.index, combo1);
     const p0 = deriveBeyParams(rc0, { label: app.comboLabel(combo0) });
     const p1 = deriveBeyParams(rc1, { label: app.comboLabel(combo1) });
-    app.view.setBeys({ rc: rc0, params: p0 }, { rc: rc1, params: p1 });
+    // no beys in the stadium during the countdown — they exist only in the
+    // launchers, and drop in physically once launched (sim airborne phase)
+    app.view.clearBeys();
 
-    const seed = hooks.seed ? await hooks.seed() : (Math.random() * 0xffffffff) >>> 0;
-    const launches = hooks.launches
-      ? await hooks.launches(engine, seed)
-      : await collectLaunches(app, engine, slots, names, seed);
+    const seed = hooks.seed
+      ? await Promise.race([hooks.seed(), abortPromise])
+      : (Math.random() * 0xffffffff) >>> 0;
+    if (seed === "aborted" || abortFlag.requested) break;
+    const launches = await Promise.race([
+      hooks.launches
+        ? hooks.launches(engine, seed)
+        : collectLaunches(app, engine, slots, names, seed),
+      abortPromise,
+    ]);
+    if (launches === "aborted" || abortFlag.requested) break;
     if (launches === "matchOver") break;
 
+    app.view.setBeys({ rc: rc0, params: p0 }, { rc: rc1, params: p1 });
     app.view.beginCameraEase(0.9); // launcher pulls away → full stadium view
     app.view.mode = app.view.mode === "gyro" ? "gyro" : "orbit";
     const cfg: WorldConfig = {
@@ -308,7 +356,11 @@ export async function runMatch(
       maxTicks: 240 * 180,
     };
     replayBattles.push({ seed, launches: [launches[0], launches[1]], deckA: combo0, deckB: combo1 });
-    const world = await playBattle(app, cfg, { allowSkip: bothBots });
+    const world = await playBattle(app, cfg, {
+      allowSkip: bothBots,
+      abort: () => abortFlag.requested,
+    });
+    if (abortFlag.requested) break;
 
     if (world.finish) {
       const f = world.finish;
@@ -324,8 +376,19 @@ export async function runMatch(
       await flashBanner(ZH.draw, 1400);
     }
     hud.remove();
-    hud = scoreboard(app, engine, names);
+    hud = scoreboard(app, engine, names, giveUp);
     document.body.append(hud);
+  }
+
+  if (abortFlag.requested) {
+    // gave up: tear everything down and return without recording anything
+    activeLaunchTeardown?.();
+    activeLaunchTeardown = null;
+    hud.remove();
+    app.view.clearBeys();
+    app.startMenuCinema();
+    (hooks.onAbort ?? (() => app.showMenu()))();
+    return;
   }
 
   const winner = engine.winner ?? 0;

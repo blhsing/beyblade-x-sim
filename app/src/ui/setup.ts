@@ -3,7 +3,7 @@
 
 import { BOT_CHARACTERS, BOT_ROSTER, BOT_SKILLS, botBuildDeck, type BotCharacter, type BotProfile, type BotSkill } from "../game/bots";
 import { getPrefs, savePrefs } from "../game/persist";
-import { comboItems, openGallery } from "./gallery";
+import { COMBO_FILTERS, comboItems, openGallery } from "./gallery";
 import { RULE_PRESETS, deckDuplicateError, type RuleSet } from "../game/rules";
 import { STADIUMS } from "../core/stadium";
 import type { LauncherKind } from "../core/types";
@@ -128,6 +128,7 @@ export function slotEditor(
             syncDecks();
           },
           () => {},
+          COMBO_FILTERS,
         );
       }, "btn small");
       deckWrap.append(b);
@@ -277,7 +278,13 @@ export function showQuickSetup(app: GameApp): void {
         ...(a.kind === "human" ? { name: a.name, launcher: a.launcher } : {}),
         quickSlots: [a, b], // whole setup persists to the next match
       });
-      void runMatch(app, [a, b], () => app.showMenu(), {}, "快速對戰");
+      void runMatch(
+        app,
+        [a, b],
+        () => app.showMenu(),
+        { onAbort: () => showQuickSetup(app) }, // 放棄 → back to setup
+        "快速對戰",
+      );
     }, "btn primary"),
     button(ZH.back, () => app.showMenu()),
   );

@@ -18,7 +18,9 @@ export interface LaunchGestureOptions {
   earlyWindowMs: number; // released earlier than this before shootAt = early
   lateWindowMs: number; // no release this long after shootAt = late
   minSp: number; // below this = weak launch (發射失誤)
-  onProgress?: (sp: number, pullPx: number) => void;
+  /** dx/dy = live pointer offset from where the finger touched down (px),
+   * so the string/winder can track the actual touch in real time */
+  onProgress?: (sp: number, pullPx: number, dx: number, dy: number) => void;
 }
 
 const CLICK_EVERY_PX = 26; // winder ratchet click spacing
@@ -57,10 +59,14 @@ export function captureLaunch(
       finish({ sp: 0, releaseOffsetMs: opts.lateWindowMs, mislaunch: "late" });
     }, Math.max(0, opts.shootAtMs - Date.now()) + opts.lateWindowMs);
 
+    let originX = 0;
+    let originY = 0;
     const onDown = (e: PointerEvent): void => {
       active = true;
       lastY = e.clientY;
       lastT = performance.now();
+      originX = e.clientX;
+      originY = e.clientY;
       try {
         el.setPointerCapture(e.pointerId);
       } catch {
@@ -82,8 +88,9 @@ export function captureLaunch(
           sfx.click(0.8);
           if (navigator.vibrate) navigator.vibrate(8);
         }
-        opts.onProgress?.(sp, travel);
       }
+      // the winder tracks the finger every move, in ANY direction
+      opts.onProgress?.(sp, travel, e.clientX - originX, e.clientY - originY);
       lastY = e.clientY;
       lastT = now;
     };

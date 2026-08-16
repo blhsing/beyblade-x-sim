@@ -209,6 +209,12 @@ async function onlineQuick(
         const theirs = await exchange.exchangeLaunch(mine);
         return (mySlot === 0 ? [mine, theirs] : [theirs, mine]) as [LaunchParams, LaunchParams];
       },
+      onAbort: () => {
+        // giving up online forfeits: leave the room entirely
+        client.send({ t: "leave" });
+        client.close();
+        app.showModeSelect();
+      },
     },
     "線上對戰",
   );
@@ -303,6 +309,7 @@ async function onlineTournament(
       // slot; human-vs-bot computes the bot deterministically from matchId.
       const opp = iAmA ? b : a;
       const winner = await playOnlineTourMatch(app, client, index, cfg, match.id, a, b, iAmA ? 0 : 1, opp.relaySlot);
+      if (winner === "aborted") return; // gave up → forfeited the tournament
       if ((iAmA && winner === 0) || (iAmB && winner === 1)) {
         client.send({ t: "tres", matchId: match.id, winner: match.a! } as GameMsg);
         tour.report(match.id, match.a!);
@@ -386,9 +393,10 @@ async function playOnlineTourMatch(
   b: TournamentSlot,
   mySide: 0 | 1,
   oppRelay: number | null,
-): Promise<0 | 1> {
+): Promise<0 | 1 | "aborted"> {
   void index;
   const prefs = getPrefs();
+  let aborted = false;
   const slots: [SlotConfig, SlotConfig] = [
     { kind: a.kind, name: a.name, bot: a.bot ?? BOT_ROSTER[0]!, deckRefs: [], launcher: prefs.launcher },
     { kind: b.kind, name: b.name, bot: b.bot ?? BOT_ROSTER[0]!, deckRefs: [], launcher: prefs.launcher },
@@ -429,8 +437,14 @@ async function playOnlineTourMatch(
         }
         return (mySide === 0 ? [mine, theirs] : [theirs, mine]) as [LaunchParams, LaunchParams];
       },
+      onAbort: () => {
+        aborted = true; // forfeits the whole online tournament
+        client.send({ t: "leave" });
+        client.close();
+        app.showModeSelect();
+      },
     },
     "線上對戰",
   );
-  return winner;
+  return aborted ? "aborted" : winner;
 }

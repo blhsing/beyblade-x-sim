@@ -59,6 +59,8 @@ export const ZH = {
     waitingHost: "等待房主開始…",
   },
   deckDupError: "3on3 配置不合法：同名零件不可在隊伍中重複使用（不同顏色視為相同零件）",
+  giveUp: "放棄",
+  confirmGiveUp: "確定要放棄這場比賽嗎？（線上模式將視同棄權並退出整場賽事）",
   replay: "重播",
   share: "分享",
   linkCopied: "連結已複製！",

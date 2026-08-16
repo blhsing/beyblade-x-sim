@@ -131,6 +131,11 @@ describe("battle outcomes", () => {
   it("bey shot into the central pocket = xtreme finish; untouched = own finish", () => {
     const c = cfg(baseParams(), baseParams());
     const w = createWorld(c);
+    for (const b of w.beys) {
+      b.airborne = false; // test drives grounded dynamics directly
+      b.z = 0;
+      b.vz = 0;
+    }
     const b0 = w.beys[0];
     b0.x = 0;
     b0.y = -0.09;

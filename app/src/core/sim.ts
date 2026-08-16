@@ -5,7 +5,7 @@
 
 import { clamp, datan2, dsin, dcos, hashFloats, rngNext, PI } from "./fxmath";
 import type { StadiumSpec } from "./stadium";
-import { inArc, pocketAt, railRadiusAt, railTangentAt, surfaceSlope } from "./stadium";
+import { inArc, pocketAt, railRadiusAt, railTangentAt, surfaceSlope, surfaceZ } from "./stadium";
 import type {
   BeyParams,
   BeyState,
@@ -29,6 +29,11 @@ const T = {
   omega0PerSp: 0.055,
   entryRadius: 0.075,
   entryTangentDeg: 68,
+  // launch drop-in: beys start in the launcher above the bowl and fall in
+  launchHeight: 0.13, // m above the local surface (rules cap: 20 cm)
+  launchVz: -0.25, // slight downward push from the launcher
+  landBounceMinVz: 0.8, // faster impacts than this bounce once
+  landBounceKeep: 0.22,
   // motion
   driftAccel: 1.35,
   driftSatSpeed: 0.6,
@@ -50,6 +55,11 @@ const T = {
   tripSpinKeep: 0.82,
   tripClicks: 0.7,
   gearEventEvery: 10,
+  // the rack is a raised ridge: it physically holds beys in unless they
+  // arrive hard enough to hop over it
+  railBreakSpeed: 0.85,
+  railBumpRestitution: 0.35,
+  railBarrierInner: 0.75, // barrier sits at railR - halfWidth×this
   // collisions (rim slip ≈ 16 m/s at full spin → smash impulse ~0.01–0.02
   // kg·m/s → Δv ~0.3–0.5 m/s and spin loss ~15–40 rad/s per solid hit)
   restitution: 0.25,
@@ -93,11 +103,18 @@ function makeBey(
     (T.omega0Base + sp * T.omega0PerSp) *
     lk.w *
     params.staminaFactor;
+  // spawn back along the flight path so the fall lands at the entry point
+  const vx = speed * dcos(dir);
+  const vy = speed * dsin(dir);
+  const tFall = Math.sqrt((2 * T.launchHeight) / 9.81);
   return {
-    x,
-    y,
-    vx: speed * dcos(dir),
-    vy: speed * dsin(dir),
+    x: x - vx * tFall,
+    y: y - vy * tFall,
+    vx,
+    vy,
+    z: T.launchHeight,
+    vz: T.launchVz,
+    airborne: true,
     omega,
     burstDamage: 0,
     alive: true,
@@ -155,6 +172,31 @@ function stepBey(
   const ur = r > 1e-9 ? { x: b.x / r, y: b.y / r } : { x: 1, y: 0 };
   const angle = datan2(b.y, b.x);
   const absOmega = Math.abs(b.omega);
+
+  // airborne drop-in: ballistic flight from the launcher, spin conserved,
+  // no ground forces/rail/walls until the tip meets the surface
+  if (b.airborne) {
+    b.x += b.vx * DT;
+    b.y += b.vy * DT;
+    b.vz -= G * DT;
+    b.z += b.vz * DT;
+    b.phase += b.omega * DT;
+    const r2 = Math.sqrt(b.x * b.x + b.y * b.y);
+    const floor = surfaceZ(s, Math.min(r2, s.rWall));
+    if (b.z <= floor) {
+      b.z = floor;
+      if (b.vz < -T.landBounceMinVz) {
+        b.vz = -b.vz * T.landBounceKeep; // hard landing: one small hop
+        pushEvent(w, "land", i, -b.vz);
+      } else {
+        b.vz = 0;
+        b.airborne = false; // settled — ground sim takes over
+        pushEvent(w, "land", i, Math.abs(b.vz) + 0.2);
+      }
+    }
+    return;
+  }
+  b.z = 0;
 
   // gravity restoring force down the bowl surface
   const slope = surfaceSlope(s, r);
@@ -268,6 +310,30 @@ function stepBey(
   b.y += b.vy * DT;
   b.phase += b.omega * DT;
 
+  // the gear rack is a PHYSICAL ridge even when not meshed (cooldown, slow
+  // or dying beys): crossing outward needs real speed, otherwise the teeth
+  // hold the bey inside the bowl — only hard knockbacks hop over
+  if (xtremeDash && s.railArcs.length > 0 && b.railTicks <= 0) {
+    const angleB = datan2(b.y, b.x);
+    if (s.railArcs.some((a) => inArc(a, angleB))) {
+      const railRB = railRadiusAt(s, angleB);
+      const inner = railRB - s.railHalfWidth * T.railBarrierInner;
+      const rB = Math.sqrt(b.x * b.x + b.y * b.y);
+      if (r <= inner && rB > inner) {
+        const uB = { x: b.x / rB, y: b.y / rB };
+        const vrB = b.vx * uB.x + b.vy * uB.y;
+        if (vrB > 0 && vrB < T.railBreakSpeed) {
+          b.vx -= (1 + T.railBumpRestitution) * vrB * uB.x;
+          b.vy -= (1 + T.railBumpRestitution) * vrB * uB.y;
+          const over = rB - inner;
+          b.x -= uB.x * over;
+          b.y -= uB.y * over;
+          pushEvent(w, "gear", i, vrB); // teeth graze as the ridge holds
+        }
+      }
+    }
+  }
+
   // wall / pockets
   const r2 = Math.sqrt(b.x * b.x + b.y * b.y);
   const wallR = s.rWall - p.radiusM * 0.6;
@@ -326,6 +392,7 @@ function collide(w: WorldState, cfg: WorldConfig): void {
   const [b1, b2] = w.beys;
   const [p1, p2] = cfg.beys;
   if (!b1.alive || !b2.alive) return;
+  if (b1.airborne || b2.airborne) return; // mid-air beys pass over
   const dx = b2.x - b1.x;
   const dy = b2.y - b1.y;
   const dist = Math.sqrt(dx * dx + dy * dy);
@@ -500,6 +567,8 @@ export function hashWorld(w: WorldState): string {
       b.y,
       b.vx,
       b.vy,
+      b.z,
+      b.vz,
       b.omega,
       b.burstDamage,
       b.alive ? 1 : 0,

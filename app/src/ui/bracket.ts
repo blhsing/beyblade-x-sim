@@ -163,7 +163,10 @@ export function showBracket(app: GameApp, tour: Tournament, slots: SlotConfig[])
         void runMatch(app, [a, b], (winner) => {
           tour.report(next.id, winner === 0 ? next.a! : next.b!);
           showBracket(app, tour, slots);
-        }, {}, "錦標賽");
+        }, {
+          // 放棄 → back to the bracket with the match still pending
+          onAbort: () => showBracket(app, tour, slots),
+        }, "錦標賽");
       }
     : null;
 

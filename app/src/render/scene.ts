@@ -362,6 +362,9 @@ export class BattleView {
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
     this.camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.005, 20);
+    // our world is Z-up; without this, lookAt() at arbitrary yaws rolls the
+    // horizon (up to 90° "sideways" shots — three.js defaults to Y-up)
+    this.camera.up.set(0, 0, 1);
     this.scene.background = new THREE.Color(0x14161c);
 
     // image-based lighting from three's built-in procedural room (real metal
@@ -509,12 +512,19 @@ export class BattleView {
     rig.stringMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
   }
 
-  /** Pull in screen px → winder + string follow (full-screen granularity). */
-  setLauncherPull(px: number): void {
+  /** The winder tracks the ACTUAL finger: screen-pixel deltas from the
+   * touch origin are mapped through camera space into the rig, so the
+   * string visibly follows the hand in real time. */
+  setLauncherPointer(dxPx: number, dyPx: number): void {
     const rig = this.launcherRig;
     if (!rig) return;
-    rig.pullM = Math.min(0.42, px * 0.00075);
-    rig.winder.position.set(0.055 + rig.pullM * 0.25, -rig.pullM, 0.01 * rig.pullM);
+    const k = 0.3 / Math.max(320, window.innerHeight); // px → meters at rig depth
+    const camOff = new THREE.Vector3(dxPx * k, -dyPx * k, 0);
+    if (camOff.length() > 0.5) camOff.setLength(0.5);
+    // camera space → rig-local (the rig is pitched -0.55 rad about X)
+    const local = camOff.applyAxisAngle(new THREE.Vector3(1, 0, 0), 0.55);
+    rig.pullM = Math.min(0.42, local.length());
+    rig.winder.position.set(0.055 + local.x, local.y, local.z);
     this.updateLauncherString();
   }
 
@@ -912,6 +922,12 @@ export class BattleView {
           sfx.click(1.3); // plastic clank off the casing
           sfx.hit(e.magnitude * 0.15);
         }
+      } else if (e.kind === "land") {
+        if (!m) {
+          sfx.click(1.5); // tip touchdown
+          sfx.hit(Math.min(0.4, e.magnitude * 0.3));
+          if (navigator.vibrate) navigator.vibrate(12);
+        }
       } else if (e.kind === "exit") {
         if (!m) sfx.pocket();
         if (!m && navigator.vibrate) navigator.vibrate([30, 40, 60]);
@@ -951,7 +967,11 @@ export class BattleView {
         const p = this.beyParams[i];
         if (!m || !p) continue;
         const r = Math.hypot(b.x, b.y);
-        m.position.set(b.x, b.y, surfaceZ(s, Math.min(r, s.rWall)));
+        m.position.set(
+          b.x,
+          b.y,
+          b.airborne ? b.z : surfaceZ(s, Math.min(r, s.rWall)),
+        );
         m.rotation.z = b.phase;
         const absOmega = Math.abs(b.omega);
         const blurMesh = m.getObjectByName("blurRing") as THREE.Mesh | undefined;
