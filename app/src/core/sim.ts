@@ -98,9 +98,13 @@ const LAUNCHER: Record<LaunchParams["launcher"], { v: number; w: number }> = {
 function makeBey(
   params: BeyParams,
   launch: LaunchParams,
-  side: 0 | 1,
+  side: number,
+  total: number,
 ): BeyState {
-  const baseAngle = side === 0 ? PI - 0.55 : 0.55;
+  // 2 players keep the classic corners (byte-identical with old replays);
+  // free-for-all spreads entries evenly around the bowl
+  const baseAngle =
+    total <= 2 ? (side === 0 ? PI - 0.55 : 0.55) : PI / 2 + (side * 6.283185307179586) / total;
   const r0 = T.entryRadius + launch.tiltDeg * 0.0008;
   const x = r0 * dcos(baseAngle);
   const y = r0 * dsin(baseAngle);
@@ -145,12 +149,11 @@ export function createWorld(cfg: WorldConfig): WorldState {
   return {
     tick: 0,
     rng: cfg.seed >>> 0,
-    beys: [
-      makeBey(cfg.beys[0], cfg.launches[0], 0),
-      makeBey(cfg.beys[1], cfg.launches[1], 1),
-    ],
+    beys: cfg.beys.map((p, i) => makeBey(p, cfg.launches[i]!, i, cfg.beys.length)),
     finish: null,
     draw: false,
+    eliminatedOrder: [],
+    ffaWinner: null,
     events: [],
     lastHitTick: -999,
   };
@@ -165,7 +168,7 @@ function rand(w: WorldState): number {
 function pushEvent(
   w: WorldState,
   kind: WorldState["events"][number]["kind"],
-  bey: 0 | 1,
+  bey: number,
   magnitude: number,
 ): void {
   if (w.events.length < 4096) {
@@ -178,7 +181,7 @@ function stepBey(
   s: StadiumSpec,
   b: BeyState,
   p: BeyParams,
-  i: 0 | 1,
+  i: number,
   xtremeDash: boolean,
   clicksMax: number,
   other: BeyState,
@@ -444,8 +447,18 @@ function stepBey(
 }
 
 function collide(w: WorldState, cfg: WorldConfig): void {
-  const [b1, b2] = w.beys;
-  const [p1, p2] = cfg.beys;
+  for (let i = 0; i < w.beys.length; i++) {
+    for (let j = i + 1; j < w.beys.length; j++) {
+      collidePair(w, cfg, i, j);
+    }
+  }
+}
+
+function collidePair(w: WorldState, cfg: WorldConfig, i: number, j: number): void {
+  const b1 = w.beys[i]!;
+  const b2 = w.beys[j]!;
+  const p1 = cfg.beys[i]!;
+  const p2 = cfg.beys[j]!;
   if (!b1.alive || !b2.alive) return;
   if (b1.airborne || b2.airborne) return; // mid-air beys pass over
   const dx = b2.x - b1.x;
@@ -517,17 +530,17 @@ function collide(w: WorldState, cfg: WorldConfig): void {
   const imp1 = jn * T.burstNormalK + smash2 * T.burstSmashK;
   const imp2 = jn * T.burstNormalK + smash1 * T.burstSmashK;
   if (onJoint1 && imp1 > T.burstMinImpulse) {
-    applyBurst(w, b1, p1, 0, (imp1 * T.burstScale) / p1.burstRes, cfg.clicksMax);
+    applyBurst(w, b1, p1, i, (imp1 * T.burstScale) / p1.burstRes, cfg.clicksMax);
   }
   if (onJoint2 && imp2 > T.burstMinImpulse) {
-    applyBurst(w, b2, p2, 1, (imp2 * T.burstScale) / p2.burstRes, cfg.clicksMax);
+    applyBurst(w, b2, p2, j, (imp2 * T.burstScale) / p2.burstRes, cfg.clicksMax);
   }
 
   b1.contacted = true;
   b2.contacted = true;
   if (w.tick - w.lastHitTick >= T.hitEventGapTicks) {
     w.lastHitTick = w.tick;
-    pushEvent(w, "hit", 0, jn + smash1 + smash2);
+    pushEvent(w, "hit", i, jn + smash1 + smash2);
   }
 }
 
@@ -535,7 +548,7 @@ function applyBurst(
   w: WorldState,
   b: BeyState,
   p: BeyParams,
-  i: 0 | 1,
+  i: number,
   dmg: number,
   clicksMax: number,
 ): void {
@@ -550,9 +563,35 @@ function applyBurst(
   }
 }
 
+/** Free-for-all resolution: elimination order + last survivor. */
+function resolveFfa(w: WorldState, cfg: WorldConfig): void {
+  for (let i = 0; i < w.beys.length; i++) {
+    const b = w.beys[i]!;
+    const out = !b.alive || b.exited !== null || b.stoppedTick >= 0;
+    if (out && !w.eliminatedOrder.includes(i)) w.eliminatedOrder.push(i);
+  }
+  const survivors: number[] = [];
+  for (let i = 0; i < w.beys.length; i++) {
+    if (!w.eliminatedOrder.includes(i)) survivors.push(i);
+  }
+  if (survivors.length === 1) w.ffaWinner = survivors[0]!;
+  else if (survivors.length === 0) w.ffaWinner = -1; // simultaneous wipe
+  else if (w.tick >= cfg.maxTicks) {
+    let best = survivors[0]!;
+    for (const k of survivors) {
+      if (Math.abs(w.beys[k]!.omega) > Math.abs(w.beys[best]!.omega)) best = k;
+    }
+    w.ffaWinner = best;
+  }
+}
+
 function resolveFinish(w: WorldState, cfg: WorldConfig): void {
-  if (w.finish || w.draw) return;
-  const [b1, b2] = w.beys;
+  if (w.finish || w.draw || w.ffaWinner !== null) return;
+  if (w.beys.length !== 2) {
+    resolveFfa(w, cfg);
+    return;
+  }
+  const [b1, b2] = w.beys as [BeyState, BeyState];
 
   const terminal = (b: BeyState): "exit" | "burst" | "stop" | null => {
     if (b.exited === "top") return "exit";
@@ -608,11 +647,26 @@ function resolveFinish(w: WorldState, cfg: WorldConfig): void {
  * keeps spinning and eventually topples naturally) — presentation only,
  * the recorded result never changes. */
 export function step(w: WorldState, cfg: WorldConfig, s: StadiumSpec, afterglow = false): void {
-  if ((w.finish || w.draw) && !afterglow) return;
+  if ((w.finish || w.draw || w.ffaWinner !== null) && !afterglow) return;
   w.tick++;
-  const [b1, b2] = w.beys;
-  if (b1.alive) stepBey(w, s, b1, cfg.beys[0], 0, cfg.xtremeDashEnabled, cfg.clicksMax, b2);
-  if (b2.alive) stepBey(w, s, b2, cfg.beys[1], 1, cfg.xtremeDashEnabled, cfg.clicksMax, b1);
+  for (let i = 0; i < w.beys.length; i++) {
+    const b = w.beys[i]!;
+    if (!b.alive) continue;
+    // nearest living rival — collision partner and sling target
+    let other = b;
+    let bestD = Infinity;
+    for (let j = 0; j < w.beys.length; j++) {
+      if (j === i) continue;
+      const o = w.beys[j]!;
+      if (!o.alive) continue;
+      const d = (o.x - b.x) * (o.x - b.x) + (o.y - b.y) * (o.y - b.y);
+      if (d < bestD) {
+        bestD = d;
+        other = o;
+      }
+    }
+    stepBey(w, s, b, cfg.beys[i]!, i, cfg.xtremeDashEnabled, cfg.clicksMax, other);
+  }
   collide(w, cfg);
   if (!afterglow) resolveFinish(w, cfg);
 }
@@ -623,7 +677,7 @@ export function simulateBattle(
   s: StadiumSpec,
 ): WorldState {
   const w = createWorld(cfg);
-  while (!w.finish && !w.draw && w.tick < cfg.maxTicks + 1) {
+  while (!w.finish && !w.draw && w.ffaWinner === null && w.tick < cfg.maxTicks + 1) {
     step(w, cfg, s);
   }
   return w;

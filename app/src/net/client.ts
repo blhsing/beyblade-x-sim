@@ -19,9 +19,9 @@ export interface RelayEnvelope {
 export type GameMsg =
   | { t: "hello"; name: string; ver: string }
   | { t: "rules"; rules: RuleSet }
-  | { t: "deck"; combos: ComboSelection[] }
-  | { t: "seedq"; q: number }
-  | { t: "launch"; launch: LaunchParams }
+  | { t: "deck"; combos: ComboSelection[]; r?: number }
+  | { t: "seedq"; q: number; r?: number }
+  | { t: "launch"; launch: LaunchParams; r?: number }
   | { t: "hash"; tick: number; h: string }
   | { t: "result"; winner: number | null; draw: boolean; tick: number }
   | { t: "score"; scores: [number, number]; battleIndex: number }
@@ -32,7 +32,13 @@ export type GameMsg =
   | { t: "accept"; to?: number; cfg: unknown }
   | { t: "reject"; to?: number }
   | { t: "tbegin"; slots: unknown[] }
-  | { t: "tres"; matchId: number; winner: number };
+  | { t: "tres"; matchId: number; winner: number }
+  // quick match v3: host starts when everyone has joined; 3+ phones = FFA.
+  // `slots` are the participating relay slots; `round` tags every battle's
+  // inputs so a restarted round (after a mid-collection leave) can't mix
+  // stale messages into the new collection. `wins` carries the host's
+  // authoritative standings so late/rejoined clients stay in sync.
+  | { t: "qbegin"; slots: number[]; round: number; wins?: [number, number][] };
 
 /** Base URL of the game websocket for the current page origin/path. */
 export function defaultRelayWsBase(): string {
@@ -165,5 +171,96 @@ export class LockstepExchange {
     const remote = this.remoteLaunch!;
     this.remoteLaunch = null;
     return remote;
+  }
+}
+
+/**
+ * N-player input exchange for free-for-all quick matches: every participant
+ * broadcasts its deck/seed/launch and collects everyone else's, keyed by
+ * relay slot. Waits abort with "player-left" if a participant disconnects
+ * mid-collection (the host then restarts the round with the remaining slots).
+ */
+export class FfaExchange {
+  private decks = new Map<number, ComboSelection>();
+  private seeds = new Map<number, number>();
+  private launches = new Map<number, LaunchParams>();
+  private resolvers: (() => void)[] = [];
+  private slots: number[] = [];
+  private round = -1;
+  private left = false;
+
+  constructor(private client: RelayClient) {
+    const prev = client.onMsg;
+    client.onMsg = (from, msg) => {
+      prev?.(from, msg);
+      if (!this.slots.includes(from)) return;
+      if ((msg.t === "deck" || msg.t === "seedq" || msg.t === "launch") && msg.r !== this.round) return;
+      if (msg.t === "deck") this.decks.set(from, msg.combos[0]!);
+      else if (msg.t === "seedq") this.seeds.set(from, msg.q);
+      else if (msg.t === "launch") this.launches.set(from, msg.launch);
+      this.poke();
+    };
+    const prevRoom = client.onRoom;
+    client.onRoom = (players) => {
+      prevRoom?.(players);
+      if (this.slots.some((s) => s !== client.slot && !players[s])) {
+        this.left = true;
+        this.poke();
+      }
+    };
+  }
+
+  /** Reset collection for a battle round (fresh slot list, fresh maps). */
+  beginRound(round: number, slots: number[]): void {
+    this.round = round;
+    this.slots = [...slots];
+    this.decks.clear();
+    this.seeds.clear();
+    this.launches.clear();
+    this.left = false;
+  }
+
+  private poke(): void {
+    const rs = this.resolvers;
+    this.resolvers = [];
+    for (const r of rs) r();
+  }
+
+  private waitAll(size: () => number, timeoutMs = 180000): Promise<void> {
+    return new Promise((resolve, reject) => {
+      const t0 = Date.now();
+      const check = (): void => {
+        if (this.left) reject(new Error("player-left"));
+        else if (size() >= this.slots.length) resolve();
+        else if (Date.now() - t0 > timeoutMs) reject(new Error("lockstep-timeout"));
+        else this.resolvers.push(check);
+      };
+      check();
+    });
+  }
+
+  async exchangeDecks(local: ComboSelection): Promise<Map<number, ComboSelection>> {
+    this.decks.set(this.client.slot, local);
+    this.client.send({ t: "deck", combos: [local], r: this.round });
+    await this.waitAll(() => this.decks.size);
+    return this.decks;
+  }
+
+  /** XOR of everyone's random word — order-independent, nobody controls it. */
+  async exchangeSeed(): Promise<number> {
+    const q = (Math.random() * 0xffffffff) >>> 0;
+    this.seeds.set(this.client.slot, q);
+    this.client.send({ t: "seedq", q, r: this.round });
+    await this.waitAll(() => this.seeds.size);
+    let seed = 0;
+    for (const v of this.seeds.values()) seed = (seed ^ v) >>> 0;
+    return seed;
+  }
+
+  async exchangeLaunches(local: LaunchParams): Promise<Map<number, LaunchParams>> {
+    this.launches.set(this.client.slot, local);
+    this.client.send({ t: "launch", launch: local, r: this.round });
+    await this.waitAll(() => this.launches.size);
+    return this.launches;
   }
 }

@@ -25,7 +25,7 @@ function banner(text: string): HTMLElement {
   return o;
 }
 
-async function flashBanner(text: string, ms = 1400): Promise<void> {
+export async function flashBanner(text: string, ms = 1400): Promise<void> {
   const b = banner(text);
   await sleep(ms);
   b.remove();
@@ -57,9 +57,14 @@ function scoreboard(
 /** Tears down an in-progress launch UI when a match is aborted mid-gesture. */
 let activeLaunchTeardown: (() => void) | null = null;
 
+export function teardownActiveLaunch(): void {
+  activeLaunchTeardown?.();
+  activeLaunchTeardown = null;
+}
+
 /** Human launch: countdown + full-screen drag gesture. The launcher, the
  * player's actual bey, string and winder are a camera-attached 3D rig. */
-async function humanLaunch(
+export async function humanLaunch(
   app: GameApp,
   playerName: string,
   side: 0 | 1,
@@ -220,7 +225,8 @@ export function playBattle(
       skipBtn.append(
         el("div", { class: "spacer" }),
         button("快轉 ⏩", () => {
-          while (!world.finish && !world.draw) step(world, cfg, stadium);
+          while (!world.finish && !world.draw && world.ffaWinner === null)
+            step(world, cfg, stadium);
         }, "btn small"),
       );
       document.body.append(skipBtn);
@@ -228,14 +234,14 @@ export function playBattle(
     app.frameHook = (dt) => {
       acc += dt;
       let steps = 0;
-      while (acc > DT && !world.finish && !world.draw && steps < 2400) {
+      while (acc > DT && !world.finish && !world.draw && world.ffaWinner === null && steps < 2400) {
         step(world, cfg, stadium);
         acc -= DT;
         steps++;
       }
       app.view.consumeEvents(world);
       app.view.update(world, dt);
-      if (world.finish || world.draw || opts.abort?.()) {
+      if (world.finish || world.draw || world.ffaWinner !== null || opts.abort?.()) {
         app.frameHook = null;
         skipBtn?.remove();
         resolve(world);

@@ -321,8 +321,8 @@ export class BattleView {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
-  private beyMeshes: [THREE.Group | null, THREE.Group | null] = [null, null];
-  private beyParams: [BeyParams | null, BeyParams | null] = [null, null];
+  private beyMeshes: (THREE.Group | null)[] = [];
+  private beyParams: (BeyParams | null)[] = [];
   private sparks: Spark[] = [];
   private sparkMat: THREE.MeshBasicMaterial;
   private stadiumGroup = new THREE.Group();
@@ -334,11 +334,11 @@ export class BattleView {
   launchSide: 0 | 1 = 0;
   /** silences hums/sfx/haptics (menu-background battles) */
   audioMuted = false;
-  private lastBeyPos: [THREE.Vector3, THREE.Vector3] = [
+  private lastBeyPos: THREE.Vector3[] = [
     new THREE.Vector3(0.06, 0.04, 0.02),
     new THREE.Vector3(-0.06, -0.04, 0.02),
   ];
-  private cine = { shot: 0, t: 0, dur: 5, a0: 0, speed: 0.2, dist: 0.5, pitch: 0.9, bey: 0 as 0 | 1 };
+  private cine = { shot: 0, t: 0, dur: 5, a0: 0, speed: 0.2, dist: 0.5, pitch: 0.9, bey: 0 };
   private ease: { p: THREE.Vector3; q: THREE.Quaternion; t: number; dur: number } | null = null;
 
   /** Smoothly blend the camera from its current pose to the next mode's. */
@@ -879,20 +879,34 @@ export class BattleView {
     }
   }
 
+  /** side accents (free-for-all can hold many beys) */
+  static readonly SIDE_COLORS = [0x3f7bff, 0xff5b4d, 0x3cb26a, 0xd8c22e, 0x8a4ad8, 0x2eb8c2, 0xd8802e, 0xd85f9e];
+
   setBeys(
     a: { rc: ResolvedCombo | null; params: BeyParams },
     b: { rc: ResolvedCombo | null; params: BeyParams },
   ): void {
+    this.setBeysList([a, b]);
+  }
+
+  setBeysList(list: { rc: ResolvedCombo | null; params: BeyParams }[]): void {
     for (const m of this.beyMeshes) if (m) this.scene.remove(m);
-    this.beyMeshes = [buildBeyMesh(a.rc, a.params, 0x3f7bff), buildBeyMesh(b.rc, b.params, 0xff5b4d)];
-    this.beyParams = [a.params, b.params];
-    for (const m of this.beyMeshes) this.scene.add(m!);
-    sfx.startHums(2);
+    this.beyMeshes = list.map((e, i) =>
+      buildBeyMesh(e.rc, e.params, BattleView.SIDE_COLORS[i % BattleView.SIDE_COLORS.length]!),
+    );
+    this.beyParams = list.map((e) => e.params);
+    while (this.lastBeyPos.length < list.length) {
+      const a = (this.lastBeyPos.length / Math.max(2, list.length)) * Math.PI * 2;
+      this.lastBeyPos.push(new THREE.Vector3(Math.cos(a) * 0.06, Math.sin(a) * 0.06, 0.02));
+    }
+    for (const m of this.beyMeshes) if (m) this.scene.add(m);
+    sfx.startHums(list.length);
   }
 
   clearBeys(): void {
     for (const m of this.beyMeshes) if (m) this.scene.remove(m);
-    this.beyMeshes = [null, null];
+    this.beyMeshes = [];
+    this.beyParams = [];
     sfx.stopHums();
   }
 
@@ -903,7 +917,7 @@ export class BattleView {
     const m = this.audioMuted;
     for (const e of world.events) {
       if (e.kind === "hit") {
-        this.spawnSparks(e.magnitude);
+        this.spawnSparks(e.magnitude, e.bey);
         if (!m) sfx.hit(e.magnitude);
         if (!m && navigator.vibrate) navigator.vibrate(Math.min(60, 8 + e.magnitude * 400));
       } else if (e.kind === "click") {
@@ -938,10 +952,10 @@ export class BattleView {
     world.events.length = 0;
   }
 
-  private spawnSparks(mag: number): void {
-    const [b0, b1] = this.beyMeshes;
-    if (!b0 || !b1) return;
-    const origin = b0.position.clone().add(b1.position).multiplyScalar(0.5);
+  private spawnSparks(mag: number, at = 0): void {
+    const m = this.beyMeshes[at] ?? this.beyMeshes[0];
+    if (!m) return;
+    const origin = m.position.clone();
     const n = Math.min(14, 4 + Math.floor(mag * 90));
     for (let i = 0; i < n; i++) {
       const mesh = new THREE.Mesh(new THREE.BoxGeometry(0.003, 0.0012, 0.0012), this.sparkMat);
@@ -961,8 +975,9 @@ export class BattleView {
   update(world: WorldState | null, dt: number): void {
     const s = this.stadium;
     if (world && s) {
-      for (let i = 0 as 0 | 1; i <= 1; i = (i + 1) as 0 | 1) {
-        const b = world.beys[i];
+      const n = Math.min(world.beys.length, this.beyMeshes.length);
+      for (let i = 0; i < n; i++) {
+        const b = world.beys[i]!;
         const m = this.beyMeshes[i];
         const p = this.beyParams[i];
         if (!m || !p) continue;
@@ -989,7 +1004,7 @@ export class BattleView {
         } else {
           m.rotation.x = 0;
         }
-        this.lastBeyPos[i].set(b.x, b.y, m.position.z);
+        this.lastBeyPos[i]?.set(b.x, b.y, m.position.z);
         const pan = Math.max(-1, Math.min(1, b.x / (s.rWall * 1.2)));
         sfx.updateHum(
           i,
@@ -1063,7 +1078,7 @@ export class BattleView {
       const yaw = c.a0 + c.t * c.speed;
       if (c.shot === 1) {
         // close-up: slow arc around one bey, low to the surface
-        const bp = this.lastBeyPos[c.bey];
+        const bp = this.lastBeyPos[c.bey] ?? lookAt;
         target.set(bp.x + Math.cos(yaw) * 0.085, bp.y + Math.sin(yaw) * 0.085, 0.05);
         lookAt.copy(bp);
       } else if (c.shot === 2) {
@@ -1074,7 +1089,7 @@ export class BattleView {
           Math.sin(c.a0) * 0.34 * (1 - t01) + Math.sin(c.a0 + 1.4) * 0.34 * t01,
           0.07,
         );
-        lookAt.copy(this.lastBeyPos[c.bey]).multiplyScalar(0.6);
+        lookAt.copy(this.lastBeyPos[c.bey] ?? lookAt).multiplyScalar(0.6);
       } else if (c.shot === 3) {
         // wide establishing arc: far out, still under the 30° elevation cap
         const p = 0.42 + (c.pitch % 0.1); // ~24°..30°

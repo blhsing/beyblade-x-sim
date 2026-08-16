@@ -124,6 +124,7 @@ export interface FinishEvent {
 
 export interface SimEvent {
   tick: number;
+  bey: number;
   kind:
     | "hit"
     | "wallHit"
@@ -135,7 +136,6 @@ export interface SimEvent {
     | "trip" // slammed into the rack too fast and got tripped
     | "coverHit" // bounced off the transparent casing
     | "land"; // dropped from the launcher onto the stadium surface
-  bey: 0 | 1;
   magnitude: number;
 }
 
@@ -162,8 +162,9 @@ export interface BeyState {
 
 export interface WorldConfig {
   seed: number;
-  beys: [BeyParams, BeyParams];
-  launches: [LaunchParams, LaunchParams];
+  /** 2 = standard battle; 3+ = free-for-all */
+  beys: BeyParams[];
+  launches: LaunchParams[];
   xtremeDashEnabled: boolean;
   clicksMax: number;
   maxTicks: number;
@@ -172,10 +173,14 @@ export interface WorldConfig {
 export interface WorldState {
   tick: number;
   rng: number;
-  beys: [BeyState, BeyState];
+  beys: BeyState[];
+  /** standard 2-bey result (null in free-for-all worlds) */
   finish: FinishEvent | null;
   /** simultaneous finish in the same tick → draw (no points) */
   draw: boolean;
+  /** free-for-all: elimination order + survivor (-1 = simultaneous wipe) */
+  eliminatedOrder: number[];
+  ffaWinner: number | null;
   events: SimEvent[];
   lastHitTick: number;
 }

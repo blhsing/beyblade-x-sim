@@ -12,8 +12,10 @@ front-proxy, via `-forward`) a DeskFerry relay on the same host. `-pathbase
 - `GET /game/health`, `GET /game/status` — JSON.
 - `GET /game/{room}/ws?role=player|spectator&name=NAME` — WebSocket.
 
-Rooms: normalized codes (lowercase `[a-z0-9-_.]`, ≤64 chars); 2 player slots
-+ up to 8 spectators. Server frames (JSON text):
+Rooms: normalized codes (lowercase `[a-z0-9-_.]`, ≤64 chars); 16 player slots
++ up to 8 spectators. Slots are **positional and stable**: a leaver's slot is
+nulled (not compacted) and may be reused by a later joiner. The relay never
+echoes a message back to its sender. Server frames (JSON text):
 
 - `{"type":"welcome","slot":0|1|-1,"name":...}` on join
 - `{"type":"room","players":["nameA","nameB"]}` on membership change
@@ -98,7 +100,36 @@ deterministic sim (docs/PHYSICS.md).
 {t:"rematch"} / {t:"leave"}
 ```
 
-- Battle seed = `seedq_A XOR seedq_B` (neither side controls it).
+Rooms v2 (password + host config + tournaments):
+
+```
+{t:"knock",  pass}                         joiner asks to enter
+{t:"accept", to, cfg:RoomCfg} / {t:"reject", to}   host (slot 0) responds
+{t:"tbegin", slots:[TournamentSlot…]}      host publishes the bracket roster
+{t:"tres",   matchId, winner}              battle results propagate the bracket
+```
+
+Quick match v3 — **participants = phones in the room** (nothing is preset):
+the host presses 開始 when everyone has joined and broadcasts
+
+```
+{t:"qbegin", slots:[relaySlot…], round, wins:[[slot,roundWins]…]}
+```
+
+Exactly two slots at round 0 = the standard 1v1 rules flow. **Three or more
+slots = free-for-all (大亂鬥)**: every phone broadcasts `deck`/`seedq`/
+`launch` tagged with `r: round`, collects everyone else's (its own value is
+counted locally since the relay does not echo), XORs all `seedq` words into
+the battle seed, and runs the identical deterministic N-bey battle. The
+survivor takes the round; first to 3 round wins takes the match. If a
+participant disconnects mid-collection, the host restarts the round with the
+remaining slots by sending a fresh `qbegin` with `round+1` — the `r` tag
+keeps stale inputs from the aborted round out of the new collection, and
+`wins` keeps standings authoritative across restarts and seat reuse.
+Tournaments fill their bracket with every joined phone plus the
+host-configured number of bots.
+
+- Battle seed = XOR of every participant's `seedq` (nobody controls it).
 - Both clients simulate after `go`; spectators receive the same inputs and
   simulate too (zero-bandwidth spectating).
 - `hash` mismatch ⇒ divergence: client requests `{t:"state?"}`; host replies

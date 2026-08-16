@@ -137,7 +137,7 @@ describe("battle outcomes", () => {
       b.z = 0;
       b.vz = 0;
     }
-    const b0 = w.beys[0];
+    const b0 = w.beys[0]!;
     b0.x = 0;
     b0.y = -0.09;
     b0.vx = 0;
@@ -147,6 +147,61 @@ describe("battle outcomes", () => {
     expect(w.finish?.winner).toBe(1);
     expect(w.finish?.ownFinish).toBe(true);
     expect(pointsForFinish(RULES_OFFICIAL, w.finish!)).toBe(1);
+  });
+});
+
+describe("free-for-all (N beys)", () => {
+  const ffaCfg = (n: number, seed = 17): WorldConfig => ({
+    seed,
+    beys: Array.from({ length: n }, (_, i) =>
+      baseParams({ muSpin: 0.04 + i * 0.012, attackFactor: 1 + (i % 2) * 2 }),
+    ),
+    launches: Array.from({ length: n }, () => baseLaunch()),
+    xtremeDashEnabled: true,
+    clicksMax: 4,
+    maxTicks: 240 * 120,
+  });
+
+  it("4-bey world is deterministic (identical hash after 5000 ticks)", () => {
+    const c = ffaCfg(4);
+    const w1 = createWorld(c);
+    const w2 = createWorld(c);
+    for (let i = 0; i < 5000; i++) {
+      step(w1, c, STADIUM_BX10);
+      step(w2, c, STADIUM_BX10);
+    }
+    expect(hashWorld(w1)).toEqual(hashWorld(w2));
+  });
+
+  it("free-for-all resolves a winner with a full elimination order", () => {
+    const c = ffaCfg(4, 23);
+    const w = simulateBattle(c, STADIUM_BX10);
+    expect(w.ffaWinner).not.toBeNull();
+    expect(w.finish).toBeNull(); // 2-player finish path unused for N>2
+    if (w.ffaWinner! >= 0) {
+      expect(w.eliminatedOrder).not.toContain(w.ffaWinner);
+      // decisive (non-timeout) ending: everyone else was eliminated
+      if (w.tick < c.maxTicks) expect(w.eliminatedOrder).toHaveLength(c.beys.length - 1);
+    }
+    const seen = new Set(w.eliminatedOrder);
+    expect(seen.size).toBe(w.eliminatedOrder.length); // no duplicates
+  });
+
+  it("3-bey entry spread keeps all beys inside the dish at launch", () => {
+    const c = ffaCfg(3, 5);
+    const w = createWorld(c);
+    for (const b of w.beys) {
+      expect(Math.hypot(b.x, b.y)).toBeLessThan(STADIUM_BX10.rWall);
+    }
+    const angles = w.beys.map((b) => Math.atan2(b.y, b.x));
+    // distinct entry directions (even circular spread)
+    expect(new Set(angles.map((a) => a.toFixed(2))).size).toBe(3);
+  });
+
+  it("2-bey battles still use the standard finish pipeline", () => {
+    const w = simulateBattle(cfg(baseParams(), baseParams({ muSpin: 0.08 }), 9), STADIUM_BX10);
+    expect(w.finish !== null || w.draw).toBe(true);
+    expect(w.ffaWinner).toBeNull();
   });
 });
 

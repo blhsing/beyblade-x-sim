@@ -1,30 +1,52 @@
 // 多人模式（線上）: host a room (optional password, quick match or
-// tournament with configurable rules and bot participants) or join one.
-// Quick: relay slots 0/1 battle with launch-parameter lockstep. Tournament:
-// host builds the bracket from joined humans + bots; human battles are
-// played by their participants (lockstep), bot-vs-bot battles are simulated
-// by the host; results propagate to every client's bracket.
+// tournament) or join one. 參賽人數＝加入房間的手機數 — the host presses
+// 開始 once everyone is in; nothing is preset. Quick match with exactly two
+// phones runs the standard 1v1 rules flow (launch-parameter lockstep);
+// three or more phones automatically switch to the non-standard free-for-all
+// (大亂鬥): every phone broadcasts its deck/seed/launch each round, every
+// client simulates the identical deterministic N-bey battle, the survivor
+// takes the round, and the first to FFA_TARGET round wins takes the match.
+// Tournaments: all joined humans + the host-chosen number of bots fill a
+// bracket; human battles are lockstep, bot-vs-bot battles are simulated by
+// the host; results propagate to every client's bracket.
 
 import { PartIndex, deriveBeyParams, resolveCombo } from "../core/derive";
-import type { ComboSelection, LaunchParams } from "../core/types";
+import type { ComboSelection, LaunchParams, WorldConfig } from "../core/types";
 import { getAuth } from "../game/auth";
 import { BOT_ROSTER, botBuildDeck, botChooseLaunch, type BotProfile } from "../game/bots";
-import { getPrefs, savePrefs } from "../game/persist";
+import { getPrefs, recordLaunch, savePrefs } from "../game/persist";
 import { MatchEngine, RULE_PRESETS, type RuleSet } from "../game/rules";
-import { simulateBattle } from "../core/sim";
+import { DT, simulateBattle, step } from "../core/sim";
 import { STADIUMS } from "../core/stadium";
 import { Tournament, type TournamentSlot } from "../game/tournament";
 import { ZH, fmt } from "../i18n/zh";
-import { LockstepExchange, RelayClient, defaultRelayWsBase, type GameMsg } from "../net/client";
+import {
+  FfaExchange,
+  LockstepExchange,
+  RelayClient,
+  defaultRelayWsBase,
+  type GameMsg,
+} from "../net/client";
 import { button, el, overlay, row, select } from "./dom";
-import { collectLocalLaunch, runMatch } from "./match";
+import {
+  collectLocalLaunch,
+  flashBanner,
+  humanLaunch,
+  playBattle,
+  runMatch,
+  teardownActiveLaunch,
+} from "./match";
 import { rulesPicker, type SlotConfig } from "./setup";
 import type { GameApp } from "./app";
+
+/** free-for-all: first to this many round wins takes the match */
+const FFA_TARGET = 3;
 
 interface RoomCfg {
   mode: "quick" | "tournament";
   rules: RuleSet;
-  totalSlots: number;
+  /** tournament only: bots ADDED on top of every joined phone */
+  botCount: number;
   bots: BotProfile[];
 }
 
@@ -60,14 +82,14 @@ function showHost(app: GameApp): void {
     { value: "quick", label: ZH.menu.quick },
     { value: "tournament", label: ZH.menu.tournament },
   ]);
-  const slotsSel = select([2, 3, 4, 6, 8].map((n) => ({ value: String(n), label: `${n} 名參賽者` })), "4");
-  const botsWrap = el("div", { class: "label" }, "");
+  // participants are NEVER preset — they are whoever joins the room. The
+  // only host knob is how many bots pad a tournament bracket.
+  const botsSel = select(
+    Array.from({ length: 8 }, (_, n) => ({ value: String(n), label: `＋${n} ${ZH.bot}` })),
+    "3",
+  );
   const syncBots = (): void => {
-    botsWrap.textContent =
-      modeSel.value === "tournament"
-        ? `${ZH.mode.botCount}：依加入人數自動補足（電腦名單取自內建選手）`
-        : "";
-    slotsSel.style.display = modeSel.value === "tournament" ? "" : "none";
+    botsSel.style.display = modeSel.value === "tournament" ? "" : "none";
   };
   modeSel.addEventListener("change", syncBots);
   syncBots();
@@ -75,8 +97,8 @@ function showHost(app: GameApp): void {
     el("div", { class: "title", style: "font-size:22px" }, ZH.mode.hostRoom),
     row(el("span", { class: "label fixed" }, ZH.roomCode), roomIn),
     row(passIn),
-    row(modeSel, slotsSel),
-    botsWrap,
+    row(modeSel, botsSel),
+    el("div", { class: "label" }, ZH.mode.countHint),
     el("div", { class: "label" }, ZH.rules),
     rulesPicker(app),
     button(ZH.createRoom, () => {
@@ -84,7 +106,7 @@ function showHost(app: GameApp): void {
       const cfg: RoomCfg = {
         mode: modeSel.value as RoomCfg["mode"],
         rules: { ...app.rules },
-        totalSlots: Number(slotsSel.value),
+        botCount: modeSel.value === "tournament" ? Number(botsSel.value) : 0,
         bots: BOT_ROSTER.slice(0, 8),
       };
       void enterRoom(app, roomIn.value.trim() || "beyx", passIn.value, cfg);
@@ -107,6 +129,128 @@ function statusScreen(app: GameApp, text: string): { set: (t: string) => void; c
   return { set: (s) => (t.textContent = s), close: () => o.remove() };
 }
 
+interface QuickBegin {
+  slots: number[];
+  round: number;
+  wins?: [number, number][];
+}
+
+/** Latches the newest qbegin from the host so a wait can never miss one
+ * that arrived while the client was busy (banner, battle, restart). */
+class QbeginWatch {
+  latest: QuickBegin | null = null;
+  private waiters: (() => void)[] = [];
+  private hostGone = false;
+
+  constructor(client: RelayClient) {
+    const prev = client.onMsg;
+    client.onMsg = (from, msg) => {
+      prev?.(from, msg);
+      if (msg.t === "qbegin" && from === 0) {
+        this.latest = { slots: msg.slots, round: msg.round, wins: msg.wins };
+        this.poke();
+      }
+    };
+    const prevRoom = client.onRoom;
+    client.onRoom = (players) => {
+      prevRoom?.(players);
+      if (client.slot !== 0 && !players[0]) {
+        this.hostGone = true;
+        this.poke();
+      }
+    };
+  }
+
+  private poke(): void {
+    const ws = this.waiters;
+    this.waiters = [];
+    for (const w of ws) w();
+  }
+
+  wait(afterRound: number): Promise<QuickBegin> {
+    return new Promise((resolve, reject) => {
+      const check = (): void => {
+        if (this.latest && this.latest.round > afterRound) resolve(this.latest);
+        else if (this.hostGone) reject(new Error("host-left"));
+        else this.waiters.push(check);
+      };
+      check();
+    });
+  }
+}
+
+/** Shared pre-start lobby: live list of joined phones; the host gets the
+ * 開始 button, guests wait for the host's begin broadcast. */
+function lobbyScreen(
+  app: GameApp,
+  client: RelayClient,
+  title: string,
+  opts: {
+    isHost: boolean;
+    canStart: (players: string[]) => boolean;
+    hint: string;
+    guestWait: Promise<unknown> | null;
+  },
+): Promise<"start" | "guest" | "back"> {
+  return new Promise((resolve) => {
+    let done = false;
+    const finish = (r: "start" | "guest" | "back"): void => {
+      if (done) return;
+      done = true;
+      o.remove();
+      resolve(r);
+    };
+    const o = overlay();
+    const panel = el("div", { class: "panel" });
+    const count = el("div", { class: "subtitle", style: "font-size:16px" }, "");
+    const list = el("div", { class: "label", style: "text-align:center" }, "");
+    const startBtn = opts.isHost ? button(ZH.start, () => finish("start"), "btn primary") : null;
+    const refresh = (players: string[]): void => {
+      const joined = players.filter(Boolean);
+      count.textContent = fmt(ZH.mode.joinedCount, { n: joined.length });
+      list.textContent = joined.join("、");
+      if (startBtn) startBtn.disabled = !opts.canStart(players);
+    };
+    const prevRoom = client.onRoom;
+    client.onRoom = (players) => {
+      prevRoom?.(players);
+      refresh(players);
+    };
+    refresh(client.players);
+    panel.append(
+      el("div", { class: "title", style: "font-size:22px" }, title),
+      count,
+      list,
+      el("div", { class: "label", style: "text-align:center" }, opts.hint),
+    );
+    if (startBtn) panel.append(startBtn);
+    else panel.append(el("div", { class: "subtitle", style: "font-size:15px" }, ZH.mode.waitingHost));
+    panel.append(
+      button(ZH.back, () => {
+        client.close();
+        app.showModeSelect();
+        finish("back");
+      }),
+    );
+    o.append(panel);
+    app.setScreen(o);
+    if (opts.guestWait) {
+      opts.guestWait.then(
+        () => finish("guest"),
+        () => {
+          client.close();
+          app.showModeSelect();
+          finish("back");
+        },
+      );
+    }
+  });
+}
+
+function connectedSlots(client: RelayClient): number[] {
+  return client.players.map((n, i) => ({ n, i })).filter((x) => x.n).map((x) => x.i);
+}
+
 /** Connect, run the knock/accept password handshake, then dispatch by mode. */
 async function enterRoom(app: GameApp, room: string, pass: string, hostCfg: RoomCfg | null): Promise<void> {
   const status = statusScreen(app, ZH.waitingOpponent);
@@ -117,7 +261,7 @@ async function enterRoom(app: GameApp, room: string, pass: string, hostCfg: Room
     const slot = await client.connect(defaultRelayWsBase(), room, getAuth()?.nickname ?? "玩家");
     const isHost = slot === 0;
     if (isHost && !cfg) {
-      cfg = { mode: "quick", rules: { ...app.rules }, totalSlots: 2, bots: BOT_ROSTER.slice(0, 8) };
+      cfg = { mode: "quick", rules: { ...app.rules }, botCount: 0, bots: BOT_ROSTER.slice(0, 8) };
     }
     if (isHost) {
       client.onMsg = (from, msg) => {
@@ -144,9 +288,9 @@ async function enterRoom(app: GameApp, room: string, pass: string, hostCfg: Room
     }
     savePrefs({ rulesPreset: app.rules.name === "官方標準" ? "official" : getPrefs().rulesPreset });
     if (cfg!.mode === "quick") {
-      await onlineQuick(app, client, status);
+      await onlineQuick(app, client, status, isHost);
     } else {
-      await onlineTournament(app, client, cfg!, status);
+      await onlineTournament(app, client, cfg!, status, isHost);
     }
   } catch (err) {
     status.set(String(err instanceof Error ? err.message : err));
@@ -154,27 +298,51 @@ async function enterRoom(app: GameApp, room: string, pass: string, hostCfg: Room
   }
 }
 
-/** Quick: relay slots 0/1 battle (later joiners just watch the room). */
+/** Quick match: everyone in the room plays. 2 phones = 1v1 rules flow;
+ * 3+ phones = free-for-all rounds. */
 async function onlineQuick(
   app: GameApp,
   client: RelayClient,
   status: { set: (t: string) => void; close: () => void },
+  isHost: boolean,
 ): Promise<void> {
-  const mySlot = client.slot as 0 | 1;
-  if (mySlot > 1) {
-    status.set(ZH.mode.waitingHost);
-    return;
-  }
-  await new Promise<void>((resolve) => {
-    const check = (): void => {
-      if (client.players.filter(Boolean).length >= 2) resolve();
-    };
-    client.onRoom = check;
-    check();
-  });
+  const watch = new QbeginWatch(client);
+  const exchange = new FfaExchange(client); // idle until beginRound
   status.close();
+  const res = await lobbyScreen(app, client, ZH.menu.quick, {
+    isHost,
+    canStart: (players) => players.filter(Boolean).length >= 2,
+    hint: ZH.mode.countHint,
+    guestWait: isHost ? null : watch.wait(-1),
+  });
+  if (res === "back") return;
+  let first: QuickBegin;
+  if (isHost) {
+    first = { slots: connectedSlots(client), round: 0 };
+    client.send({ t: "qbegin", slots: first.slots, round: first.round } as GameMsg);
+  } else {
+    first = watch.latest!;
+    if (!first.slots.includes(client.slot)) {
+      // the match started before this phone joined — no mid-match entry
+      client.close();
+      statusScreen(app, ZH.mode.spectating);
+      return;
+    }
+  }
+  // 1v1 only ever begins at round 0 with exactly two phones; any later
+  // qbegin (a reused seat joining an in-progress session) is FFA.
+  if (first.slots.length === 2 && first.round === 0) {
+    await quick1v1(app, client, first.slots as [number, number]);
+  } else {
+    await ffaSession(app, client, exchange, watch, first, isHost);
+  }
+}
 
-  const exchange = new LockstepExchange(client, (1 - mySlot) as 0 | 1);
+/** Standard online 1v1 between the two relay slots in `pair`. */
+async function quick1v1(app: GameApp, client: RelayClient, pair: [number, number]): Promise<void> {
+  const myIdx = pair.indexOf(client.slot) as 0 | 1;
+  const oppSlot = pair[(1 - myIdx) as 0 | 1]!;
+  const exchange = new LockstepExchange(client, oppSlot);
   const prefs = getPrefs();
   const myComboRef = prefs.quickSlots?.[0] as SlotConfig | undefined;
   const myCombo: ComboSelection =
@@ -182,13 +350,13 @@ async function onlineQuick(
     app.db.combos[0]!.parts;
   const remoteDeck = await exchange.exchangeDeck([myCombo]);
   const names: [string, string] = [
-    client.players[0] || fmt(ZH.playerN, { n: 1 }),
-    client.players[1] || fmt(ZH.playerN, { n: 2 }),
+    client.players[pair[0]!] || fmt(ZH.playerN, { n: 1 }),
+    client.players[pair[1]!] || fmt(ZH.playerN, { n: 2 }),
   ];
-  const decks = mySlot === 0 ? [[myCombo], remoteDeck] : [remoteDeck, [myCombo]];
+  const decks = myIdx === 0 ? [[myCombo], remoteDeck] : [remoteDeck, [myCombo]];
   const slots: [SlotConfig, SlotConfig] = [
-    { kind: mySlot === 0 ? "human" : "bot", name: names[0], bot: BOT_ROSTER[0]!, deckRefs: [], launcher: prefs.launcher },
-    { kind: mySlot === 1 ? "human" : "bot", name: names[1], bot: BOT_ROSTER[0]!, deckRefs: [], launcher: prefs.launcher },
+    { kind: myIdx === 0 ? "human" : "bot", name: names[0], bot: BOT_ROSTER[0]!, deckRefs: [], launcher: prefs.launcher },
+    { kind: myIdx === 1 ? "human" : "bot", name: names[1], bot: BOT_ROSTER[0]!, deckRefs: [], launcher: prefs.launcher },
   ];
   await runMatch(
     app,
@@ -204,10 +372,10 @@ async function onlineQuick(
       },
       seed: () => exchange.exchangeSeed(),
       launches: async (engine: MatchEngine) => {
-        const mine = await collectLocalLaunch(app, engine, mySlot, names[mySlot], getPrefs().launcher);
+        const mine = await collectLocalLaunch(app, engine, myIdx, names[myIdx], getPrefs().launcher);
         if (mine === "matchOver") return "matchOver";
         const theirs = await exchange.exchangeLaunch(mine);
-        return (mySlot === 0 ? [mine, theirs] : [theirs, mine]) as [LaunchParams, LaunchParams];
+        return (myIdx === 0 ? [mine, theirs] : [theirs, mine]) as [LaunchParams, LaunchParams];
       },
       onAbort: () => {
         // giving up online forfeits: leave the room entirely
@@ -220,6 +388,242 @@ async function onlineQuick(
   );
 }
 
+/** Free-for-all rounds: N phones broadcast inputs, everyone simulates the
+ * same N-bey battle; survivor takes the round, first to FFA_TARGET wins. */
+async function ffaSession(
+  app: GameApp,
+  client: RelayClient,
+  exchange: FfaExchange,
+  watch: QbeginWatch,
+  first: QuickBegin,
+  isHost: boolean,
+): Promise<void> {
+  const prefs = getPrefs();
+  const myComboRef = prefs.quickSlots?.[0] as SlotConfig | undefined;
+  const myCombo: ComboSelection =
+    (myComboRef?.deckRefs?.[0] && safeResolve(app, myComboRef.deckRefs[0])) ||
+    app.db.combos[0]!.parts;
+  const wins = new Map<number, number>();
+  let cur = first;
+  let aborted = false;
+  let bar: HTMLElement | null = null;
+  let waitOverlay: HTMLElement | null = null; // whichever wait UI is up right now
+
+  const nameOf = (s: number): string => client.players[s] || fmt(ZH.playerN, { n: s + 1 });
+
+  const cleanup = (): void => {
+    bar?.remove();
+    bar = null;
+    waitOverlay?.remove();
+    waitOverlay = null;
+    app.frameHook = null;
+    app.view.clearBeys();
+    app.startMenuCinema();
+    client.close();
+    app.showModeSelect();
+  };
+  const giveUp = (): void => {
+    if (!window.confirm(ZH.confirmGiveUp)) return;
+    aborted = true;
+    teardownActiveLaunch();
+    client.send({ t: "leave" });
+    cleanup();
+  };
+  const showBar = (order: number[]): void => {
+    bar?.remove();
+    bar = el("div", { class: "topbar" });
+    const line = order.map((s) => `${nameOf(s)} ${wins.get(s) ?? 0}`).join("｜");
+    bar.append(
+      el("div", { class: "scoreboard", style: "font-size:15px" }, `${ZH.mode.ffa}｜${line}`),
+      el("div", { class: "spacer" }),
+      app.viewControls(),
+      button(ZH.giveUp, giveUp, "btn small fixed"),
+    );
+    document.body.append(bar);
+  };
+  /** guests adopt the host's authoritative standings from each qbegin */
+  const applyWins = (list?: [number, number][]): void => {
+    if (!list) return;
+    wins.clear();
+    for (const [s, n] of list) wins.set(s, n);
+  };
+  applyWins(first.wins);
+
+  /** next round / round restart: host recomputes + broadcasts, guests resync */
+  const reformed = async (): Promise<boolean> => {
+    if (isHost) {
+      const remaining = cur.slots.filter((s) => s === client.slot || !!client.players[s]);
+      cur = { slots: remaining, round: cur.round + 1 };
+      if (remaining.length >= 2) {
+        client.send({
+          t: "qbegin",
+          slots: cur.slots,
+          round: cur.round,
+          wins: [...wins.entries()],
+        } as GameMsg);
+      }
+      return true;
+    }
+    try {
+      cur = await watch.wait(cur.round);
+      applyWins(cur.wins);
+      return true;
+    } catch {
+      return false; // host left → session over
+    }
+  };
+
+  await flashBanner(`${ZH.mode.ffa}｜${fmt(ZH.mode.ffaTarget, { n: FFA_TARGET })}`, 1500);
+  for (;;) {
+    if (aborted) return;
+    if (cur.slots.length < 2 || !cur.slots.includes(client.slot)) break;
+    exchange.beginRound(cur.round, cur.slots);
+    const order = [...cur.slots].sort((a, b) => a - b);
+    try {
+      app.stopMenuCinema();
+      app.setScreen(null);
+      app.view.setStadium(app.stadium());
+      app.view.clearBeys(); // beys live in the launchers until GO SHOOT
+      showBar(order);
+
+      const decks = await exchange.exchangeDecks(myCombo);
+      const seed = await exchange.exchangeSeed();
+      if (aborted) return;
+      const rcs = order.map((s) => resolveCombo(app.index, decks.get(s)!));
+      const params = rcs.map((rc, i) => deriveBeyParams(rc, { label: nameOf(order[i]!) }));
+      const myIdx = order.indexOf(client.slot);
+      const rot =
+        rcs[myIdx]!.parts.blade?.rotation ?? rcs[myIdx]!.parts.lockChip?.rotation ?? "right";
+
+      // my launch — a mislaunch simply retries (non-standard mode, no penalty)
+      let mine: LaunchParams | null = null;
+      while (!mine) {
+        const r = await humanLaunch(
+          app,
+          nameOf(client.slot),
+          (myIdx % 2) as 0 | 1,
+          prefs.launcher,
+          rcs[myIdx]!,
+          params[myIdx]!,
+        );
+        if (aborted) return;
+        if (r.launch) {
+          recordLaunch(r.launch.sp, r.launch.aimDeg);
+          const spinDir = rot === "left" || rot === "both-left-origin" ? -1 : 1;
+          mine = { ...r.launch, spinDir };
+        } else {
+          await flashBanner(ZH.mislaunch[r.mislaunch!], 900);
+        }
+      }
+      // others may still be pulling — keep the room informed while we wait
+      const wo = overlay("transparent");
+      wo.append(el("div", { class: "banner-big", style: "font-size:20px" }, ZH.waitingOpponent));
+      document.body.append(wo);
+      waitOverlay = wo;
+      let launches: Map<number, LaunchParams>;
+      try {
+        launches = await exchange.exchangeLaunches(mine);
+      } finally {
+        wo.remove();
+        if (waitOverlay === wo) waitOverlay = null;
+      }
+      if (aborted) return;
+
+      app.view.setBeysList(order.map((_, i) => ({ rc: rcs[i]!, params: params[i]! })));
+      app.view.beginCameraEase(0.9);
+      app.view.mode = app.view.mode === "gyro" ? "gyro" : "orbit";
+      const wcfg: WorldConfig = {
+        seed,
+        beys: params,
+        launches: order.map((s) => launches.get(s)!),
+        xtremeDashEnabled: app.rules.xtremeDashEnabled,
+        clicksMax: 4,
+        maxTicks: 240 * 180,
+      };
+      const world = await playBattle(app, wcfg, { allowSkip: false, abort: () => aborted });
+      if (aborted) return;
+
+      // action keeps running under the banners (afterglow)
+      let acc = 0;
+      app.frameHook = (dt) => {
+        acc += dt;
+        let steps = 0;
+        while (acc > DT && steps < 1200) {
+          step(world, wcfg, app.stadium(), true);
+          acc -= DT;
+          steps++;
+        }
+        app.view.consumeEvents(world);
+        app.view.update(world, dt);
+      };
+
+      const winSlot =
+        world.ffaWinner !== null && world.ffaWinner >= 0 ? order[world.ffaWinner]! : null;
+      if (winSlot !== null) wins.set(winSlot, (wins.get(winSlot) ?? 0) + 1);
+      showBar(order);
+      await flashBanner(
+        winSlot !== null ? fmt(ZH.winner, { name: nameOf(winSlot) }) : ZH.draw,
+        1700,
+      );
+      if (aborted) return;
+      if (winSlot !== null && (wins.get(winSlot) ?? 0) >= FFA_TARGET) {
+        await flashBanner(fmt(ZH.champion, { name: nameOf(winSlot) }), 2400);
+        break;
+      }
+
+      // between rounds: the host advances everyone (stadium stays live).
+      // If 放棄 fires during these waits, cleanup() already ran and the
+      // pending promise is simply abandoned — nothing after it executes.
+      if (isHost) {
+        await new Promise<void>((resolve) => {
+          const o = overlay("transparent");
+          waitOverlay = o;
+          const panel = el("div", { class: "panel" });
+          panel.append(
+            button(ZH.next, () => {
+              o.remove();
+              waitOverlay = null;
+              resolve();
+            }, "btn primary"),
+          );
+          o.append(panel);
+          document.body.append(o);
+        });
+        const ok = await reformed();
+        if (!ok) break;
+        if (cur.slots.length < 2) break;
+      } else {
+        const o = overlay("transparent");
+        waitOverlay = o;
+        o.append(el("div", { class: "panel" }, el("div", { class: "subtitle" }, ZH.mode.waitingHost)));
+        document.body.append(o);
+        try {
+          cur = await watch.wait(cur.round);
+          applyWins(cur.wins);
+        } catch {
+          break; // host left
+        } finally {
+          o.remove();
+          if (waitOverlay === o) waitOverlay = null;
+        }
+      }
+    } catch (err) {
+      if (aborted) return;
+      teardownActiveLaunch();
+      app.frameHook = null;
+      if (err instanceof Error && err.message === "player-left") {
+        await flashBanner(ZH.mode.playerLeftRestart, 1100);
+        if (aborted) return;
+        const ok = await reformed();
+        if (ok && cur.slots.length >= 2) continue;
+        break;
+      }
+      break; // lockstep timeout / unexpected → leave the session
+    }
+  }
+  if (!aborted) cleanup();
+}
+
 function safeResolve(app: GameApp, ref: string): ComboSelection | null {
   try {
     return app.resolveComboRef(ref);
@@ -228,14 +632,15 @@ function safeResolve(app: GameApp, ref: string): ComboSelection | null {
   }
 }
 
-/** Host-orchestrated online tournament: joined humans + bots fill the rest. */
+/** Host-orchestrated online tournament: every joined phone plays, plus the
+ * host-chosen number of bots. */
 async function onlineTournament(
   app: GameApp,
   client: RelayClient,
   cfg: RoomCfg,
   status: { set: (t: string) => void; close: () => void },
+  isHost: boolean,
 ): Promise<void> {
-  const isHost = client.slot === 0;
   const index = new PartIndex(app.db);
 
   // ---- roster assembly (host presses start; everyone receives it) --------
@@ -250,22 +655,20 @@ async function onlineTournament(
       }
     };
   });
+  status.close();
+  const res = await lobbyScreen(app, client, ZH.menu.tournament, {
+    isHost,
+    canStart: (players) => players.filter(Boolean).length + cfg.botCount >= 2,
+    hint: `${ZH.mode.countHint}｜${ZH.mode.botCount}：＋${cfg.botCount}`,
+    guestWait: isHost ? null : begun,
+  });
+  if (res === "back") return;
   if (isHost) {
-    await new Promise<void>((resolve) => {
-      status.set(`${ZH.waitingOpponent}（${ZH.tapToContinue}）`);
-      const startBtn = button(ZH.start, () => resolve(), "btn primary");
-      startBtn.style.cssText = "position:fixed;bottom:18vh;left:25vw;right:25vw;z-index:30";
-      document.body.append(startBtn);
-      const cleanup = (): void => startBtn.remove();
-      void begun.finally(cleanup);
-      setTimeout(() => {
-        /* host can start any time; button removed when tbegin sent */
-      }, 0);
-    });
+    // participants = every phone in the room right now + the bot padding
     const humans = client.players.map((n, i) => ({ n, i })).filter((x) => x.n);
-    const total = Math.max(cfg.totalSlots, humans.length);
+    const total = humans.length + cfg.botCount;
     tSlots = [];
-    for (const h of humans.slice(0, total)) {
+    for (const h of humans) {
       tSlots.push({
         name: h.n,
         kind: "human",
@@ -288,9 +691,7 @@ async function onlineTournament(
     }
     client.send({ t: "tbegin", slots: tSlots } as GameMsg);
   }
-  await begun.catch(() => {});
   if (tSlots.length === 0) return;
-  status.close();
 
   const tour = new Tournament(tSlots, "singleElim");
   const myRelay = client.slot;
@@ -314,7 +715,7 @@ async function onlineTournament(
         client.send({ t: "tres", matchId: match.id, winner: match.a! } as GameMsg);
         tour.report(match.id, match.a!);
         continue;
-      } else if (iAmA || iAmB) {
+      } else {
         client.send({ t: "tres", matchId: match.id, winner: iAmA ? match.b! : match.a! } as GameMsg);
         tour.report(match.id, iAmA ? match.b! : match.a!);
         continue;
@@ -336,8 +737,6 @@ async function onlineTournament(
         };
       });
       tour.report(match.id, winSlot);
-      const st = statusScreen(app, `${a.name} vs ${b.name}｜${ZH.mode.waitingHost}`);
-      st.close();
       continue;
     }
   }
