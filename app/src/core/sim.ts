@@ -93,6 +93,8 @@ const T = {
   burstMinImpulse: 0.12,
   jointWindow: 0.9, // |wrap(contactAngle×N)| below this = on a joint (~29%)
   hitEventGapTicks: 6,
+  /** below this combined impulse a contact is resting/settling, not a clash */
+  hitEventMinImpulse: 0.0025,
   // walls / casing — hard smashes loft beys into the clear casing (clank
   // + knocked back in), or out through its loose gaps
   wallSpinKick: 0.0002,
@@ -559,9 +561,13 @@ function collidePair(w: WorldState, cfg: WorldConfig, i: number, j: number): voi
 
   b1.contacted = true;
   b2.contacted = true;
-  if (w.tick - w.lastHitTick >= T.hitEventGapTicks) {
+  // A clash needs a real impact behind it. This used to fire on the tick gap
+  // alone, so two spent beys resting against each other overlapped every
+  // tick and threw sparks and clang forever after the match was decided.
+  const clash = jn + smash1 + smash2;
+  if (clash > T.hitEventMinImpulse && w.tick - w.lastHitTick >= T.hitEventGapTicks) {
     w.lastHitTick = w.tick;
-    pushEvent(w, "hit", i, jn + smash1 + smash2);
+    pushEvent(w, "hit", i, clash);
   }
 }
 

@@ -129,6 +129,39 @@ describe("battle outcomes", () => {
     expect(w.finish?.winner).toBe(0);
   });
 
+  it("spent beys resting in contact stop clashing", () => {
+    // After a match is decided the view keeps stepping the world so the
+    // action does not freeze. Two dead-still beys touching each other still
+    // overlap every tick, and the clash event used to fire on a tick gap
+    // alone — so sparks and clang went on forever.
+    const c = cfg(baseParams(), baseParams());
+    const w = createWorld(c);
+    const [a, b] = w.beys as [(typeof w.beys)[number], (typeof w.beys)[number]];
+    for (const s of [a, b]) {
+      s.airborne = false;
+      s.z = 0;
+      s.vz = 0;
+      s.vx = 0;
+      s.vy = 0;
+      s.omega = 0.5; // spun down to a standstill
+    }
+    // park them overlapping, as two settled beys leaning together
+    const touch = c.beys[0]!.radiusM + c.beys[1]!.radiusM;
+    a.x = -touch * 0.45;
+    a.y = 0;
+    b.x = touch * 0.45;
+    b.y = 0;
+
+    w.events.length = 0;
+    for (let i = 0; i < 2400; i++) step(w, c, STADIUM_BX10, true); // 10 s afterglow
+    expect(w.events.filter((e) => e.kind === "hit")).toHaveLength(0);
+  });
+
+  it("real clashes still register as hits", () => {
+    const w = simulateBattle(cfg(baseParams({ attackFactor: 3 }), baseParams(), 5), STADIUM_BX10);
+    expect(w.events.filter((e) => e.kind === "hit").length).toBeGreaterThan(0);
+  });
+
   it("a ratchet's tooth count is its burst resistance", () => {
     // The ratchet code is the geometry: more protrusions share the latch
     // load, so a 9-60 must survive far longer than a 3-60 under the same
