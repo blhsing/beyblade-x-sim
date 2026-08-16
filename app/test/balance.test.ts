@@ -29,10 +29,18 @@ interface Tally {
   totalSec: number;
   n: number;
   winsA: number;
+  /** action metrics: totals across the batch */
+  hits: number;
+  slings: number;
+  trips: number;
+  coverHits: number;
 }
 
 function battleBatch(a: BotProfile, b: BotProfile, n: number, seed0: number): Tally {
-  const t: Tally = { spin: 0, over: 0, burst: 0, xtreme: 0, draw: 0, ownFinish: 0, totalSec: 0, n, winsA: 0 };
+  const t: Tally = {
+    spin: 0, over: 0, burst: 0, xtreme: 0, draw: 0, ownFinish: 0,
+    totalSec: 0, n, winsA: 0, hits: 0, slings: 0, trips: 0, coverHits: 0,
+  };
   const deckA = botBuildDeck(db, a, RULES_OFFICIAL, seed0 + 1)[0]!;
   const deckB = botBuildDeck(db, b, RULES_OFFICIAL, seed0 + 2)[0]!;
   const rcA = resolveCombo(index, deckA);
@@ -55,6 +63,12 @@ function battleBatch(a: BotProfile, b: BotProfile, n: number, seed0: number): Ta
       STADIUM_BX10,
     );
     t.totalSec += w.tick / TICKS_PER_SECOND;
+    for (const e of w.events) {
+      if (e.kind === "hit") t.hits++;
+      else if (e.kind === "dashEnd") t.slings++;
+      else if (e.kind === "trip") t.trips++;
+      else if (e.kind === "coverHit") t.coverHits++;
+    }
     if (w.finish) {
       t[w.finish.type]++;
       if (w.finish.ownFinish) t.ownFinish++;
@@ -75,12 +89,9 @@ void bots;
 describe("balance batches (also the tuning harness — see console table)", () => {
   const N = 60;
 
-  it("attack vs stamina: KOs dominate over getting outspun; battles are short", () => {
+  it("attack vs stamina: lively KO-driven battles, not spin-out carousels", () => {
     const t = battleBatch(attacker, staminaBot, N, 4000);
     console.log("attack vs stamina:", JSON.stringify(t));
-    const koWinsForA =
-      t.over + t.xtreme + t.burst - (t.n - t.winsA - t.spin - t.draw > 0 ? 0 : 0);
-    void koWinsForA;
     const avgSec = t.totalSec / t.n;
     expect(avgSec).toBeGreaterThan(3);
     expect(avgSec).toBeLessThan(120);
@@ -88,6 +99,11 @@ describe("balance batches (also the tuning harness — see console table)", () =
     expect(t.over + t.xtreme + t.burst).toBeGreaterThan(N * 0.25);
     // self-KO without contact should be uncommon
     expect(t.ownFinish).toBeLessThan(N * 0.2);
+    // ACTION: real clashes and rail slings every battle on average
+    expect(t.hits / N).toBeGreaterThan(2.5);
+    expect(t.slings / N).toBeGreaterThan(0.8);
+    // trips + casing bumps exist as events across the batch
+    expect(t.trips + t.coverHits).toBeGreaterThan(N * 0.1);
   });
 
   it("stamina vs stamina: mostly spin finishes, long battles", () => {

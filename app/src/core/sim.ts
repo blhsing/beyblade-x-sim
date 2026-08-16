@@ -34,44 +34,53 @@ const T = {
   launchVz: -0.25, // slight downward push from the launcher
   landBounceMinVz: 0.8, // faster impacts than this bounce once
   landBounceKeep: 0.22,
-  // motion
-  driftAccel: 1.35,
-  driftSatSpeed: 0.6,
+  // motion — drift ceiling scales with grip: attack tips orbit fast and
+  // climb OUT to the rack; stamina/defense tips settle toward the center
+  driftAccel: 1.6,
+  driftSatBase: 0.45,
+  driftSatGrip: 0.55,
   lowSpinThreshold: 120,
   lowSpinDrag: 1.6,
   spinDecayBase: 130,
   spinDecaySpeed: 26,
   // rail — a real rack-and-pinion: the bit's bottom gear (r≈4 mm) meshes
-  // with the rack and drives the bey toward synchronous speed v = ω·r_gear
-  railMinSpeed: 0.2,
-  railTicks: 60,
+  // with the rack and drives the bey toward synchronous speed v = ω·r_gear.
+  // Riding is SUSTAINED (the X-gen core loop): attackers lap the bowl on
+  // the rack until a concave dip slings them across the center.
+  railMinSpeed: 0.45,
+  railRideMinDash: 1.0, // only dash-capable bits (flat/rubber/gear) mesh
+  railTicks: 240,
   gearRadius: 0.004,
-  railMeshAccel: 26, // m/s² toward synchronous speed while meshed
-  railMaxSpeed: 2.6,
+  railMeshAccel: 7, // dash runs BUILD over ~a lap, not instantly
+  railMaxSpeed: 1.9,
   railSpring: 60,
-  railCooldownTicks: 96,
+  railCooldownTicks: 120, // a dash run is an event, not a machine gun
   railFlingRadial: 0.4,
+  dipSlingSpeed: 1.3, // riding a dip faster than this slings the bey inward
+  dipSlingBoost: 0.6,
+  dipRadiusFrac: 0.94, // "inside a dip" = rail radius below rRail×this
   railTripSpeed: 0.55, // radial slam speed that trips instead of meshing
   tripSpinKeep: 0.82,
   tripClicks: 0.7,
   gearEventEvery: 10,
   // the rack is a raised ridge: it physically holds beys in unless they
   // arrive hard enough to hop over it
-  railBreakSpeed: 0.85,
+  railBreakSpeed: 1.5, // must clear an attacker's ~1 m/s cruise + bounce
   railBumpRestitution: 0.35,
   railBarrierInner: 0.75, // barrier sits at railR - halfWidth×this
   // collisions (rim slip ≈ 16 m/s at full spin → smash impulse ~0.01–0.02
   // kg·m/s → Δv ~0.3–0.5 m/s and spin loss ~15–40 rad/s per solid hit)
-  restitution: 0.25,
-  smashScale: 0.0012,
+  restitution: 0.28,
+  smashScale: 0.0013,
   recoilShare: 0.45,
   spinLossK: 0.5,
   burstNormalK: 2.2,
   burstSmashK: 9,
   burstScale: 650,
   hitEventGapTicks: 6,
-  // walls
-  wallSpinKick: 0.00012,
+  // walls / casing — hard smashes loft beys into the clear casing (clank
+  // + knocked back in), or out through its loose gaps
+  wallSpinKick: 0.0002,
   overTopSpeed: 1.9,
 };
 
@@ -167,6 +176,7 @@ function stepBey(
   i: 0 | 1,
   xtremeDash: boolean,
   clicksMax: number,
+  other: BeyState,
 ): void {
   const r = Math.sqrt(b.x * b.x + b.y * b.y);
   const ur = r > 1e-9 ? { x: b.x / r, y: b.y / r } : { x: 1, y: 0 };
@@ -217,9 +227,10 @@ function stepBey(
   const sP = dsin(petal);
   const dirX = tang.x * cP - tang.y * sP;
   const dirY = tang.x * sP + tang.y * cP;
+  const satSpeed = T.driftSatBase + p.grip * T.driftSatGrip;
   const driftGain =
     p.grip * T.driftAccel * Math.min(1, absOmega / 600) *
-    Math.max(0, 1 - speed / T.driftSatSpeed);
+    Math.max(0, 1 - speed / satSpeed);
   ax += dirX * driftGain;
   ay += dirY * driftGain;
 
@@ -250,6 +261,12 @@ function stepBey(
     for (const arc of s.railArcs) {
       if (!inArc(arc, angle)) continue;
       const vr = b.vx * ur.x + b.vy * ur.y; // outward radial speed
+      if (vr >= T.railBreakSpeed) {
+        // launched clean over the ridge by a huge hit — teeth just graze
+        b.omega *= 0.95;
+        pushEvent(w, "gear", i, vr);
+        break;
+      }
       if (vr > T.railTripSpeed) {
         // slammed into the rack: teeth clash instead of meshing — the bey
         // is tripped: bounced off, destabilized, and takes a burst click
@@ -262,7 +279,8 @@ function stepBey(
         b.omega *= T.tripSpinKeep;
         applyBurst(w, b, p, i, (T.tripClicks * 120) / p.burstRes, clicksMax);
         pushEvent(w, "trip", i, vr);
-      } else {
+      } else if (p.dashFactor >= T.railRideMinDash) {
+        // only grippy dash bits mesh and ride; others just bump the ridge
         b.railTicks = T.railTicks;
         const ct = railTangentAt(s, angle);
         const vt = b.vx * ct.x + b.vy * ct.y;
@@ -274,9 +292,9 @@ function stepBey(
   }
   if (b.railTicks > 0) {
     const railR = railRadiusAt(s, angle);
-    const inBand =
-      Math.abs(r - railR) < s.railHalfWidth * 2.5 &&
-      s.railArcs.some((a) => inArc(a, angle));
+    // while meshed the teeth are a positional constraint — only leaving the
+    // rack's arc (or a dip sling / mesh end) releases the bey
+    const inBand = s.railArcs.some((a) => inArc(a, angle));
     if (!inBand) {
       // flung off the rack — dart across the stadium
       b.railTicks = -T.railCooldownTicks;
@@ -291,17 +309,44 @@ function stepBey(
       const meshEff = 0.45 + 0.55 * Math.min(1, p.dashFactor / 1.6);
       const vSync = Math.min(T.railMaxSpeed, absOmega * T.gearRadius) * meshEff;
       const vAlong = (b.vx * ct.x + b.vy * ct.y) * b.railDir;
-      const dv = Math.min(Math.max(0, vSync - vAlong), T.railMeshAccel * DT);
-      b.vx += ct.x * b.railDir * dv;
-      b.vy += ct.y * b.railDir * dv;
-      // driving the rack costs spin (energy conservation, loosely)
-      b.omega -= Math.sign(b.omega) * dv * 6;
-      // radial spring keeps the gear meshed with the curved rack
-      const dr = r - railR;
-      b.vx += -ur.x * dr * T.railSpring * DT;
-      b.vy += -ur.y * dr * T.railSpring * DT;
-      if (b.railTicks % T.gearEventEvery === 0) pushEvent(w, "gear", i, vAlong);
-      if (b.railTicks === 0) b.railTicks = -T.railCooldownTicks;
+      // dip sling: riding through a concave section at speed hurls the bey
+      // across the bowl AT THE OPPONENT — the signature X attack run
+      if (railR < s.rRail * T.dipRadiusFrac && vAlong > T.dipSlingSpeed) {
+        b.railTicks = -T.railCooldownTicks;
+        let dx = -ur.x;
+        let dy = -ur.y;
+        if (other.alive && !other.airborne) {
+          const ox = other.x - b.x;
+          const oy = other.y - b.y;
+          const od = Math.sqrt(ox * ox + oy * oy);
+          if (od > 1e-6) {
+            dx = ox / od;
+            dy = oy / od;
+          }
+        }
+        b.vx += dx * T.dipSlingBoost * p.dashFactor;
+        b.vy += dy * T.dipSlingBoost * p.dashFactor;
+        pushEvent(w, "dashEnd", i, vAlong);
+      } else {
+        const dv = Math.min(Math.max(0, vSync - vAlong), T.railMeshAccel * DT);
+        b.vx += ct.x * b.railDir * dv;
+        b.vy += ct.y * b.railDir * dv;
+        // driving the rack costs spin (energy conservation, loosely)
+        b.omega -= Math.sign(b.omega) * dv * 6;
+        // gear teeth = holonomic constraint: snap to the rack curve and
+        // absorb radial velocity (stable at any riding speed)
+        const rNow = Math.sqrt(b.x * b.x + b.y * b.y);
+        if (rNow > 1e-9) {
+          const k = railR / rNow;
+          b.x *= k;
+          b.y *= k;
+        }
+        const vrM = b.vx * ur.x + b.vy * ur.y;
+        b.vx -= vrM * ur.x;
+        b.vy -= vrM * ur.y;
+        if (b.railTicks % T.gearEventEvery === 0) pushEvent(w, "gear", i, vAlong);
+        if (b.railTicks === 0) b.railTicks = -T.railCooldownTicks;
+      }
     }
   }
 
@@ -422,16 +467,16 @@ function collide(w: WorldState, cfg: WorldConfig): void {
     b2.vy += (jn / p2.massKg) * n.y;
   }
 
-  // smash impulses from rim slip (same-direction spins collide hardest)
+  // smash impulses from rim slip (same-direction spins collide hardest).
+  // Heavy-tailed magnitude: most contacts are tooth grazes, a few are
+  // full-face bombs — that top end is what actually ejects beys.
   const vSlip = Math.abs(b1.omega * p1.radiusM + b2.omega * p2.radiusM) * 0.5;
-  const smash1 =
-    vSlip * T.smashScale * p1.attackFactor *
-    (1 - p1.attackVariance / 2 + p1.attackVariance * rand(w)) *
-    p2.defenseFactor;
-  const smash2 =
-    vSlip * T.smashScale * p2.attackFactor *
-    (1 - p2.attackVariance / 2 + p2.attackVariance * rand(w)) *
-    p1.defenseFactor;
+  const g1 = rand(w);
+  const g2 = rand(w);
+  const heavy1 = 0.22 + (0.9 + p1.attackVariance) * g1 * g1;
+  const heavy2 = 0.22 + (0.9 + p2.attackVariance) * g2 * g2;
+  const smash1 = vSlip * T.smashScale * p1.attackFactor * heavy1 * p2.defenseFactor;
+  const smash2 = vSlip * T.smashScale * p2.attackFactor * heavy2 * p1.defenseFactor;
   const d1 = p1.spinDir;
   const d2 = p2.spinDir;
   b2.vx += (smash1 / p2.massKg) * t.x * d1;
@@ -540,8 +585,8 @@ export function step(w: WorldState, cfg: WorldConfig, s: StadiumSpec): void {
   if (w.finish || w.draw) return;
   w.tick++;
   const [b1, b2] = w.beys;
-  if (b1.alive) stepBey(w, s, b1, cfg.beys[0], 0, cfg.xtremeDashEnabled, cfg.clicksMax);
-  if (b2.alive) stepBey(w, s, b2, cfg.beys[1], 1, cfg.xtremeDashEnabled, cfg.clicksMax);
+  if (b1.alive) stepBey(w, s, b1, cfg.beys[0], 0, cfg.xtremeDashEnabled, cfg.clicksMax, b2);
+  if (b2.alive) stepBey(w, s, b2, cfg.beys[1], 1, cfg.xtremeDashEnabled, cfg.clicksMax, b1);
   collide(w, cfg);
   resolveFinish(w, cfg);
 }

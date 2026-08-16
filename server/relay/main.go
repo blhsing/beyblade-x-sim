@@ -122,8 +122,10 @@ func (h *hub) drop(r *room) {
 }
 
 type envelope struct {
-	Type    string          `json:"type"`
-	From    int             `json:"from,omitempty"`
+	Type string `json:"type"`
+	// NOT omitempty: the host is slot 0, and omitting from:0 made joiners
+	// (filtering on host messages) drop every accept/deck/seed/launch
+	From    int             `json:"from"`
 	Name    string          `json:"name,omitempty"`
 	Slot    int             `json:"slot"`
 	Players []string        `json:"players,omitempty"`

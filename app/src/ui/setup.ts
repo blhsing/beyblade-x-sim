@@ -256,8 +256,9 @@ export function showQuickSetup(app: GameApp): void {
   // rules changes (e.g. switching to 3on3) re-render the deck pickers
   const renderSlots = (): void => {
     slotsBox.replaceChildren(
-      // single-player: P1 is the signed-in human, the opponent is a bot
-      slotEditor(app, a, fmt(ZH.playerN, { n: 1 }), () => showQuickSetup(app), "human"),
+      // P1 defaults to the signed-in human but may be a bot too — with both
+      // slots as bots this is effectively a self-playing demo mode
+      slotEditor(app, a, fmt(ZH.playerN, { n: 1 }), () => showQuickSetup(app)),
       slotEditor(app, b, fmt(ZH.playerN, { n: 2 }), () => showQuickSetup(app), "bot"),
     );
   };
@@ -325,7 +326,7 @@ export function showTournamentSetup(app: GameApp): void {
           s,
           fmt(ZH.playerN, { n: i + 1 }),
           () => showTournamentSetup(app),
-          i === 0 ? "human" : "bot", // single-player: only P1 is human
+          i === 0 ? undefined : "bot", // P1 human or bot (all-bot = demo)
         ),
       ),
     );

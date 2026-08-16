@@ -140,7 +140,7 @@ describe("battle outcomes", () => {
     b0.x = 0;
     b0.y = -0.09;
     b0.vx = 0;
-    b0.vy = -1.5;
+    b0.vy = -1.8; // above railBreakSpeed: sails over the rack into the pocket
     for (let i = 0; i < 240 && !w.finish; i++) step(w, c, STADIUM_BX10);
     expect(w.finish?.type).toBe("xtreme");
     expect(w.finish?.winner).toBe(1);

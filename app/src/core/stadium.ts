@@ -87,7 +87,7 @@ export const STADIUM_BX10: StadiumSpec = {
     { angleCenter: 0.61, halfWidth: 0.22, kind: "over" },
   ],
   wallRestitution: 0.52,
-  exitSpeed: 0.45,
+  exitSpeed: 0.8,
   deckW: 0.455,
   deckH: 0.44,
   bodyColor: 0x27335f,
@@ -132,7 +132,7 @@ export const STADIUM_BX32: StadiumSpec = {
     { angleCenter: 0.79, halfWidth: 0.24, kind: "over" },
   ],
   wallRestitution: 0.52,
-  exitSpeed: 0.45,
+  exitSpeed: 0.8,
   deckW: 0.56,
   deckH: 0.47,
   bodyColor: 0xdfe3ee,
@@ -208,6 +208,8 @@ export function railTangentAt(s: StadiumSpec, theta: number): { x: number; y: nu
 }
 
 export function inArc(arc: RailArc, angle: number): boolean {
+  // full-circle arcs (e.g. {-π, π}) must not collapse under wrapping
+  if (arc.end - arc.start >= 6.283185 - 1e-6) return true;
   const a = wrapAngle(angle);
   const s = wrapAngle(arc.start);
   const e = wrapAngle(arc.end);
