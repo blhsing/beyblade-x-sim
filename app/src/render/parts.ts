@@ -73,7 +73,7 @@ interface SectionPt {
  * real curvature between control points instead of hard facets — moulded
  * parts have radiused edges everywhere and the highlight rolls across them.
  */
-function refineSection(section: SectionPt[], per = 7): SectionPt[] {
+function refineSection(section: SectionPt[], per = 4): SectionPt[] {
   const pts = section.map((p) => new THREE.Vector2(p.f, p.z));
   const curve = new THREE.SplineCurve(pts);
   // Catmull-Rom overshoots at corners, which would quietly inflate a part

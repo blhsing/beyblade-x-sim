@@ -101,17 +101,22 @@ describe("real per-part dimensions drive the mesh", () => {
 });
 
 describe("swept solids", () => {
+  // a blade-like section: crown, sloped top face, striking rim, undercut
   const section = [
-    { f: 0, z: 0.01 },
-    { f: 1, z: 0.01 },
-    { f: 1, z: 0 },
-    { f: 0, z: 0 },
+    { f: 0, z: 0.0112 },
+    { f: 0.42, z: 0.0112 },
+    { f: 0.82, z: 0.01 },
+    { f: 1, z: 0.0077 },
+    { f: 1, z: 0.004 },
+    { f: 0.86, z: 0.002 },
+    { f: 0.5, z: 0.0014 },
+    { f: 0, z: 0.0024 },
   ];
 
   it("is a closed high-polygon surface with usable normals", () => {
     const g = sweepSolid(section, () => 0.024);
     const tris = g.getIndex()!.count / 3;
-    expect(tris).toBeGreaterThan(20000); // high-poly by request
+    expect(tris).toBeGreaterThan(25000); // high-poly by request
     const n = g.getAttribute("normal");
     expect(n.count).toBe(g.getAttribute("position").count);
     for (let i = 0; i < n.count; i += 977) {
