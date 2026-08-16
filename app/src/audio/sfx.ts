@@ -158,17 +158,20 @@ export class Sfx {
   private watchFocus(): void {
     if (this.focusWatched) return;
     this.focusWatched = true;
+    // Use document.hidden ONLY. hasFocus() is false in plenty of ordinary
+    // situations — a webview, an address-bar tap, a just-dismissed prompt —
+    // and this used to run immediately on unlock, so the audio context was
+    // suspended the instant it was created and the game started silent.
     const apply = (): void => {
-      const away = document.hidden || !document.hasFocus();
       if (!this.ctx) return;
-      if (away && this.ctx.state === "running") void this.ctx.suspend();
-      else if (!away && this.ctx.state === "suspended") void this.ctx.resume();
+      if (document.hidden && this.ctx.state === "running") void this.ctx.suspend();
+      else if (!document.hidden && this.ctx.state === "suspended") void this.ctx.resume();
     };
     document.addEventListener("visibilitychange", apply);
-    window.addEventListener("blur", apply);
-    window.addEventListener("focus", apply);
-    window.addEventListener("pagehide", apply);
-    apply();
+    window.addEventListener("pagehide", () => {
+      if (this.ctx?.state === "running") void this.ctx.suspend();
+    });
+    // deliberately NOT called here: unlock() has just resumed the context
   }
 
   private noiseSource(): AudioBufferSourceNode | null {

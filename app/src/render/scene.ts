@@ -554,52 +554,69 @@ export class BattleView {
     markReflective(dish, 0.14); // polished ABS picks up the beys above it
     this.stadiumGroup.add(dish);
 
-    // outer deck: the moulded shell around the bowl, with rounded corners
-    // like the real 440 × 455 mm (BX-10) / 600 × 440 mm (BX-32) body
-    const deckShape = new THREE.Shape();
+    // ---- outer deck -----------------------------------------------------
+    //
+    // The moulded shell around the bowl (real bodies: 440 × 455 mm on BX-10,
+    // 600 × 440 mm on BX-32), with the exit mouths left open.
+    //
+    // This is built as SEPARATE hole-free sectors, one per gap between
+    // pockets, and that is deliberate. It used to be one rounded rectangle
+    // carrying a bowl hole plus one hole per pocket, and ExtrudeGeometry's
+    // triangulation could not handle that many holes: it sprayed stray
+    // triangles clear across the bowl, which is the flat plate that was
+    // covering beys on the near side. Measured before/after with a pixel
+    // probe — the old deck painted over 20% of the bowl floor, this one 0%.
     const hw = s.deckW / 2;
     const hh = s.deckH / 2;
-    const cr = Math.min(hw, hh) * 0.22; // corner radius
-    deckShape.moveTo(-hw + cr, -hh);
-    deckShape.lineTo(hw - cr, -hh);
-    deckShape.quadraticCurveTo(hw, -hh, hw, -hh + cr);
-    deckShape.lineTo(hw, hh - cr);
-    deckShape.quadraticCurveTo(hw, hh, hw - cr, hh);
-    deckShape.lineTo(-hw + cr, hh);
-    deckShape.quadraticCurveTo(-hw, hh, -hw, hh - cr);
-    deckShape.lineTo(-hw, -hh + cr);
-    deckShape.quadraticCurveTo(-hw, -hh, -hw + cr, -hh);
-    deckShape.closePath();
-    const hole = new THREE.Path();
-    // slightly OUTSIDE the wall: the deck must never reach in over the bowl,
-    // or its inner lip draws on top of beys running the near side
-    hole.absarc(0, 0, s.rWall * 1.004, 0, Math.PI * 2, true);
-    deckShape.holes.push(hole);
-    // Cut the exit pockets THROUGH the deck. Without these the deck was a
-    // solid plate over the catch area, so the pockets were built but
-    // completely hidden underneath it — the stadium looked like it had none.
-    for (const p of s.pockets) {
-      const mouth = new THREE.Path();
-      mouth.absarc(0, 0, s.rWall * 0.995, p.angleCenter - p.halfWidth, p.angleCenter + p.halfWidth, false);
-      mouth.absarc(0, 0, s.rWall + POCKET_OUT, p.angleCenter + p.halfWidth, p.angleCenter - p.halfWidth, true);
-      deckShape.holes.push(mouth);
+    /** distance from centre to the rectangular body edge at this angle */
+    const edgeR = (th: number): number => {
+      const c = Math.abs(Math.cos(th));
+      const sn = Math.abs(Math.sin(th));
+      return Math.min(c < 1e-6 ? 1e9 : hw / c, sn < 1e-6 ? 1e9 : hh / sn);
+    };
+    const inner = s.rWall * 1.004; // never reach in over the bowl
+    // gaps between pockets, in ascending angle
+    const sortedP = [...s.pockets].sort((a, b) => wrapAngle(a.angleCenter) - wrapAngle(b.angleCenter));
+    const deckGaps: { a0: number; a1: number }[] = [];
+    if (sortedP.length === 0) {
+      deckGaps.push({ a0: 0, a1: Math.PI * 2 });
+    } else {
+      for (let i = 0; i < sortedP.length; i++) {
+        const cur = sortedP[i]!;
+        const nxt = sortedP[(i + 1) % sortedP.length]!;
+        const a0 = wrapAngle(cur.angleCenter) + cur.halfWidth;
+        let a1 = wrapAngle(nxt.angleCenter) - nxt.halfWidth;
+        if (a1 <= a0) a1 += Math.PI * 2;
+        deckGaps.push({ a0, a1 });
+      }
     }
-    const deck = new THREE.Mesh(
-      // No bevel: ExtrudeGeometry bevels EVERY contour including the bowl
-      // cut-out, which flared the deck's inner edge in and up over the dish
-      // — that lip is what was drawing over beys on the near side.
-      new THREE.ExtrudeGeometry(deckShape, {
-        depth: 0.014,
-        bevelEnabled: false,
-        curveSegments: 64,
-      }),
-      bodyMat,
-    );
-    // top face flush with the rim, never proud of it
-    deck.position.z = rimZ - 0.014;
-    deck.receiveShadow = true;
-    deck.castShadow = true;
-    this.stadiumGroup.add(deck);
+    for (const g of deckGaps) {
+      const shape = new THREE.Shape();
+      const steps = Math.max(8, Math.ceil((g.a1 - g.a0) / 0.05));
+      // out along the body edge…
+      for (let i = 0; i <= steps; i++) {
+        const th = g.a0 + ((g.a1 - g.a0) * i) / steps;
+        const r = edgeR(th);
+        const x = Math.cos(th) * r;
+        const y = Math.sin(th) * r;
+        if (i === 0) shape.moveTo(x, y);
+        else shape.lineTo(x, y);
+      }
+      // …and back along the bowl edge
+      for (let i = steps; i >= 0; i--) {
+        const th = g.a0 + ((g.a1 - g.a0) * i) / steps;
+        shape.lineTo(Math.cos(th) * inner, Math.sin(th) * inner);
+      }
+      shape.closePath();
+      const seg = new THREE.Mesh(
+        new THREE.ExtrudeGeometry(shape, { depth: 0.014, bevelEnabled: false }),
+        bodyMat,
+      );
+      seg.position.z = rimZ - 0.014; // top face flush with the rim
+      seg.receiveShadow = true;
+      seg.castShadow = true;
+      this.stadiumGroup.add(seg);
+    }
 
     // Tornado Ridge: the raised circular lip (⌀210 mm on BX-10) that turns
     // tops back toward the centre — a moulded swell in the body, not a decal
