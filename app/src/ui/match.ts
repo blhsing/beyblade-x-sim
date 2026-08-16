@@ -318,8 +318,27 @@ export async function runMatch(
   let hud = scoreboard(app, engine, names, giveUp);
   document.body.append(hud);
 
+  // keeps the stadium alive (winner spinning, physics running) while
+  // banners/result panels are up — motion never freezes on a decision
+  const startAfterglow = (world: WorldState, worldCfg: WorldConfig): void => {
+    let acc = 0;
+    app.frameHook = (dt) => {
+      acc += dt;
+      let steps = 0;
+      while (acc > DT && steps < 1200) {
+        step(world, worldCfg, app.stadium(), true);
+        acc -= DT;
+        steps++;
+      }
+      app.view.consumeEvents(world);
+      app.view.update(world, dt);
+    };
+  };
+
   await flashBanner(ZH.battleStart, 1000);
   const replayBattles: ReplayBattle[] = [];
+  let lastWorld: WorldState | null = null;
+  let lastCfg: WorldConfig | null = null;
   while (engine.winner === null) {
     const combo0 = engine.deckOf(0);
     const combo1 = engine.deckOf(1);
@@ -327,6 +346,8 @@ export async function runMatch(
     const rc1 = resolveCombo(app.index, combo1);
     const p0 = deriveBeyParams(rc0, { label: app.comboLabel(combo0) });
     const p1 = deriveBeyParams(rc1, { label: app.comboLabel(combo1) });
+    // stop any previous battle's afterglow before the next countdown
+    app.frameHook = null;
     // no beys in the stadium during the countdown — they exist only in the
     // launchers, and drop in physically once launched (sim airborne phase)
     app.view.clearBeys();
@@ -361,6 +382,9 @@ export async function runMatch(
       abort: () => abortFlag.requested,
     });
     if (abortFlag.requested) break;
+    lastWorld = world;
+    lastCfg = cfg;
+    startAfterglow(world, cfg); // action continues under the finish banner
 
     if (world.finish) {
       const f = world.finish;
@@ -393,7 +417,6 @@ export async function runMatch(
 
   const winner = engine.winner ?? 0;
   hud.remove();
-  app.view.clearBeys();
   recordMatch({
     ts: Date.now(),
     mode,
@@ -414,17 +437,40 @@ export async function runMatch(
   for (const i of [0, 1] as const) {
     if (slots[i].kind === "human") bumpProfile(names[i], winner === i);
   }
-  app.startMenuCinema(); // background show resumes behind the result panel
-  const o = overlay();
+
+  // the stadium stays LIVE behind the result panel (winner still spinning
+  // via afterglow) until the player chooses; if the match ended without a
+  // final world (mislaunch penalty), fall back to the menu cinema
+  if (!lastWorld || !lastCfg) {
+    app.view.clearBeys();
+    app.startMenuCinema();
+  }
+  const leave = (o: HTMLElement): void => {
+    app.frameHook = null;
+    app.view.clearBeys();
+    app.startMenuCinema();
+    o.remove();
+    onDone(winner);
+  };
+  const o = overlay("transparent"); // see the ongoing action clearly
   const panel = el("div", { class: "panel" });
   panel.append(
     el("div", { class: "title", style: "font-size:24px" }, fmt(ZH.winner, { name: names[winner] })),
     el("div", { class: "scoreboard" }, `${engine.scores[0]}：${engine.scores[1]}`),
-    button(ZH.next, () => {
-      o.remove();
-      onDone(winner);
-    }, "btn primary"),
   );
+  const canRematch = !hooks.launches && mode === "快速對戰"; // single-player quick match
+  if (canRematch) {
+    panel.append(
+      button(ZH.rematch, () => {
+        app.frameHook = null;
+        o.remove();
+        void runMatch(app, slots, onDone, hooks, mode);
+      }, "btn primary"),
+      button(ZH.back, () => leave(o)),
+    );
+  } else {
+    panel.append(button(ZH.next, () => leave(o), "btn primary"));
+  }
   o.append(panel);
   app.setScreen(o);
 }

@@ -13,9 +13,9 @@
 import * as THREE from "three";
 
 /** stadium-center distance from the phone's lying position (m) */
-const TABLE_DISTANCE = 0.32;
+const TABLE_DISTANCE = 0.35;
 /** assumed hand-held camera position in W once the phone is picked up */
-const HOLD_POS = new THREE.Vector3(0, -TABLE_DISTANCE - 0.05, 0.34);
+const HOLD_POS = new THREE.Vector3(0, -TABLE_DISTANCE - 0.05, 0.36);
 
 const EULER_ORDER = "YXZ";
 const Q_SCREEN_TILT = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2); // -90° X

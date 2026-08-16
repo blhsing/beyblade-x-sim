@@ -330,7 +330,7 @@ export class BattleView {
   mode: CameraMode = "orbit";
   private orbitYaw = -Math.PI / 2;
   private orbitPitch = 0.9;
-  private orbitDist = 0.5;
+  private orbitDist = 0.56; // frames the true-scale (wider) bowls
   launchSide: 0 | 1 = 0;
   /** silences hums/sfx/haptics (menu-background battles) */
   audioMuted = false;

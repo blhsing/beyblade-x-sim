@@ -57,7 +57,7 @@ const T = {
   railCooldownTicks: 120, // a dash run is an event, not a machine gun
   railFlingRadial: 0.4,
   dipSlingSpeed: 1.3, // riding a dip faster than this slings the bey inward
-  dipSlingBoost: 0.6,
+  dipSlingBoost: 0.55,
   dipRadiusFrac: 0.94, // "inside a dip" = rail radius below rRail×this
   railTripSpeed: 0.55, // radial slam speed that trips instead of meshing
   tripSpinKeep: 0.82,
@@ -65,7 +65,7 @@ const T = {
   gearEventEvery: 10,
   // the rack is a raised ridge: it physically holds beys in unless they
   // arrive hard enough to hop over it
-  railBreakSpeed: 1.5, // must clear an attacker's ~1 m/s cruise + bounce
+  railBreakSpeed: 1.7, // only true smashes clear the ridge
   railBumpRestitution: 0.35,
   railBarrierInner: 0.75, // barrier sits at railR - halfWidth×this
   // collisions (rim slip ≈ 16 m/s at full spin → smash impulse ~0.01–0.02
@@ -321,8 +321,13 @@ function stepBey(
         let dx = -ur.x;
         let dy = -ur.y;
         if (other.alive && !other.airborne) {
-          const ox = other.x - b.x;
-          const oy = other.y - b.y;
+          // lead the target: aim at where the opponent will BE over the
+          // crossing time, not where it is (misses caused self-ejections)
+          const cross = Math.max(0.05, vAlong + T.dipSlingBoost * p.dashFactor);
+          const dist0 = Math.sqrt((other.x - b.x) ** 2 + (other.y - b.y) ** 2);
+          const tFly = dist0 / cross;
+          const ox = other.x + other.vx * tFly - b.x;
+          const oy = other.y + other.vy * tFly - b.y;
           const od = Math.sqrt(ox * ox + oy * oy);
           if (od > 1e-6) {
             dx = ox / od;
@@ -598,15 +603,18 @@ function resolveFinish(w: WorldState, cfg: WorldConfig): void {
   };
 }
 
-/** Advance one fixed tick. Deterministic. */
-export function step(w: WorldState, cfg: WorldConfig, s: StadiumSpec): void {
-  if (w.finish || w.draw) return;
+/** Advance one fixed tick. Deterministic.
+ * afterglow: keep the physics alive AFTER the battle is decided (winner
+ * keeps spinning and eventually topples naturally) — presentation only,
+ * the recorded result never changes. */
+export function step(w: WorldState, cfg: WorldConfig, s: StadiumSpec, afterglow = false): void {
+  if ((w.finish || w.draw) && !afterglow) return;
   w.tick++;
   const [b1, b2] = w.beys;
   if (b1.alive) stepBey(w, s, b1, cfg.beys[0], 0, cfg.xtremeDashEnabled, cfg.clicksMax, b2);
   if (b2.alive) stepBey(w, s, b2, cfg.beys[1], 1, cfg.xtremeDashEnabled, cfg.clicksMax, b1);
   collide(w, cfg);
-  resolveFinish(w, cfg);
+  if (!afterglow) resolveFinish(w, cfg);
 }
 
 /** Run a whole battle headless. */

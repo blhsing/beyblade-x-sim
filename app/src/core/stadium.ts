@@ -65,12 +65,15 @@ export interface StadiumSpec {
 export const STADIUM_BX10: StadiumSpec = {
   name: "bx10",
   labelZh: "BX-10 X戰鬥盤",
+  // scale audit vs the real product: bey ⌀49 and ridge ⌀210 are exact;
+  // interior bowl ≈ ⌀350 (440 body minus deck margins) → rim band ≈ 1.4
+  // bey-widths like the real stadium (0.15 was cramped)
   rDish: 0.105,
   dishDepth: 0.012,
-  rWall: 0.15,
+  rWall: 0.175,
   rimRise: 0.02,
   rimBaseSlope: 0.1,
-  rRail: 0.126,
+  rRail: 0.138,
   railHalfWidth: 0.011,
   // the gear ring circles the whole bowl; dashes release toward the exits
   railArcs: [{ start: -PI, end: PI }],
@@ -105,12 +108,12 @@ export const STADIUM_BX10: StadiumSpec = {
 export const STADIUM_BX32: StadiumSpec = {
   name: "wide",
   labelZh: "BX-32 寬型X戰鬥盤",
-  rDish: 0.132,
+  rDish: 0.15,
   dishDepth: 0.014,
-  rWall: 0.185,
+  rWall: 0.21,
   rimRise: 0.022,
   rimBaseSlope: 0.09,
-  rRail: 0.15,
+  rRail: 0.168,
   railHalfWidth: 0.012,
   // one continuous indigo loop following the wide oval bowl…
   railArcs: [{ start: -PI, end: PI }],
@@ -133,8 +136,8 @@ export const STADIUM_BX32: StadiumSpec = {
   ],
   wallRestitution: 0.52,
   exitSpeed: 0.8,
-  deckW: 0.56,
-  deckH: 0.47,
+  deckW: 0.6,
+  deckH: 0.5,
   bodyColor: 0xdfe3ee,
   shootAngles: [2.618, 0.5236, 1.5708],
   coverGaps: [
