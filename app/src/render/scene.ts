@@ -4,7 +4,6 @@
 // "launch" (first-person behind the launcher during the launch phase).
 
 import * as THREE from "three";
-import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
 import { railPointAt, railTangentAt, surfaceZ, type StadiumSpec } from "../core/stadium";
 import { wrapAngle } from "../core/fxmath";
@@ -12,110 +11,18 @@ import type { BeyParams, WorldState } from "../core/types";
 import type { ResolvedCombo } from "../core/derive";
 import { gyro } from "../sensors/gyro";
 import { sfx } from "../audio/sfx";
+import {
+  absPlastic,
+  clearPanel,
+  paintedMetal,
+  studioEnvironment,
+  tableMaps,
+} from "./materials";
+import { buildBeyMesh, partRadiusM } from "./parts";
+import { buildLauncher, updateCord, type LauncherRig } from "./hand";
+import { RT_PRESETS, RayMarchComposer, markReflective } from "./rt";
 
-const TYPE_COLORS: Record<string, number> = {
-  attack: 0xc23c3c,
-  defense: 0x3c66c2,
-  stamina: 0x3cb26a,
-  balance: 0xc2a23c,
-};
-
-/** Official colorway names (phstudy part_colors) → render colors. */
-const COLOR_NAMES: Record<string, number> = {
-  red: 0xc22e2e, blue: 0x2e55c2, navy: 0x1d2a66, cyan: 0x2eb8c2,
-  green: 0x2ea34a, yellow: 0xd8c22e, orange: 0xd8802e, purple: 0x7a3fc2,
-  pink: 0xd85f9e, white: 0xe8e8f0, black: 0x22222a, gray: 0x8a8a94,
-  grey: 0x8a8a94, silver: 0xc8ccd8, gold: 0xcfae4a, bronze: 0xb08048,
-  brown: 0x7a5636, clear: 0xd8e0f0, lime: 0x9ed82e, magenta: 0xc22ea3,
-  turquoise: 0x2ec2a3, violet: 0x8a4ad8,
-};
-
-/** Stable tiny hash so every part gets a distinct-but-repeatable look. */
-function partSeed(key: string): number {
-  let h = 2166136261;
-  for (let i = 0; i < key.length; i++) {
-    h = Math.imul(h ^ key.charCodeAt(i), 16777619);
-  }
-  return (h >>> 0) / 4294967296;
-}
-
-// ---- procedural textures (no third-party assets) --------------------------
-
-function canvasTex(size: number, draw: (c: CanvasRenderingContext2D, s: number) => void): THREE.CanvasTexture {
-  const cv = document.createElement("canvas");
-  cv.width = cv.height = size;
-  const c = cv.getContext("2d")!;
-  draw(c, size);
-  const t = new THREE.CanvasTexture(cv);
-  t.colorSpace = THREE.SRGBColorSpace;
-  t.wrapS = t.wrapT = THREE.RepeatWrapping;
-  t.anisotropy = 4;
-  return t;
-}
-
-/** Injection-molded plastic: base color with fine grain + faint swirl. */
-function plasticTexture(base: string, grain: string): THREE.CanvasTexture {
-  return canvasTex(512, (c, s) => {
-    c.fillStyle = base;
-    c.fillRect(0, 0, s, s);
-    c.globalAlpha = 0.05;
-    for (let i = 0; i < 2600; i++) {
-      c.fillStyle = Math.random() > 0.5 ? grain : "#000";
-      c.fillRect(Math.random() * s, Math.random() * s, 1.4, 1.4);
-    }
-    c.globalAlpha = 0.045;
-    c.strokeStyle = grain;
-    for (let i = 0; i < 26; i++) {
-      c.beginPath();
-      c.arc(s / 2 + (Math.random() - 0.5) * s, s / 2 + (Math.random() - 0.5) * s, Math.random() * s * 0.6, 0, Math.PI * 2);
-      c.stroke();
-    }
-    c.globalAlpha = 1;
-  });
-}
-
-/** Spun/brushed metal: concentric arcs (used as roughness detail + color). */
-function brushedMetalTexture(tint: string): THREE.CanvasTexture {
-  return canvasTex(512, (c, s) => {
-    c.fillStyle = tint;
-    c.fillRect(0, 0, s, s);
-    for (let i = 0; i < 900; i++) {
-      const r = Math.random() * s * 0.72;
-      const a0 = Math.random() * Math.PI * 2;
-      c.globalAlpha = 0.05 + Math.random() * 0.06;
-      c.strokeStyle = Math.random() > 0.45 ? "#ffffff" : "#555";
-      c.lineWidth = 0.8;
-      c.beginPath();
-      c.arc(s / 2, s / 2, r, a0, a0 + 0.4 + Math.random() * 1.4);
-      c.stroke();
-    }
-    c.globalAlpha = 1;
-  });
-}
-
-/** Table wood for the ground plane under the stadium (gyro mode realism). */
-function woodTexture(): THREE.CanvasTexture {
-  return canvasTex(512, (c, s) => {
-    c.fillStyle = "#8a6440";
-    c.fillRect(0, 0, s, s);
-    for (let y = 0; y < s; y += 2) {
-      const w = 0.5 + 0.5 * Math.sin(y * 0.11) + 0.3 * Math.sin(y * 0.037 + 2);
-      c.globalAlpha = 0.1 + 0.1 * w;
-      c.fillStyle = y % 64 < 3 ? "#5d4127" : "#7a5636";
-      c.fillRect(0, y, s, 2);
-    }
-    c.globalAlpha = 0.12;
-    for (let i = 0; i < 40; i++) {
-      c.strokeStyle = "#4c3520";
-      c.beginPath();
-      const y0 = Math.random() * s;
-      c.moveTo(0, y0);
-      c.bezierCurveTo(s * 0.3, y0 + 8, s * 0.7, y0 - 8, s, y0 + 4);
-      c.stroke();
-    }
-    c.globalAlpha = 1;
-  });
-}
+export { buildBeyMesh } from "./parts";
 
 function ringSegmentShape(rIn: number, rOut: number, a0: number, a1: number): THREE.Shape {
   const s = new THREE.Shape();
@@ -138,175 +45,6 @@ export function lobedShape(r: number, lobes: number, depth: number, sharp: numbe
     else s.lineTo(x, y);
   }
   return s;
-}
-
-/** Parametric bey mesh from the resolved combo (no third-party assets). */
-export function buildBeyMesh(rc: ResolvedCombo | null, params: BeyParams, accent: number): THREE.Group {
-  const g = new THREE.Group();
-  const r = params.radiusM;
-  const bladePart = rc?.parts.blade ?? rc?.parts.mainBlade;
-  const type = bladePart?.type ?? null;
-  // official colorway first, then type color, then side accent
-  const named = bladePart?.color ? COLOR_NAMES[bladePart.color.toLowerCase()] : undefined;
-  const color = named ?? (type ? TYPE_COLORS[type]! : accent);
-  const attack = bladePart?.stats.attack ?? 40;
-  // per-part seeded variation → each blade silhouette is recognizably its own
-  const seed = partSeed(bladePart?.key ?? "?");
-  const seed2 = partSeed((bladePart?.key ?? "?") + "b");
-
-  // ---- blade: die-cast metal disc with type-dependent silhouette ----
-  const base =
-    type === "attack"
-      ? { lobes: Math.max(3, Math.round(attack / 18)), depth: 0.13, sharp: 1.6 }
-      : type === "defense"
-        ? { lobes: 8, depth: 0.045, sharp: 1.0 }
-        : type === "stamina"
-          ? { lobes: 12, depth: 0.02, sharp: 0.8 }
-          : { lobes: 6, depth: 0.075, sharp: 1.2 };
-  const silhouette = {
-    lobes: Math.max(3, base.lobes + Math.round((seed - 0.5) * 4)),
-    depth: Math.max(0.015, base.depth * (0.75 + seed2 * 0.6)),
-    sharp: base.sharp * (0.8 + seed * 0.5),
-  };
-  const bladeGeo = new THREE.ExtrudeGeometry(
-    lobedShape(r, silhouette.lobes, silhouette.depth, silhouette.sharp),
-    { depth: 0.0075, bevelEnabled: true, bevelSize: 0.0008, bevelThickness: 0.0008, bevelSegments: 2 },
-  );
-  const brushTint = `#${new THREE.Color(color).multiplyScalar(0.85).getHexString()}`;
-  const bladeMat = new THREE.MeshPhysicalMaterial({
-    map: brushedMetalTexture(brushTint),
-    metalness: 0.92,
-    roughness: 0.32,
-    clearcoat: 0.2,
-    clearcoatRoughness: 0.3,
-  });
-  // anisotropic highlight: spun metal streaks tangentially like a real
-  // machined disc (per-pixel BRDF feature of MeshPhysicalMaterial)
-  bladeMat.anisotropy = 0.7;
-  const blade = new THREE.Mesh(bladeGeo, bladeMat);
-  blade.position.z = 0.0135;
-  blade.castShadow = true;
-  g.add(blade);
-
-  // custom pixel shader: rotational motion-blur ring whose streaks spin with
-  // ω — sells high RPM far better than rotating geometry alone
-  const blurMat = new THREE.ShaderMaterial({
-    transparent: true,
-    depthWrite: false,
-    uniforms: {
-      uColor: { value: new THREE.Color(color).multiplyScalar(1.15) },
-      uPhase: { value: 0 },
-      uIntensity: { value: 0 },
-    },
-    vertexShader: `
-      varying vec2 vUv;
-      void main() {
-        vUv = uv - 0.5;
-        gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
-      }`,
-    fragmentShader: `
-      uniform vec3 uColor;
-      uniform float uPhase;
-      uniform float uIntensity;
-      varying vec2 vUv;
-      void main() {
-        float r = length(vUv) * 2.0;            // 0 center → 1 edge
-        float band = smoothstep(0.45, 0.72, r) * (1.0 - smoothstep(0.9, 1.0, r));
-        float a = atan(vUv.y, vUv.x);
-        float streaks = 0.6 + 0.4 * sin(a * 9.0 + uPhase);
-        float alpha = uIntensity * band * streaks;
-        if (alpha < 0.004) discard;
-        gl_FragColor = vec4(uColor, alpha);
-      }`,
-  });
-  const blur = new THREE.Mesh(new THREE.PlaneGeometry(r * 2.5, r * 2.5), blurMat);
-  blur.position.z = 0.0185;
-  blur.name = "blurRing";
-  g.add(blur);
-
-  // CX lock chip cap
-  if (rc?.isCx) {
-    const cap = new THREE.Mesh(
-      new THREE.CylinderGeometry(r * 0.3, r * 0.3, 0.0035, 20),
-      new THREE.MeshStandardMaterial({ color: 0x1c1c26, metalness: 0.6, roughness: 0.4 }),
-    );
-    cap.rotation.x = Math.PI / 2;
-    cap.position.z = 0.0235;
-    g.add(cap);
-  }
-
-  // ---- ratchet: translucent ring with N protrusions ----
-  const ratchetCode = rc?.parts.ratchet?.code ?? "3-60";
-  const prot = Number.parseInt(ratchetCode, 10);
-  const ratchetLobes = Number.isFinite(prot) && prot > 0 ? prot : 5;
-  const ratchetH = Math.max(0.0035, (rc?.parts.ratchet?.stats.height ?? 60) / 10000);
-  const ratchet = new THREE.Mesh(
-    new THREE.ExtrudeGeometry(lobedShape(r * 0.44, ratchetLobes, 0.16, 1.2), {
-      depth: ratchetH,
-      bevelEnabled: false,
-    }),
-    new THREE.MeshPhysicalMaterial({
-      color: 0xf2f2f8,
-      roughness: 0.32,
-      metalness: 0.0,
-      transparent: true,
-      opacity: 0.88,
-      clearcoat: 0.6,
-      clearcoatRoughness: 0.25,
-    }),
-  );
-  ratchet.position.z = 0.0135 - ratchetH;
-  ratchet.castShadow = true;
-  g.add(ratchet);
-
-  // ---- bit: base + tip by code ----
-  const bitCode = rc?.parts.bit?.code ?? "F";
-  const bitType = rc?.parts.bit?.type ?? "attack";
-  const bitBase = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.0048, 0.0044, 0.0045, 16),
-    new THREE.MeshStandardMaterial({
-      color: TYPE_COLORS[bitType ?? "attack"] ?? 0x888888,
-      roughness: 0.35,
-      transparent: true,
-      opacity: 0.95,
-    }),
-  );
-  bitBase.rotation.x = Math.PI / 2;
-  bitBase.position.z = 0.0075;
-  g.add(bitBase);
-
-  const tipMat = new THREE.MeshStandardMaterial({
-    color: bitCode.startsWith("R") ? 0x8a2020 : 0x24242c,
-    roughness: 0.8,
-  });
-  let tip: THREE.Mesh;
-  if (/^(B|O|DB|FB|GB|WB|LO)/.test(bitCode)) {
-    tip = new THREE.Mesh(new THREE.SphereGeometry(0.0028, 12, 10), tipMat);
-    tip.position.z = 0.0028;
-  } else if (/N/.test(bitCode) && bitCode !== "Nr") {
-    tip = new THREE.Mesh(new THREE.ConeGeometry(0.0018, 0.0052, 10), tipMat);
-    tip.rotation.x = -Math.PI / 2;
-    tip.position.z = 0.0026;
-  } else if (/^(P|GP|TP|D|S)/.test(bitCode)) {
-    tip = new THREE.Mesh(new THREE.ConeGeometry(0.0013, 0.003, 10), tipMat);
-    tip.rotation.x = -Math.PI / 2;
-    tip.position.z = 0.0015;
-  } else {
-    // flat family (F/LF/UF/FF/GF/R/RA/T…): wide truncated cone
-    tip = new THREE.Mesh(new THREE.CylinderGeometry(0.0016, 0.0032, 0.0032, 14), tipMat);
-    tip.rotation.x = Math.PI / 2;
-    tip.position.z = 0.0018;
-  }
-  g.add(tip);
-
-  // white pointer spoke so spin/phase is visible
-  const spoke = new THREE.Mesh(
-    new THREE.BoxGeometry(r * 1.6, 0.0032, 0.0014),
-    new THREE.MeshStandardMaterial({ color: 0xffffff, metalness: 0.2 }),
-  );
-  spoke.position.z = 0.0225;
-  g.add(spoke);
-  return g;
 }
 
 interface Spark {
@@ -367,32 +105,39 @@ export class BattleView {
     this.camera.up.set(0, 0, 1);
     this.scene.background = new THREE.Color(0x14161c);
 
-    // image-based lighting from three's built-in procedural room (real metal
-    // reflections without shipping any HDRI asset)
-    const pmrem = new THREE.PMREMGenerator(this.renderer);
-    this.scene.environment = pmrem.fromScene(new RoomEnvironment(), 0.04).texture;
-    this.scene.environmentIntensity = 0.5;
+    // image-based lighting from a procedural photo studio (docs/MODELING.md
+    // §5): softboxes + bounce, so metal shows a real gradient falloff
+    this.scene.environment = studioEnvironment(this.renderer);
+    this.scene.environmentIntensity = 0.85;
 
-    const key = new THREE.DirectionalLight(0xfff4e4, 2.4);
+    const key = new THREE.DirectionalLight(0xfff4e4, 2.6);
     key.position.set(0.45, -0.35, 0.85);
     key.castShadow = true;
-    key.shadow.mapSize.set(1024, 1024);
+    key.shadow.mapSize.set(2048, 2048);
     key.shadow.camera.left = key.shadow.camera.bottom = -0.45;
     key.shadow.camera.right = key.shadow.camera.top = 0.45;
     key.shadow.camera.near = 0.1;
     key.shadow.camera.far = 3;
-    key.shadow.bias = -0.0004;
+    key.shadow.bias = -0.00025;
+    key.shadow.normalBias = 0.0015;
     this.scene.add(key);
-    const fill = new THREE.DirectionalLight(0xbfd0ff, 0.55);
+    const fill = new THREE.DirectionalLight(0xbfd0ff, 0.5);
     fill.position.set(-0.5, 0.4, 0.5);
     this.scene.add(fill);
+    const rim = new THREE.DirectionalLight(0xffd9b0, 0.35);
+    rim.position.set(-0.2, 0.7, 0.15);
+    this.scene.add(rim);
 
-    // the table the stadium sits on (sells the gyro anchoring)
-    const wood = woodTexture();
-    wood.repeat.set(3, 3);
+    // the table the stadium sits on (sells the anchored AR view)
+    const tm = tableMaps();
     const table = new THREE.Mesh(
-      new THREE.PlaneGeometry(1.6, 1.6),
-      new THREE.MeshStandardMaterial({ map: wood, roughness: 0.75, metalness: 0.02 }),
+      new THREE.PlaneGeometry(1.6, 1.6, 64, 64),
+      new THREE.MeshStandardMaterial({
+        map: tm.map,
+        normalMap: tm.normalMap,
+        roughness: 0.62,
+        metalness: 0.02,
+      }),
     );
     table.position.z = -0.001;
     table.receiveShadow = true;
@@ -401,131 +146,93 @@ export class BattleView {
     this.scene.add(this.stadiumGroup);
     this.scene.add(this.camera); // so camera-attached rigs (launcher) render
     this.sparkMat = new THREE.MeshBasicMaterial({ color: 0xffd766 });
+    this.rt = new RayMarchComposer(this.renderer, this.scene, this.camera);
+    this.rt.lightWorld.copy(key.position).normalize();
+    this.applyRtQuality();
     window.addEventListener("resize", () => this.resize());
     this.attachOrbitControls(container);
   }
 
-  // ---- 3D launcher rig (launch phase) -------------------------------------
+  // ---- ray-marched realism pass -------------------------------------------
 
-  private launcherRig: {
-    group: THREE.Group;
-    winder: THREE.Group;
-    stringMesh: THREE.Mesh;
-    beyPivot: THREE.Group;
-    beySpin: THREE.Group;
-    pullM: number;
-  } | null = null;
+  private rt: RayMarchComposer;
+  /** "off" | "low" | "high"; auto-drops to low on slow devices. */
+  rtQuality: keyof typeof RT_PRESETS = "high";
+  private frameMs = 16;
 
-  /** Camera-attached string launcher holding the player's actual bey. */
-  attachLauncher(rc: ResolvedCombo | null, params: BeyParams, accent: number): void {
+  private applyRtQuality(): void {
+    this.rt.quality = RT_PRESETS[this.rtQuality] ?? RT_PRESETS.high!;
+    this.rt.setSize(window.innerWidth, window.innerHeight, this.renderer.getPixelRatio());
+  }
+
+  setRtQuality(q: keyof typeof RT_PRESETS): void {
+    this.rtQuality = q;
+    this.applyRtQuality();
+  }
+
+  /** Draw one frame through the ray-march composer, with a frame-time
+   * governor that steps quality down rather than dropping frames. */
+  renderFrame(dtMs: number): void {
+    this.frameMs = this.frameMs * 0.9 + dtMs * 0.1;
+    if (this.rtQuality === "high" && this.frameMs > 26) this.setRtQuality("low");
+    else if (this.rtQuality === "low" && this.frameMs > 40) this.setRtQuality("off");
+    this.rt.render();
+  }
+
+  // ---- held launcher rig (launch phase) -----------------------------------
+  //
+  // The launcher is held in the hands at the BOTTOM CENTRE of the screen, the
+  // way you actually see it over your own hands when you launch — camera
+  // attached, so it stays put while the anchored stadium view moves behind it.
+
+  private launcherRig: (LauncherRig & { beyPivot: THREE.Group; beySpin: THREE.Group; pullM: number }) | null =
+    null;
+
+  /** neutral rig pose in camera space: centred, low, close */
+  private static readonly RIG_HOME = new THREE.Vector3(0, -0.105, -0.235);
+  private static readonly RIG_PITCH = -0.62;
+
+  /** Camera-attached launcher (real type) with both hands and the player's
+   * actual bey clipped underneath. */
+  attachLauncher(
+    rc: ResolvedCombo | null,
+    params: BeyParams,
+    accent: number,
+    kind: "winder" | "string" | "hold" = "string",
+  ): void {
     this.removeLauncher();
-    const g = new THREE.Group();
-    const plastic = new THREE.MeshPhysicalMaterial({
-      color: 0x2b3a9e,
-      roughness: 0.35,
-      clearcoat: 0.5,
-      clearcoatRoughness: 0.3,
-    });
-    const skin = new THREE.MeshStandardMaterial({ color: 0xe0aa82, roughness: 0.65 });
-    const red = new THREE.MeshPhysicalMaterial({ color: 0xc23434, roughness: 0.4, clearcoat: 0.4 });
+    const rig = buildLauncher(kind, accent);
+    const g = rig.group;
 
-    // body: rounded puck with a beveled profile
-    const prof: THREE.Vector2[] = [];
-    for (let i = 0; i <= 12; i++) {
-      const t = i / 12;
-      prof.push(new THREE.Vector2(0.036 * Math.sin((t * Math.PI) / 2) + 0.001, 0.024 * t));
-    }
-    const body = new THREE.Mesh(new THREE.LatheGeometry(prof, 40), plastic);
-    body.rotation.x = Math.PI / 2;
-    body.castShadow = true;
-    g.add(body);
-    const capRing = new THREE.Mesh(
-      new THREE.TorusGeometry(0.024, 0.0035, 10, 32),
-      new THREE.MeshStandardMaterial({ color: 0xdadff5, metalness: 0.6, roughness: 0.3 }),
-    );
-    capRing.position.z = 0.013;
-    g.add(capRing);
-
-    // grip below-rear + left hand wrapped around it
-    const grip = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.035, 6, 12), plastic);
-    grip.position.set(-0.012, -0.008, 0.035);
-    grip.rotation.x = 1.15;
-    g.add(grip);
-    for (let f = 0; f < 4; f++) {
-      const finger = new THREE.Mesh(new THREE.CapsuleGeometry(0.0055, 0.02, 4, 8), skin);
-      finger.position.set(-0.03 + f * 0.0025, -0.012 + f * 0.004, 0.032 + f * 0.008);
-      finger.rotation.z = 1.2;
-      g.add(finger);
-    }
-    const palm = new THREE.Mesh(new THREE.SphereGeometry(0.016, 12, 10), skin);
-    palm.position.set(-0.028, -0.01, 0.045);
-    g.add(palm);
-
-    // string port + string + winder T-handle + right hand
-    const port = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.012, 0.012), plastic);
-    port.position.set(0.038, 0, 0);
-    g.add(port);
-    const stringMesh = new THREE.Mesh(
-      new THREE.CylinderGeometry(0.0012, 0.0012, 1, 6),
-      new THREE.MeshStandardMaterial({ color: 0xe8ecf8, roughness: 0.6 }),
-    );
-    g.add(stringMesh);
-    const winder = new THREE.Group();
-    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.028, 10), red);
-    winder.add(stem);
-    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.055, 10), red);
-    bar.rotation.z = Math.PI / 2;
-    bar.position.y = -0.018;
-    winder.add(bar);
-    const fist = new THREE.Mesh(new THREE.SphereGeometry(0.018, 12, 10), skin);
-    fist.scale.set(1, 0.8, 0.9);
-    fist.position.y = -0.02;
-    winder.add(fist);
-    winder.position.set(0.055, 0, 0);
-    g.add(winder);
-
-    // the player's actual bey mounted underneath (tip pointing down-forward)
+    // the player's own bey clipped under the head, tip pointing down
     const beyPivot = new THREE.Group();
     const beySpin = new THREE.Group();
     beySpin.add(buildBeyMesh(rc, params, accent));
     beyPivot.add(beySpin);
-    beyPivot.rotation.x = -Math.PI / 2;
-    beyPivot.position.set(0, -0.048, 0.004);
-    g.add(beyPivot);
+    beyPivot.position.set(0, 0, -0.014);
+    rig.beyMount.add(beyPivot);
 
-    g.position.set(0.03, -0.085, -0.24);
-    g.rotation.x = -0.55;
+    g.position.copy(BattleView.RIG_HOME);
+    g.rotation.set(BattleView.RIG_PITCH, 0, 0);
+    g.scale.setScalar(0.92);
     this.camera.add(g);
-    this.launcherRig = { group: g, winder, stringMesh, beyPivot, beySpin, pullM: 0 };
-    this.updateLauncherString();
+    this.launcherRig = { ...rig, beyPivot, beySpin, pullM: 0 };
+    updateCord(this.launcherRig);
   }
 
-  private updateLauncherString(): void {
-    const rig = this.launcherRig;
-    if (!rig) return;
-    const from = new THREE.Vector3(0.042, 0, 0);
-    const to = rig.winder.position.clone();
-    const mid = from.clone().add(to).multiplyScalar(0.5);
-    rig.stringMesh.position.copy(mid);
-    const dir = to.clone().sub(from);
-    rig.stringMesh.scale.y = Math.max(0.012, dir.length());
-    rig.stringMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
-  }
-
-  /** The winder tracks the ACTUAL finger: screen-pixel deltas from the
-   * touch origin are mapped through camera space into the rig, so the
-   * string visibly follows the hand in real time. */
+  /** The puller tracks the ACTUAL finger: screen-pixel deltas from the touch
+   * origin map through camera space into the rig, so the string/ripcord
+   * visibly follows the hand in real time. */
   setLauncherPointer(dxPx: number, dyPx: number): void {
     const rig = this.launcherRig;
     if (!rig) return;
-    const k = 0.3 / Math.max(320, window.innerHeight); // px → meters at rig depth
+    const k = 0.3 / Math.max(320, window.innerHeight); // px → metres at rig depth
     const camOff = new THREE.Vector3(dxPx * k, -dyPx * k, 0);
     if (camOff.length() > 0.5) camOff.setLength(0.5);
-    // camera space → rig-local (the rig is pitched -0.55 rad about X)
-    const local = camOff.applyAxisAngle(new THREE.Vector3(1, 0, 0), 0.55);
+    const local = camOff.applyAxisAngle(new THREE.Vector3(1, 0, 0), -BattleView.RIG_PITCH);
     rig.pullM = Math.min(0.42, local.length());
-    rig.winder.position.set(0.055 + local.x, local.y, local.z);
-    this.updateLauncherString();
+    rig.puller.position.copy(rig.pullerHome).add(local);
+    updateCord(rig);
   }
 
   /** Release: bey spins up, rips off toward the stadium; launcher lifts away. */
@@ -534,18 +241,23 @@ export class BattleView {
     if (!rig) return Promise.resolve();
     return new Promise((resolve) => {
       const t0 = performance.now();
+      const home = BattleView.RIG_HOME;
       const tick = (): void => {
-        const rigNow = this.launcherRig;
-        if (!rigNow) {
+        const r = this.launcherRig;
+        if (!r) {
           resolve();
           return;
         }
         const t = Math.min(1, (performance.now() - t0) / 650);
-        rigNow.beySpin.rotation.z = t * t * 90; // visible spin-up
-        rigNow.beyPivot.position.set(0, -0.048 - t * 0.45, 0.004 - t * 0.4);
-        rigNow.winder.position.set(0.055, -rigNow.pullM * (1 - t), 0);
-        rigNow.group.position.set(0.03, -0.085 + t * 0.22, -0.24 + t * 0.1);
-        this.updateLauncherString();
+        r.beySpin.rotation.z = t * t * 90; // visible spin-up
+        r.beyPivot.position.set(0, t * 0.4, -0.014 - t * 0.5);
+        r.puller.position.copy(r.pullerHome).addScaledVector(
+          new THREE.Vector3(1, 0, 0),
+          r.pullM * (1 - t),
+        );
+        r.group.position.set(home.x, home.y - t * 0.05, home.z + t * 0.12);
+        r.group.rotation.x = BattleView.RIG_PITCH - t * 0.35;
+        updateCord(r);
         if (t < 1) requestAnimationFrame(tick);
         else resolve();
       };
@@ -564,40 +276,29 @@ export class BattleView {
 
   private oppRigs: { group: THREE.Group; beySpin: THREE.Group; side: 0 | 1 }[] = [];
 
-  /** Simplified launcher hovering over the opponent's entry corner, with
-   * their actual bey attached — released in sync with GO SHOOT. */
-  attachOpponentLauncher(rc: ResolvedCombo | null, params: BeyParams, side: 0 | 1): void {
+  /** The opponent's real launcher, held in their hands over their entry
+   * corner with their actual bey clipped under it — released on GO SHOOT. */
+  attachOpponentLauncher(
+    rc: ResolvedCombo | null,
+    params: BeyParams,
+    side: 0 | 1,
+    kind: "winder" | "string" | "hold" = "string",
+  ): void {
     this.removeOpponentLauncher(side);
-    const g = new THREE.Group();
-    const plastic = new THREE.MeshPhysicalMaterial({
-      color: side === 0 ? 0x2b3a9e : 0x8e2b2b,
-      roughness: 0.35,
-      clearcoat: 0.5,
-    });
-    const prof: THREE.Vector2[] = [];
-    for (let i = 0; i <= 10; i++) {
-      const t = i / 10;
-      prof.push(new THREE.Vector2(0.034 * Math.sin((t * Math.PI) / 2) + 0.001, 0.022 * t));
-    }
-    const body = new THREE.Mesh(new THREE.LatheGeometry(prof, 32), plastic);
-    body.castShadow = true;
-    g.add(body);
-    const grip = new THREE.Mesh(new THREE.CapsuleGeometry(0.01, 0.05, 6, 10), plastic);
-    grip.rotation.z = Math.PI / 2.4;
-    grip.position.set(-0.045, 0.02, 0);
-    g.add(grip);
+    const accent = side === 0 ? 0x2b3a9e : 0x8e2b2b;
+    const rig = buildLauncher(kind, accent);
+    const g = rig.group;
 
     const beySpin = new THREE.Group();
     beySpin.add(buildBeyMesh(rc, params, side === 0 ? 0x3f7bff : 0xff5b4d));
-    beySpin.rotation.x = Math.PI / 2; // hang under the body, tip down
-    beySpin.position.y = -0.035;
-    g.add(beySpin);
+    beySpin.position.z = -0.016; // hangs under the head, tip down
+    rig.beyMount.add(beySpin);
 
     const baseAngle = side === 0 ? Math.PI - 0.55 : 0.55;
     const r0 = 0.075;
-    g.position.set(Math.cos(baseAngle) * r0, Math.sin(baseAngle) * r0, 0.17);
-    g.rotation.x = Math.PI / 2; // body upright, bey toward the floor
-    g.rotation.y = (side === 0 ? 1 : -1) * 0.25; // aimed slightly inward
+    g.position.set(Math.cos(baseAngle) * r0, Math.sin(baseAngle) * r0, 0.19);
+    g.rotation.z = baseAngle + Math.PI; // launcher faces the bowl
+    g.rotation.y = (side === 0 ? 1 : -1) * 0.12;
     this.scene.add(g);
     this.oppRigs.push({ group: g, beySpin, side });
   }
@@ -611,9 +312,9 @@ export class BattleView {
       const tick = (): void => {
         const t = Math.min(1, (performance.now() - t0) / 500);
         for (const rig of rigs) {
-          rig.beySpin.rotation.y = t * t * 70; // spin-up around its axis
-          rig.beySpin.position.y = -0.035 - t * 0.115; // down to the bowl
-          rig.group.position.z = 0.17 + t * 0.08; // launcher lifts away
+          rig.beySpin.rotation.z = t * t * 70; // spin-up around its own axis
+          rig.beySpin.position.z = -0.016 - t * 0.13; // down to the bowl
+          rig.group.position.z = 0.19 + t * 0.08; // launcher lifts away
         }
         if (t < 1) requestAnimationFrame(tick);
         else {
@@ -667,45 +368,54 @@ export class BattleView {
     this.stadium = s;
     this.stadiumGroup.clear();
     const rimZ = surfaceZ(s, s.rWall);
-    const baseHex = `#${s.bodyColor.toString(16).padStart(6, "0")}`;
-    const plastic = plasticTexture(baseHex, "#ffffff");
-    plastic.repeat.set(2, 2);
-    const bodyMat = new THREE.MeshPhysicalMaterial({
-      map: plastic,
-      roughness: 0.5,
-      metalness: 0.03,
-      clearcoat: 0.22,
-      clearcoatRoughness: 0.55,
-      envMapIntensity: 0.55,
-      side: THREE.DoubleSide,
-    });
+    // ABS shell, moulded and lightly polished — the real stadiums are a matte
+    // white body with a coloured X-Line (docs/MODELING.md §2)
+    const bodyMat = absPlastic(s.bodyColor, { rough: 0.46, coat: 0.3 });
+    bodyMat.side = THREE.DoubleSide;
+    bodyMat.envMapIntensity = 0.7;
 
-    // battle bowl from the physics surface profile
+    // battle bowl from the physics surface profile — same curve the sim
+    // integrates, so what you see is literally what the beys roll on
     const profile: THREE.Vector2[] = [];
-    for (let i = 0; i <= 30; i++) {
-      const r = (s.rWall * i) / 30;
+    for (let i = 0; i <= 160; i++) {
+      const r = (s.rWall * i) / 160;
       profile.push(new THREE.Vector2(Math.max(1e-4, r), surfaceZ(s, r)));
     }
-    const dish = new THREE.Mesh(new THREE.LatheGeometry(profile, 96), bodyMat);
+    const dish = new THREE.Mesh(new THREE.LatheGeometry(profile, 384), bodyMat);
     dish.rotateX(Math.PI / 2);
     dish.scale.z = -1;
     dish.receiveShadow = true;
+    markReflective(dish, 0.14); // polished ABS picks up the beys above it
     this.stadiumGroup.add(dish);
 
-    // outer deck: rectangle with circular bowl cut-out
+    // outer deck: the moulded shell around the bowl, with rounded corners
+    // like the real 440 × 455 mm (BX-10) / 600 × 440 mm (BX-32) body
     const deckShape = new THREE.Shape();
     const hw = s.deckW / 2;
     const hh = s.deckH / 2;
-    deckShape.moveTo(-hw, -hh);
-    deckShape.lineTo(hw, -hh);
-    deckShape.lineTo(hw, hh);
-    deckShape.lineTo(-hw, hh);
+    const cr = Math.min(hw, hh) * 0.22; // corner radius
+    deckShape.moveTo(-hw + cr, -hh);
+    deckShape.lineTo(hw - cr, -hh);
+    deckShape.quadraticCurveTo(hw, -hh, hw, -hh + cr);
+    deckShape.lineTo(hw, hh - cr);
+    deckShape.quadraticCurveTo(hw, hh, hw - cr, hh);
+    deckShape.lineTo(-hw + cr, hh);
+    deckShape.quadraticCurveTo(-hw, hh, -hw, hh - cr);
+    deckShape.lineTo(-hw, -hh + cr);
+    deckShape.quadraticCurveTo(-hw, -hh, -hw + cr, -hh);
     deckShape.closePath();
     const hole = new THREE.Path();
     hole.absarc(0, 0, s.rWall * 0.998, 0, Math.PI * 2, true);
     deckShape.holes.push(hole);
     const deck = new THREE.Mesh(
-      new THREE.ExtrudeGeometry(deckShape, { depth: 0.014, bevelEnabled: false }),
+      new THREE.ExtrudeGeometry(deckShape, {
+        depth: 0.014,
+        bevelEnabled: true,
+        bevelSize: 0.0015,
+        bevelThickness: 0.0015,
+        bevelSegments: 4,
+        curveSegments: 64,
+      }),
       bodyMat,
     );
     deck.position.z = rimZ - 0.012;
@@ -713,12 +423,20 @@ export class BattleView {
     deck.castShadow = true;
     this.stadiumGroup.add(deck);
 
-    // tornado ridge accent
-    const ridge = new THREE.Mesh(
-      new THREE.TorusGeometry(s.rDish, 0.0018, 8, 100),
-      new THREE.MeshStandardMaterial({ color: 0x8899dd, roughness: 0.4 }),
-    );
-    ridge.position.z = surfaceZ(s, s.rDish);
+    // Tornado Ridge: the raised circular lip (⌀210 mm on BX-10) that turns
+    // tops back toward the centre — a moulded swell in the body, not a decal
+    const ridgeSection: THREE.Vector2[] = [];
+    for (let i = 0; i <= 16; i++) {
+      const t = i / 16;
+      const a = Math.PI * t;
+      ridgeSection.push(
+        new THREE.Vector2(s.rDish + Math.cos(a) * 0.0055, surfaceZ(s, s.rDish) + Math.sin(a) * 0.0021),
+      );
+    }
+    const ridge = new THREE.Mesh(new THREE.LatheGeometry(ridgeSection, 384), bodyMat);
+    ridge.rotateX(Math.PI / 2);
+    ridge.scale.z = -1;
+    ridge.receiveShadow = true;
     this.stadiumGroup.add(ridge);
 
     // Xtreme Line gear rack: teeth walked along the real curved path
@@ -746,12 +464,11 @@ export class BattleView {
           prev = pt;
         }
       }
-      const toothGeo = new THREE.BoxGeometry(0.0032, 0.006, 0.0026); // tangential × radial
-      const toothMat = new THREE.MeshStandardMaterial({
-        color: s.railColor,
-        roughness: 0.45,
-        metalness: 0.15,
-      });
+      // real rack teeth: trapezoidal, cut across the line of travel
+      const toothGeo = new THREE.CylinderGeometry(0.0018, 0.0026, 0.006, 4, 4);
+      toothGeo.rotateX(Math.PI / 2);
+      toothGeo.rotateZ(Math.PI / 4);
+      const toothMat = absPlastic(s.railColor, { rough: 0.38, coat: 0.5 });
       const inst = new THREE.InstancedMesh(toothGeo, toothMat, placements.length);
       const m4 = new THREE.Matrix4();
       const q = new THREE.Quaternion();
@@ -765,11 +482,17 @@ export class BattleView {
         inst.setMatrixAt(idx, m4);
       });
       this.stadiumGroup.add(inst);
-      const strip = new THREE.Line(
-        new THREE.BufferGeometry().setFromPoints(stripPts),
-        new THREE.LineBasicMaterial({ color: s.railColor }),
-      );
-      this.stadiumGroup.add(strip);
+      // the moulded channel the rack sits in, swept along the same curve
+      if (stripPts.length > 2) {
+        const curve = new THREE.CatmullRomCurve3(stripPts, true);
+        const channel = new THREE.Mesh(
+          new THREE.TubeGeometry(curve, Math.min(600, stripPts.length), 0.0038, 20, true),
+          absPlastic(s.railColor, { rough: 0.5, coat: 0.35 }),
+        );
+        channel.position.z = -0.0026;
+        channel.receiveShadow = true;
+        this.stadiumGroup.add(channel);
+      }
     }
 
     // walls between pockets + pocket recesses
@@ -802,13 +525,14 @@ export class BattleView {
     for (const p of s.pockets) {
       const a0 = p.angleCenter - p.halfWidth;
       const a1 = p.angleCenter + p.halfWidth;
+      // Xtreme Zone (3 pt) is the wide red catch; Over Zones (2 pt) amber
       const col = p.kind === "xtreme" ? 0xd8322f : 0xd89b2f;
       const floor = new THREE.Mesh(
         new THREE.ExtrudeGeometry(ringSegmentShape(s.rWall - 0.004, s.rWall + 0.052, a0, a1), {
           depth: 0.004,
           bevelEnabled: false,
         }),
-        new THREE.MeshStandardMaterial({ color: col, roughness: 0.5 }),
+        absPlastic(col, { rough: 0.44, coat: 0.35 }),
       );
       floor.position.z = rimZ - 0.017; // sunken catch floor
       this.stadiumGroup.add(floor);
@@ -826,17 +550,8 @@ export class BattleView {
     // mostly-transparent casing: clear walls everywhere EXCEPT the gaps
     // (loose coverage — beys can still find their way out there)
     {
-      const caseMat = new THREE.MeshPhysicalMaterial({
-        color: 0xdfe8ff,
-        transparent: true,
-        opacity: 0.16,
-        roughness: 0.12,
-        metalness: 0,
-        clearcoat: 1,
-        clearcoatRoughness: 0.15,
-        side: THREE.DoubleSide,
-        depthWrite: false,
-      });
+      // real clear polycarbonate (IOR 1.585), not a faded plane
+      const caseMat = clearPanel();
       const gaps = [...s.coverGaps].sort((a, b) => wrapAngle(a.start) - wrapAngle(b.start));
       const covered: { a0: number; a1: number }[] = [];
       if (gaps.length === 0) {
@@ -864,11 +579,11 @@ export class BattleView {
       }
     }
 
-    // shoot position markers on the deck
+    // shoot position markers moulded into the deck
     for (const a of s.shootAngles) {
       const marker = new THREE.Mesh(
-        new THREE.TorusGeometry(0.016, 0.0022, 8, 32),
-        new THREE.MeshStandardMaterial({ color: 0xee4444, roughness: 0.4 }),
+        new THREE.TorusGeometry(0.016, 0.0022, 24, 128),
+        absPlastic(0xd83c3c, { rough: 0.4 }),
       );
       marker.position.set(
         Math.cos(a) * (s.rWall + 0.033),
@@ -891,9 +606,11 @@ export class BattleView {
 
   setBeysList(list: { rc: ResolvedCombo | null; params: BeyParams }[]): void {
     for (const m of this.beyMeshes) if (m) this.scene.remove(m);
-    this.beyMeshes = list.map((e, i) =>
-      buildBeyMesh(e.rc, e.params, BattleView.SIDE_COLORS[i % BattleView.SIDE_COLORS.length]!),
-    );
+    this.beyMeshes = list.map((e, i) => {
+      const m = buildBeyMesh(e.rc, e.params, BattleView.SIDE_COLORS[i % BattleView.SIDE_COLORS.length]!);
+      markReflective(m, 0.72); // die-cast metal mirrors the dish and rivals
+      return m;
+    });
     this.beyParams = list.map((e) => e.params);
     while (this.lastBeyPos.length < list.length) {
       const a = (this.lastBeyPos.length / Math.max(2, list.length)) * Math.PI * 2;
@@ -1025,7 +742,7 @@ export class BattleView {
       }
     }
     this.updateCamera(dt);
-    this.renderer.render(this.scene, this.camera);
+    this.renderFrame(dt * 1000);
   }
 
   private updateCamera(dt: number): void {

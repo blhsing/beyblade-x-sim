@@ -91,9 +91,11 @@ export const STADIUM_BX10: StadiumSpec = {
   ],
   wallRestitution: 0.52,
   exitSpeed: 0.8,
+  // real body: 440 × 455 mm (docs/MODELING.md §2.1)
   deckW: 0.455,
   deckH: 0.44,
-  bodyColor: 0x27335f,
+  // the standard release is a WHITE shell with a green X-Line
+  bodyColor: 0xe9ebf2,
   shootAngles: [2.3562, 0.7854],
   // mostly-transparent casing: open across the exit side + two loose spots
   coverGaps: [
@@ -104,7 +106,9 @@ export const STADIUM_BX10: StadiumSpec = {
   coverHeight: 0.09,
 };
 
-/** BX-32 Wide Xtreme Stadium — 3-player official; ⚠ dimensions estimated. */
+/** BX-32 Wide Xtreme Stadium — the official 3-player stadium (600 × 440 mm),
+ * which is exactly what the free-for-all mode wants. Bowl/rail proportions
+ * are scaled from photos; the body size is the published figure. */
 export const STADIUM_BX32: StadiumSpec = {
   name: "wide",
   labelZh: "BX-32 寬型X戰鬥盤",
@@ -136,9 +140,10 @@ export const STADIUM_BX32: StadiumSpec = {
   ],
   wallRestitution: 0.52,
   exitSpeed: 0.8,
+  // real body: 600 × 440 mm, the largest X stadium (docs/MODELING.md §2.2)
   deckW: 0.6,
-  deckH: 0.5,
-  bodyColor: 0xdfe3ee,
+  deckH: 0.44,
+  bodyColor: 0xe4e7f0,
   shootAngles: [2.618, 0.5236, 1.5708],
   coverGaps: [
     { start: -2.95, end: -0.2 },

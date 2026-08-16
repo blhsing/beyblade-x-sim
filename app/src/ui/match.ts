@@ -76,11 +76,12 @@ export async function humanLaunch(
   app.view.mode = app.view.mode === "gyro" ? "gyro" : "launch";
   app.view.launchSide = side;
   if (rc && beyParams) {
-    app.view.attachLauncher(rc, beyParams, side === 0 ? 0x3f7bff : 0xff5b4d);
+    // the player's real launcher type, held in both hands at screen bottom
+    app.view.attachLauncher(rc, beyParams, side === 0 ? 0x3f7bff : 0xff5b4d, launcher);
   }
   // the opponent launches at the countdown too — their launcher hovers over
   // their corner and releases exactly on GO SHOOT
-  if (opp) app.view.attachOpponentLauncher(opp.rc, opp.params, opp.side);
+  if (opp) app.view.attachOpponentLauncher(opp.rc, opp.params, opp.side, launcher);
 
   const zone = el("div", { class: "launchzone" });
   const hint = el("div", { class: "banner-big", style: "font-size:20px" }, `${playerName}｜${ZH.pullToLaunch}`);
