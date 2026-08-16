@@ -1,7 +1,7 @@
-// Client-side accounts: session token storage + /game/auth API wrapper.
-// Every player signs up (email + nickname + password, email verified by
-// code) or signs in; the token authorizes DB writes and identifies the
-// player online. Works against whichever tier served the app.
+// Client-side accounts: Google Sign-In (primary), an email+password
+// fallback with NO email verification, and guest play. The session token
+// authorizes DB writes and identifies the player online. Works against
+// whichever tier served the app.
 
 export interface AuthState {
   token: string;
@@ -90,15 +90,37 @@ async function post(op: string, body: unknown, withToken = false): Promise<Recor
   return data;
 }
 
-export const signup = (email: string, nickname: string, password: string) =>
-  post("signup", { email, nickname, password });
-export const verify = (email: string, code: string) => post("verify", { email, code });
+/** Server-side auth config (Google client id), cached per session. */
+let configCache: { googleClientId: string } | null = null;
+export async function fetchAuthConfig(): Promise<{ googleClientId: string }> {
+  if (configCache) return configCache;
+  try {
+    const res = await fetch(`${apiAuthBase()}/config`);
+    configCache = res.ok ? ((await res.json()) as { googleClientId: string }) : { googleClientId: "" };
+  } catch {
+    configCache = { googleClientId: "" };
+  }
+  return configCache;
+}
 
-export async function signin(email: string, password: string): Promise<AuthState> {
-  const r = await post("signin", { email, password });
-  const s: AuthState = { token: r.token!, email: r.email!, nickname: r.nickname! };
+function adopt(r: Record<string, string>): AuthState {
+  const s: AuthState = { token: r.token!, email: r.email ?? "", nickname: r.nickname ?? "" };
   saveAuth(s);
   return s;
+}
+
+/** Exchange a Google ID token for a game session. */
+export async function signinWithGoogle(credential: string): Promise<AuthState> {
+  return adopt(await post("google", { credential }));
+}
+
+/** Password sign-up — no verification step; signs in immediately. */
+export async function signup(email: string, nickname: string, password: string): Promise<AuthState> {
+  return adopt(await post("signup", { email, nickname, password }));
+}
+
+export async function signin(email: string, password: string): Promise<AuthState> {
+  return adopt(await post("signin", { email, password }));
 }
 
 export async function signout(): Promise<void> {
@@ -130,11 +152,17 @@ export async function refreshMe(): Promise<AuthState | null> {
   }
 }
 
+export async function setNickname(nickname: string): Promise<void> {
+  const r = await post("nickname", { nickname }, true);
+  const cur = getAuth();
+  if (cur && r.nickname) saveAuth({ ...cur, nickname: r.nickname });
+}
+
 export const changePassword = (current: string, newPassword: string) =>
   post("change-password", { current, newPassword }, true);
-export const changeEmail = (newEmail: string) => post("change-email", { newEmail }, true);
-export async function confirmEmail(code: string): Promise<void> {
-  const r = await post("confirm-email", { code }, true);
+
+export async function changeEmail(newEmail: string): Promise<void> {
+  const r = await post("change-email", { newEmail }, true);
   const cur = getAuth();
   if (cur && r.email) saveAuth({ ...cur, email: r.email });
 }

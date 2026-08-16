@@ -1,25 +1,23 @@
-// Accounts: email-identified, password-authenticated, email-verified.
+// Accounts: Google Sign-In (primary) plus a nickname/password fallback.
 //
-// Docs live in private collections (_users/_emails/_sessions) that are
-// excluded from the public /game/db API and only exchanged between tiers
-// when the peer presents the shared BEYBLADE_PEER_KEY. Verification codes
-// are delivered by SMTP when BEYBLADE_SMTP_* is configured; otherwise the
-// code is logged, and with BEYBLADE_DEV_MAIL=1 it is also returned in the
-// API response (developer-only convenience, remove for production).
+// There is NO email verification and no mail sending: Google already
+// verifies the address it hands us, and password accounts treat email as a
+// plain identifier. Docs in private collections (_users/_emails/_sessions)
+// are excluded from the public /game/db API and exchanged between tiers only
+// when the peer presents the shared BEYBLADE_PEER_KEY.
 package main
 
 import (
 	"crypto/rand"
-	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"log"
-	"net"
 	"net/http"
-	"net/smtp"
+	"net/url"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"time"
 
@@ -28,18 +26,14 @@ import (
 
 var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
-// sessions live until explicit sign-out: effectively non-expiring, and /me
-// slides the expiry forward on every app launch
+// sessions last until explicit sign-out; /me slides the expiry forward
 const sessionTTL = 10 * 365 * 24 * time.Hour
 
 type userDoc struct {
-	Email        string `json:"email"`
-	Nickname     string `json:"nickname"`
-	Hash         string `json:"hash"`
-	Verified     bool   `json:"verified"`
-	Code         string `json:"code,omitempty"`
-	CodeExp      int64  `json:"codeExp,omitempty"`
-	PendingEmail string `json:"pendingEmail,omitempty"`
+	Email     string `json:"email"`
+	Nickname  string `json:"nickname"`
+	Hash      string `json:"hash,omitempty"`      // empty for Google-only accounts
+	GoogleSub string `json:"googleSub,omitempty"` // stable Google account id
 }
 
 type sessionDoc struct {
@@ -47,97 +41,19 @@ type sessionDoc struct {
 	Exp    int64  `json:"exp"`
 }
 
-func hexID(s string) string   { return hex.EncodeToString([]byte(strings.ToLower(strings.TrimSpace(s)))) }
-func randHex(n int) string    { b := make([]byte, n); _, _ = rand.Read(b); return hex.EncodeToString(b) }
-func randCode() string        { b := make([]byte, 4); _, _ = rand.Read(b); return fmt.Sprintf("%06d", (uint32(b[0])<<16|uint32(b[1])<<8|uint32(b[2]))%1000000) }
-func nowMs() int64            { return time.Now().UnixMilli() }
-func devMail() bool           { return os.Getenv("BEYBLADE_DEV_MAIL") == "1" }
-
-// sendMail relays the verification code through a real mail provider.
-//
-// This host cannot deliver mail directly: outbound port 25 is blocked by the
-// cloud provider and the instance has no rDNS/domain, so direct-to-MX mail is
-// rejected by the major services. Ports 587/465 are open, so configure a
-// provider (mailbox account or transactional service) and we submit through
-// it. Auto-detects implicit TLS on :465; :587 (default) uses STARTTLS.
-func sendMail(to, code string) {
-	host := os.Getenv("BEYBLADE_SMTP_HOST")
-	if host == "" {
-		log.Printf("auth: verification code for %s: %s (no SMTP configured)", to, code)
-		return
-	}
-	user := os.Getenv("BEYBLADE_SMTP_USER")
-	pass := os.Getenv("BEYBLADE_SMTP_PASS")
-	from := os.Getenv("BEYBLADE_SMTP_FROM")
-	if from == "" {
-		from = user
-	}
-	addr := host
-	if !strings.Contains(addr, ":") {
-		addr += ":587"
-	}
-	hostOnly, port, err := net.SplitHostPort(addr)
-	if err != nil {
-		log.Printf("auth: bad BEYBLADE_SMTP_HOST %q: %v", host, err)
-		return
-	}
-	msg := []byte(fmt.Sprintf(
-		"From: %s\r\nTo: %s\r\nSubject: BEYBLADE X verification code\r\n"+
-			"MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n"+
-			"驗證碼 Verification code: %s\r\n", from, to, code))
-
-	go func() {
-		var err error
-		if port == "465" {
-			err = sendImplicitTLS(addr, hostOnly, user, pass, from, to, msg)
-		} else {
-			var auth smtp.Auth
-			if user != "" {
-				auth = smtp.PlainAuth("", user, pass, hostOnly)
-			}
-			err = smtp.SendMail(addr, auth, from, []string{to}, msg)
-		}
-		if err != nil {
-			log.Printf("auth: smtp send to %s failed: %v", to, err)
-			return
-		}
-		log.Printf("auth: verification mail sent to %s via %s", to, addr)
-	}()
+func hexID(s string) string {
+	return hex.EncodeToString([]byte(strings.ToLower(strings.TrimSpace(s))))
 }
 
-// sendImplicitTLS handles providers that expect TLS from the first byte
-// (port 465), which net/smtp's SendMail cannot do on its own.
-func sendImplicitTLS(addr, host, user, pass, from, to string, msg []byte) error {
-	conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
-	if err != nil {
-		return err
-	}
-	defer conn.Close()
-	c, err := smtp.NewClient(conn, host)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = c.Quit() }()
-	if user != "" {
-		if err := c.Auth(smtp.PlainAuth("", user, pass, host)); err != nil {
-			return err
-		}
-	}
-	if err := c.Mail(from); err != nil {
-		return err
-	}
-	if err := c.Rcpt(to); err != nil {
-		return err
-	}
-	w, err := c.Data()
-	if err != nil {
-		return err
-	}
-	if _, err := w.Write(msg); err != nil {
-		return err
-	}
-	return w.Close()
+func randHex(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }
+
+func nowMs() int64 { return time.Now().UnixMilli() }
+
+func googleClientID() string { return os.Getenv("BEYBLADE_GOOGLE_CLIENT_ID") }
 
 func (s *Store) getDoc(col, id string, out any) bool {
 	for _, d := range s.List(col) {
@@ -160,19 +76,90 @@ func (s *Store) SessionUser(r *http.Request) string {
 		return ""
 	}
 	var sess sessionDoc
-	if !s.getDoc("_sessions", tok, &sess) || sess.Exp < nowMs() {
+	if !s.getDoc("_sessions", tok, &sess) || sess.UserID == "" || sess.Exp < nowMs() {
 		return ""
 	}
 	return sess.UserID
 }
 
+func (s *Store) newSession(userID string) string {
+	tok := randHex(24)
+	s.putDoc("_sessions", tok, sessionDoc{UserID: userID, Exp: nowMs() + sessionTTL.Milliseconds()})
+	return tok
+}
+
+// ---- Google Sign-In ------------------------------------------------------
+
+type googleClaims struct {
+	Iss           string `json:"iss"`
+	Aud           string `json:"aud"`
+	Sub           string `json:"sub"`
+	Email         string `json:"email"`
+	EmailVerified string `json:"email_verified"`
+	Name          string `json:"name"`
+	Exp           string `json:"exp"`
+}
+
+// verifyGoogleIDToken validates the ID token issued to our web client.
+//
+// Validation is delegated to Google's tokeninfo endpoint (signature + key
+// rotation handled upstream) and the security-relevant claims are then
+// checked here: audience must be OUR client id, issuer must be Google, the
+// token must not be expired, and the email must be Google-verified. At this
+// project's sign-in volume that is well within tokeninfo's intended use; a
+// high-traffic deployment should switch to local JWKS validation.
+func verifyGoogleIDToken(cred string) (*googleClaims, error) {
+	clientID := googleClientID()
+	if clientID == "" {
+		return nil, errors.New("google-not-configured")
+	}
+	if cred == "" || len(cred) > 8192 {
+		return nil, errors.New("bad-credential")
+	}
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, err := client.Get("https://oauth2.googleapis.com/tokeninfo?id_token=" + url.QueryEscape(cred))
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, errors.New("token-rejected")
+	}
+	var c googleClaims
+	if err := json.NewDecoder(resp.Body).Decode(&c); err != nil {
+		return nil, err
+	}
+	if c.Aud != clientID {
+		return nil, errors.New("audience-mismatch")
+	}
+	if c.Iss != "accounts.google.com" && c.Iss != "https://accounts.google.com" {
+		return nil, errors.New("issuer-mismatch")
+	}
+	if exp, err := strconv.ParseInt(c.Exp, 10, 64); err != nil || time.Now().Unix() > exp {
+		return nil, errors.New("token-expired")
+	}
+	if c.EmailVerified != "true" || c.Email == "" || c.Sub == "" {
+		return nil, errors.New("email-unverified")
+	}
+	return &c, nil
+}
+
+// ---- HTTP ----------------------------------------------------------------
+
 func (s *Store) ServeAuth(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
+	op := strings.TrimPrefix(r.URL.Path, "/game/auth/")
+
+	// public: lets the client decide whether to offer the Google button
+	if op == "config" {
+		_ = json.NewEncoder(w).Encode(map[string]string{"googleClientId": googleClientID()})
+		return
+	}
 	if r.Method != http.MethodPost {
 		http.Error(w, `{"error":"method"}`, http.StatusMethodNotAllowed)
 		return
 	}
-	op := strings.TrimPrefix(r.URL.Path, "/game/auth/")
+
 	var body struct {
 		Email       string `json:"email"`
 		Nickname    string `json:"nickname"`
@@ -180,76 +167,90 @@ func (s *Store) ServeAuth(w http.ResponseWriter, r *http.Request) {
 		Current     string `json:"current"`
 		NewPassword string `json:"newPassword"`
 		NewEmail    string `json:"newEmail"`
-		Code        string `json:"code"`
+		Credential  string `json:"credential"`
 	}
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 8192)).Decode(&body); err != nil {
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 16384)).Decode(&body); err != nil {
 		http.Error(w, `{"error":"bad-json"}`, http.StatusBadRequest)
 		return
 	}
 	fail := func(code int, msg string) { http.Error(w, fmt.Sprintf(`{"error":%q}`, msg), code) }
 	ok := func(v any) { _ = json.NewEncoder(w).Encode(v) }
-
 	email := strings.ToLower(strings.TrimSpace(body.Email))
+
 	switch op {
+	case "google":
+		claims, err := verifyGoogleIDToken(body.Credential)
+		if err != nil {
+			if err.Error() == "google-not-configured" {
+				fail(503, "google-not-configured")
+				return
+			}
+			fail(401, "google-verify-failed")
+			return
+		}
+		gmail := strings.ToLower(claims.Email)
+		var idx struct {
+			UserID string `json:"userId"`
+		}
+		var u userDoc
+		userID := ""
+		if s.getDoc("_emails", hexID(gmail), &idx) && idx.UserID != "" && s.getDoc("_users", idx.UserID, &u) {
+			userID = idx.UserID // existing account: link it to this Google id
+			u.GoogleSub = claims.Sub
+			if u.Nickname == "" {
+				u.Nickname = claims.Name
+			}
+			s.putDoc("_users", userID, u)
+		} else {
+			nickname := strings.TrimSpace(claims.Name)
+			if nickname == "" {
+				nickname = strings.SplitN(gmail, "@", 2)[0]
+			}
+			userID = "u" + randHex(8)
+			u = userDoc{Email: gmail, Nickname: nickname, GoogleSub: claims.Sub}
+			s.putDoc("_users", userID, u)
+			s.putDoc("_emails", hexID(gmail), map[string]string{"userId": userID})
+		}
+		ok(map[string]string{"token": s.newSession(userID), "nickname": u.Nickname, "email": u.Email})
+
 	case "signup":
 		if !emailRe.MatchString(email) || len(body.Password) < 6 || strings.TrimSpace(body.Nickname) == "" {
 			fail(400, "invalid-fields")
 			return
 		}
-		var existing struct{ UserID string `json:"userId"` }
+		var existing struct {
+			UserID string `json:"userId"`
+		}
 		if s.getDoc("_emails", hexID(email), &existing) && existing.UserID != "" {
-			var u userDoc
-			if s.getDoc("_users", existing.UserID, &u) && u.Verified {
-				fail(409, "email-taken")
-				return
-			}
+			fail(409, "email-taken")
+			return
 		}
 		hash, _ := bcrypt.GenerateFromPassword([]byte(body.Password), bcrypt.DefaultCost)
 		userID := "u" + randHex(8)
-		code := randCode()
-		s.putDoc("_users", userID, userDoc{
-			Email: email, Nickname: strings.TrimSpace(body.Nickname), Hash: string(hash),
-			Verified: false, Code: code, CodeExp: nowMs() + 30*60*1000,
-		})
+		u := userDoc{Email: email, Nickname: strings.TrimSpace(body.Nickname), Hash: string(hash)}
+		s.putDoc("_users", userID, u)
 		s.putDoc("_emails", hexID(email), map[string]string{"userId": userID})
-		sendMail(email, code)
-		resp := map[string]any{"status": "verify-sent"}
-		if devMail() {
-			resp["devCode"] = code
-		}
-		ok(resp)
-	case "verify":
-		var idx struct{ UserID string `json:"userId"` }
-		var u userDoc
-		if !s.getDoc("_emails", hexID(email), &idx) || !s.getDoc("_users", idx.UserID, &u) {
-			fail(404, "not-found")
-			return
-		}
-		if u.Code == "" || u.Code != body.Code || u.CodeExp < nowMs() {
-			fail(400, "bad-code")
-			return
-		}
-		u.Verified, u.Code = true, ""
-		s.putDoc("_users", idx.UserID, u)
-		ok(map[string]string{"status": "verified"})
+		ok(map[string]string{"token": s.newSession(userID), "nickname": u.Nickname, "email": u.Email})
+
 	case "signin":
-		var idx struct{ UserID string `json:"userId"` }
+		var idx struct {
+			UserID string `json:"userId"`
+		}
 		var u userDoc
 		if !s.getDoc("_emails", hexID(email), &idx) || !s.getDoc("_users", idx.UserID, &u) {
 			fail(401, "bad-credentials")
+			return
+		}
+		if u.Hash == "" {
+			fail(401, "use-google") // Google-only account
 			return
 		}
 		if bcrypt.CompareHashAndPassword([]byte(u.Hash), []byte(body.Password)) != nil {
 			fail(401, "bad-credentials")
 			return
 		}
-		if !u.Verified {
-			fail(403, "not-verified")
-			return
-		}
-		tok := randHex(24)
-		s.putDoc("_sessions", tok, sessionDoc{UserID: idx.UserID, Exp: nowMs() + sessionTTL.Milliseconds()})
-		ok(map[string]string{"token": tok, "nickname": u.Nickname, "email": u.Email})
+		ok(map[string]string{"token": s.newSession(idx.UserID), "nickname": u.Nickname, "email": u.Email})
+
 	case "me":
 		uid := s.SessionUser(r)
 		var u userDoc
@@ -257,18 +258,35 @@ func (s *Store) ServeAuth(w http.ResponseWriter, r *http.Request) {
 			fail(401, "no-session")
 			return
 		}
-		// sliding renewal: stay signed in until explicit sign-out
 		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if idPattern.MatchString(tok) {
 			s.putDoc("_sessions", tok, sessionDoc{UserID: uid, Exp: nowMs() + sessionTTL.Milliseconds()})
 		}
 		ok(map[string]string{"email": u.Email, "nickname": u.Nickname})
+
 	case "signout":
 		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		if idPattern.MatchString(tok) {
 			s.putDoc("_sessions", tok, sessionDoc{UserID: "", Exp: 0})
 		}
 		ok(map[string]string{"status": "ok"})
+
+	case "nickname":
+		uid := s.SessionUser(r)
+		var u userDoc
+		if uid == "" || !s.getDoc("_users", uid, &u) {
+			fail(401, "no-session")
+			return
+		}
+		nick := strings.TrimSpace(body.Nickname)
+		if nick == "" || len(nick) > 24 {
+			fail(400, "invalid-fields")
+			return
+		}
+		u.Nickname = nick
+		s.putDoc("_users", uid, u)
+		ok(map[string]string{"status": "ok", "nickname": nick})
+
 	case "change-password":
 		uid := s.SessionUser(r)
 		var u userDoc
@@ -276,7 +294,7 @@ func (s *Store) ServeAuth(w http.ResponseWriter, r *http.Request) {
 			fail(401, "no-session")
 			return
 		}
-		if bcrypt.CompareHashAndPassword([]byte(u.Hash), []byte(body.Current)) != nil || len(body.NewPassword) < 6 {
+		if u.Hash == "" || bcrypt.CompareHashAndPassword([]byte(u.Hash), []byte(body.Current)) != nil || len(body.NewPassword) < 6 {
 			fail(400, "bad-current-or-weak")
 			return
 		}
@@ -284,6 +302,7 @@ func (s *Store) ServeAuth(w http.ResponseWriter, r *http.Request) {
 		u.Hash = string(hash)
 		s.putDoc("_users", uid, u)
 		ok(map[string]string{"status": "ok"})
+
 	case "change-email":
 		uid := s.SessionUser(r)
 		var u userDoc
@@ -296,32 +315,19 @@ func (s *Store) ServeAuth(w http.ResponseWriter, r *http.Request) {
 			fail(400, "invalid-email")
 			return
 		}
-		u.PendingEmail = newEmail
-		u.Code = randCode()
-		u.CodeExp = nowMs() + 30*60*1000
-		s.putDoc("_users", uid, u)
-		sendMail(newEmail, u.Code)
-		resp := map[string]any{"status": "verify-sent"}
-		if devMail() {
-			resp["devCode"] = u.Code
+		var other struct {
+			UserID string `json:"userId"`
 		}
-		ok(resp)
-	case "confirm-email":
-		uid := s.SessionUser(r)
-		var u userDoc
-		if uid == "" || !s.getDoc("_users", uid, &u) {
-			fail(401, "no-session")
-			return
-		}
-		if u.PendingEmail == "" || u.Code != body.Code || u.CodeExp < nowMs() {
-			fail(400, "bad-code")
+		if s.getDoc("_emails", hexID(newEmail), &other) && other.UserID != "" && other.UserID != uid {
+			fail(409, "email-taken")
 			return
 		}
 		s.putDoc("_emails", hexID(u.Email), map[string]string{"userId": ""}) // tombstone old
-		u.Email, u.PendingEmail, u.Code = u.PendingEmail, "", ""
+		u.Email = newEmail
 		s.putDoc("_users", uid, u)
-		s.putDoc("_emails", hexID(u.Email), map[string]string{"userId": uid})
-		ok(map[string]string{"status": "ok", "email": u.Email})
+		s.putDoc("_emails", hexID(newEmail), map[string]string{"userId": uid})
+		ok(map[string]string{"status": "ok", "email": newEmail})
+
 	default:
 		fail(404, "unknown-op")
 	}
