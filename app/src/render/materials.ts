@@ -208,6 +208,143 @@ export function skinNormal(): THREE.Texture {
   });
 }
 
+export type BeastKind = "dragon" | "phoenix" | "lion" | "serpent" | "shark" | "knight" | "reaper";
+
+/** Pick the creature from the blade's name — the names say it outright. */
+export function beastOf(name: string): BeastKind {
+  const n = name.toUpperCase();
+  if (/DRAN|DRAGON|DRAGOON|DRAKE|WYVERN/.test(n)) return "dragon";
+  if (/PHOENIX|GARUDA|WING|PEGASIS|VALKYRIE|BIRD/.test(n)) return "phoenix";
+  if (/LEON|LION|TIGER|BEAR|WOLF|RHINO|CLAW/.test(n)) return "lion";
+  if (/VIPER|SNAKE|SERPENT|CROC|WHALE|SHARK.?TAIL/.test(n)) return "serpent";
+  if (/SHARK|EDGE|FIN/.test(n)) return "shark";
+  if (/HELLS|SCYTHE|CHAIN|DARK|SHADOW|REAPER/.test(n)) return "reaper";
+  return "knight"; // KnightShield/Lance, WizardArrow, SamuraiCalibur…
+}
+
+/**
+ * Beast marks, drawn in a 100-unit space centred on the sticker. These are
+ * heraldic silhouettes — a head-on creature the way the real stickers show
+ * one — not abstract polygons.
+ */
+function drawBeast(c: CanvasRenderingContext2D, kind: BeastKind, seed: number): void {
+  const p = (pts: [number, number][], close = true): void => {
+    c.beginPath();
+    c.moveTo(pts[0]![0], pts[0]![1]);
+    for (let i = 1; i < pts.length; i++) c.lineTo(pts[i]![0], pts[i]![1]);
+    if (close) c.closePath();
+    c.fill();
+    c.stroke();
+  };
+  const eye = (x: number, y: number, r: number, tilt: number): void => {
+    c.save();
+    c.translate(x, y);
+    c.rotate(tilt);
+    c.beginPath();
+    c.ellipse(0, 0, r, r * 0.55, 0, 0, Math.PI * 2);
+    c.fillStyle = "#c8202a";
+    c.fill();
+    c.strokeStyle = "#0d1018";
+    c.lineWidth = 3;
+    c.stroke();
+    c.restore();
+  };
+  const foil = c.fillStyle;
+
+  switch (kind) {
+    case "dragon":
+      // horned head with a long snout and swept back-horns
+      p([[0, -62], [22, -40], [30, -10], [46, 4], [24, 12], [16, 34],
+         [0, 22], [-16, 34], [-24, 12], [-46, 4], [-30, -10], [-22, -40]]);
+      p([[0, -46], [40, -70], [26, -34]]); // right horn
+      p([[0, -46], [-40, -70], [-26, -34]]); // left horn
+      p([[0, 10], [14, 40], [0, 58], [-14, 40]]); // jaw
+      eye(-15, -14, 9, -0.35);
+      eye(15, -14, 9, 0.35);
+      break;
+    case "phoenix":
+      // wings spread from a crested head
+      p([[0, -58], [12, -28], [58, -44], [80, -6], [30, 4], [10, 30],
+         [0, 46], [-10, 30], [-30, 4], [-80, -6], [-58, -44], [-12, -28]]);
+      p([[0, -58], [10, -84], [0, -70], [-10, -84]]); // crest
+      eye(-12, -20, 8, -0.5);
+      eye(12, -20, 8, 0.5);
+      break;
+    case "lion":
+      // maned head: radiating mane spikes around a broad muzzle
+      c.beginPath();
+      for (let i = 0; i < 14; i++) {
+        const a = (i / 14) * Math.PI * 2;
+        const rr = i % 2 ? 44 : 74;
+        const x = Math.cos(a) * rr;
+        const y = Math.sin(a) * rr * 0.94;
+        if (i === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
+      }
+      c.closePath();
+      c.fill();
+      c.stroke();
+      p([[0, 6], [22, 18], [14, 40], [0, 32], [-14, 40], [-22, 18]]);
+      eye(-18, -14, 9, 0);
+      eye(18, -14, 9, 0);
+      break;
+    case "serpent":
+      // coiled snake with a wedge head
+      c.beginPath();
+      for (let i = 0; i <= 90; i++) {
+        const t = i / 90;
+        const a = t * Math.PI * 3.1;
+        const rr = 74 - t * 52;
+        const x = Math.cos(a) * rr;
+        const y = Math.sin(a) * rr * 0.92;
+        if (i === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
+      }
+      c.lineWidth = 17;
+      c.strokeStyle = foil as string;
+      c.stroke();
+      c.lineWidth = 5;
+      c.strokeStyle = "#0d1018";
+      c.stroke();
+      p([[62, -30], [92, -10], [62, 8], [52, -12]]); // head
+      eye(70, -12, 6, 0);
+      break;
+    case "shark":
+      // side-on shark with dorsal fin and tail
+      p([[-78, 4], [-34, -26], [18, -22], [58, -2], [86, -22], [76, 6],
+         [86, 30], [56, 12], [16, 22], [-30, 24]]);
+      p([[6, -22], [22, -60], [40, -18]]); // dorsal
+      p([[-10, 20], [-6, 46], [-34, 24]]); // pelvic
+      eye(-46, -6, 7, 0);
+      break;
+    case "reaper":
+      // hooded skull with a scythe blade sweeping behind
+      p([[0, -66], [34, -40], [36, 2], [18, 34], [0, 44], [-18, 34],
+         [-36, 2], [-34, -40]]);
+      c.beginPath();
+      c.arc(0, -6, 26, Math.PI * 0.06, Math.PI * 0.94);
+      c.lineWidth = 12;
+      c.strokeStyle = "#0d1018";
+      c.stroke();
+      c.lineWidth = 5;
+      eye(-13, -16, 8, 0.2);
+      eye(13, -16, 8, -0.2);
+      break;
+    default:
+      // knight: crested helm with a visor slit and shoulder wings
+      p([[0, -64], [30, -44], [36, -4], [26, 32], [0, 44], [-26, 32],
+         [-36, -4], [-30, -44]]);
+      p([[0, -64], [8, -92], [0, -78], [-8, -92]]); // plume
+      c.fillStyle = "#0d1018";
+      c.fillRect(-26, -22, 52, 13); // visor slit
+      c.fillStyle = foil as string;
+      p([[-36, -6], [-64, 6 + seed * 6], [-34, 16]]);
+      p([[36, -6], [64, 6 + seed * 6], [34, 16]]);
+      break;
+  }
+  c.fillStyle = foil as string;
+}
+
 /**
  * The printed sticker every Beyblade X blade carries on its crown. Real
  * blades are moulded colour plastic with a glossy die-cut sticker over the
@@ -255,37 +392,23 @@ export function stickerTexture(opts: {
       }
       c.globalAlpha = 1;
 
-      // beast glyph: a seeded star-polygon mark, foil-bright
-      const pts = 5 + Math.floor(opts.seed * 4);
-      c.beginPath();
-      for (let i = 0; i <= pts * 2; i++) {
-        const a = (i / (pts * 2)) * Math.PI * 2 - Math.PI / 2;
-        const rr = R * (i % 2 ? 0.3 : 0.66);
-        const x = R + Math.cos(a) * rr;
-        const y = R + Math.sin(a) * rr;
-        if (i === 0) c.moveTo(x, y);
-        else c.lineTo(x, y);
-      }
-      c.closePath();
-      const foil = c.createLinearGradient(0, 0, S, S);
+      // THE BEAST. Every Beyblade X blade is named after its creature
+      // (DranSword = dragon, PhoenixWing = phoenix, LeonClaw = lion…), and
+      // that creature is the whole point of the sticker art, so draw it.
+      const foil = c.createLinearGradient(0, S * 0.2, S, S * 0.9);
       foil.addColorStop(0, "#ffffff");
-      foil.addColorStop(0.4, "#dfe6f5");
-      foil.addColorStop(0.6, "#98a4c0");
+      foil.addColorStop(0.45, "#e6ecfa");
+      foil.addColorStop(0.7, "#9aa6c4");
       foil.addColorStop(1, "#ffffff");
+      c.save();
+      c.translate(R, R * 1.02);
+      c.scale(R / 100, R / 100); // draw in a 100-unit beast space
       c.fillStyle = foil;
-      c.fill();
-      c.lineWidth = S * 0.012;
-      c.strokeStyle = "#10131c";
-      c.stroke();
-
-      // inner eye
-      c.beginPath();
-      c.arc(R, R, R * 0.17, 0, Math.PI * 2);
-      c.fillStyle = hex(opts.accent);
-      c.fill();
-      c.lineWidth = S * 0.008;
-      c.strokeStyle = "#10131c";
-      c.stroke();
+      c.strokeStyle = "#0d1018";
+      c.lineWidth = 5;
+      c.lineJoin = "round";
+      drawBeast(c, beastOf(opts.key + opts.label), opts.seed);
+      c.restore();
 
       // part name around the bottom of the disc
       c.fillStyle = "#f2f4ff";

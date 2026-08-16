@@ -18,6 +18,8 @@ import {
   ratchetSpec,
   sweepSolid,
 } from "../src/render/parts";
+import { fingertipOffset } from "../src/render/hand";
+import { beastOf } from "../src/render/materials";
 import { STADIUM_BX10, STADIUM_BX32 } from "../src/core/stadium";
 import type { PartsDb } from "../src/core/types";
 
@@ -146,6 +148,60 @@ describe("swept solids", () => {
   it("tessellation budget is high enough for close-up silhouettes", () => {
     expect(DETAIL.sweep).toBeGreaterThanOrEqual(256);
     expect(DETAIL.radial).toBeGreaterThanOrEqual(64);
+  });
+});
+
+describe("sticker beasts", () => {
+  it("reads the creature out of the blade name", () => {
+    expect(beastOf("DRANSWORD")).toBe("dragon");
+    expect(beastOf("PHOENIXWING")).toBe("phoenix");
+    expect(beastOf("LEONCLAW")).toBe("lion");
+    expect(beastOf("VIPERTAIL")).toBe("serpent");
+    expect(beastOf("SHARKEDGE")).toBe("shark");
+    expect(beastOf("HELLSSCYTHE")).toBe("reaper");
+    expect(beastOf("KNIGHTSHIELD")).toBe("knight");
+  });
+
+  it("every blade in the dataset gets a beast", () => {
+    const kinds = new Set<string>();
+    for (const b of db.parts.blade) kinds.add(beastOf(b.key + (b.name.en ?? "")));
+    // the roster is varied enough that several creatures show up
+    expect(kinds.size).toBeGreaterThanOrEqual(4);
+  });
+});
+
+describe("hand rig", () => {
+  it("fingers close INTO the palm, never backwards", () => {
+    const len = 0.072;
+    const open = fingertipOffset(len, 0);
+    // an open hand points its tip straight down -Z, level with the knuckles
+    expect(open.z).toBeCloseTo(-len, 4);
+    expect(Math.abs(open.y)).toBeLessThan(1e-9);
+
+    // a part-closed hand swings the tip toward +Y — the palm side
+    expect(fingertipOffset(len, 0.4).y).toBeGreaterThan(0);
+  });
+
+  it("a full curl actually makes a fist around a grip", () => {
+    const len = 0.072;
+    // fully closed, the tip comes back near the knuckle rather than
+    // sticking out past whatever the hand is meant to be holding
+    const closed = fingertipOffset(len, 1);
+    const reach = Math.hypot(closed.y, closed.z);
+    expect(reach).toBeLessThan(len * 0.55);
+    // and it is on the palm side, not curled backwards over the knuckle
+    expect(closed.y).toBeGreaterThan(0);
+  });
+
+  it("closing is monotonic: the tip only ever approaches the knuckle", () => {
+    const len = 0.072;
+    let prev = Infinity;
+    for (let c = 0; c <= 1.0001; c += 0.1) {
+      const t = fingertipOffset(len, c);
+      const reach = Math.hypot(t.y, t.z);
+      expect(reach).toBeLessThanOrEqual(prev + 1e-9);
+      prev = reach;
+    }
   });
 });
 

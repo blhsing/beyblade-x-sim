@@ -75,6 +75,8 @@ export class BattleView {
   private orbitDist = 0.56; // frames the true-scale (wider) bowls
   /** look-at point, moved by two-finger pan */
   private orbitTarget = new THREE.Vector3(0, 0, 0.02);
+  /** per-bey knock-out flights, so a KO'd bey lands and stays visible */
+  private koFlights: ({ t: number; from: THREE.Vector3; to: THREE.Vector3; spin: number } | null)[] = [];
   launchSide: 0 | 1 = 0;
   /** silences hums/sfx/haptics (menu-background battles) */
   audioMuted = false;
@@ -692,6 +694,7 @@ export class BattleView {
       return m;
     });
     this.beyParams = list.map((e) => e.params);
+    this.koFlights = list.map(() => null);
     while (this.lastBeyPos.length < list.length) {
       const a = (this.lastBeyPos.length / Math.max(2, list.length)) * Math.PI * 2;
       this.lastBeyPos.push(new THREE.Vector3(Math.cos(a) * 0.06, Math.sin(a) * 0.06, 0.02));
@@ -779,6 +782,39 @@ export class BattleView {
         const p = this.beyParams[i];
         if (!m || !p) continue;
         const r = Math.hypot(b.x, b.y);
+
+        // A knocked-out bey does not vanish: the sim stops tracking it, so
+        // the view flies it out over the wall on its last heading and lands
+        // it in the pocket it fell into, where it stays lying on its side.
+        if (b.exited) {
+          let ko = this.koFlights[i];
+          if (!ko) {
+            const dir = r > 1e-4 ? { x: b.x / r, y: b.y / r } : { x: 0, y: -1 };
+            const restR = s.rWall + 0.035;
+            ko = {
+              t: 0,
+              from: new THREE.Vector3(b.x, b.y, surfaceZ(s, Math.min(r, s.rWall))),
+              to: new THREE.Vector3(
+                dir.x * restR + (Math.random() - 0.5) * 0.012,
+                dir.y * restR + (Math.random() - 0.5) * 0.012,
+                b.exited === "top" ? -0.004 : surfaceZ(s, s.rWall) - 0.015,
+              ),
+              spin: m.rotation.z,
+            };
+            this.koFlights[i] = ko;
+          }
+          ko.t = Math.min(1, ko.t + dt * 1.6);
+          const k = ko.t;
+          m.position.lerpVectors(ko.from, ko.to, k);
+          m.position.z += Math.sin(k * Math.PI) * 0.05; // tumble arc over the wall
+          m.rotation.z = ko.spin + k * 9; // still spinning as it flies
+          m.rotation.x = Math.min(Math.PI / 2, k * 2.2); // comes to rest on its side
+          this.lastBeyPos[i]?.copy(m.position);
+          sfx.updateHum(i, 0, 0, 0);
+          continue;
+        }
+        this.koFlights[i] = null;
+
         m.position.set(
           b.x,
           b.y,
@@ -792,10 +828,8 @@ export class BattleView {
           bm.uniforms.uPhase!.value = -b.phase * 3; // streaks counter-rotate in local frame
           bm.uniforms.uIntensity!.value = Math.min(1, Math.max(0, (absOmega - 140) / 650)) * 0.5;
         }
-        if (!b.alive && !b.exited) {
+        if (!b.alive) {
           m.rotation.x = Math.min(1.35, m.rotation.x + dt * 6); // burst keel
-        } else if (b.exited) {
-          m.position.z -= 0.05; // sunk into pocket
         } else if (b.stoppedTick >= 0) {
           m.rotation.x = Math.min(1.4, m.rotation.x + dt * 3.2); // lie down
         } else if (absOmega < WOBBLE_OMEGA) {
