@@ -19,6 +19,7 @@ import {
   sweepSolid,
 } from "../src/render/parts";
 import { fingertipOffset } from "../src/render/hand";
+import { pocketDepth } from "../src/render/scene";
 import { beastOf } from "../src/render/materials";
 import { STADIUM_BX10, STADIUM_BX32 } from "../src/core/stadium";
 import type { PartsDb } from "../src/core/types";
@@ -216,6 +217,18 @@ describe("stadium bodies match the published dimensions", () => {
     expect(STADIUM_BX32.deckW).toBeCloseTo(0.6, 3);
     expect(STADIUM_BX32.deckH).toBeCloseTo(0.44, 3);
     expect(STADIUM_BX32.shootAngles).toHaveLength(3);
+  });
+
+  it("exit pockets fit inside the stadium body on every stadium", () => {
+    // The pocket tray is cut THROUGH the deck; if it reached past the deck
+    // edge the hole would hang off the body and render as broken geometry
+    // instead of a pocket.
+    for (const s of [STADIUM_BX10, STADIUM_BX32]) {
+      const out = pocketDepth(s);
+      expect(out).toBeGreaterThanOrEqual(0.012); // deep enough to read as a tray
+      expect(s.rWall + out).toBeLessThan(Math.min(s.deckW, s.deckH) / 2);
+      expect(s.pockets.length).toBeGreaterThan(0);
+    }
   });
 
   it("both shells are the real off-white plastic, with coloured X-Lines", () => {

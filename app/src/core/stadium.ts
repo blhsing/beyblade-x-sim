@@ -114,10 +114,13 @@ export const STADIUM_BX32: StadiumSpec = {
   labelZh: "BX-32 寬型X戰鬥盤",
   rDish: 0.15,
   dishDepth: 0.014,
-  rWall: 0.21,
+  // The bowl has to leave a deck margin for the exit trays: at 0.21 it came
+  // within 10 mm of the 440 mm body's short edge, which left no room for a
+  // pocket at all (and no real stadium has its wall flush to the shell).
+  rWall: 0.19,
   rimRise: 0.022,
   rimBaseSlope: 0.09,
-  rRail: 0.168,
+  rRail: 0.152,
   railHalfWidth: 0.012,
   // one continuous indigo loop following the wide oval bowl…
   railArcs: [{ start: -PI, end: PI }],

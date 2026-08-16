@@ -129,6 +129,36 @@ describe("battle outcomes", () => {
     expect(w.finish?.winner).toBe(0);
   });
 
+  it("a late release enters the stadium late", () => {
+    // Players do not let go on the same frame. A delayed launch must be
+    // held out of play — not silently teleported in with everyone else.
+    const c = cfg(baseParams(), baseParams(), 21, {
+      launches: [baseLaunch(), baseLaunch({ delayTicks: 240 })], // 1 s later
+    });
+    const w = createWorld(c);
+    expect(w.beys[1]!.pendingTicks).toBe(240);
+    for (let i = 0; i < 120; i++) step(w, c, STADIUM_BX10);
+    // half a second in: the prompt bey is playing, the late one has not moved
+    expect(w.beys[1]!.pendingTicks).toBeGreaterThan(0);
+    expect(w.beys[0]!.airborne || Math.hypot(w.beys[0]!.vx, w.beys[0]!.vy) > 0).toBe(true);
+    const held = { x: w.beys[1]!.x, y: w.beys[1]!.y };
+    for (let i = 0; i < 60; i++) step(w, c, STADIUM_BX10);
+    expect(w.beys[1]!.x).toBe(held.x);
+    expect(w.beys[1]!.y).toBe(held.y);
+    // …and once its moment comes it does join in
+    for (let i = 0; i < 200; i++) step(w, c, STADIUM_BX10);
+    expect(w.beys[1]!.pendingTicks).toBe(0);
+  });
+
+  it("launch delay is deterministic", () => {
+    const c = cfg(baseParams(), baseParams(), 33, {
+      launches: [baseLaunch({ delayTicks: 37 }), baseLaunch({ delayTicks: 111 })],
+    });
+    const a = simulateBattle(c, STADIUM_BX10);
+    const b = simulateBattle(c, STADIUM_BX10);
+    expect(hashWorld(a)).toEqual(hashWorld(b));
+  });
+
   it("spent beys resting in contact stop clashing", () => {
     // After a match is decided the view keeps stepping the world so the
     // action does not freeze. Two dead-still beys touching each other still

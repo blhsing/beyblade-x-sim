@@ -152,6 +152,9 @@ function makeBey(
     stoppedTick: -1,
     stopDwell: 0,
     contacted: false,
+    // held out of play until its release moment (see step()); players do
+    // not let go in unison, so a late release drops in late
+    pendingTicks: Math.max(0, Math.round(launch.delayTicks ?? 0)),
     railTicks: 0,
     railDir: 1,
     phase: 0,
@@ -483,6 +486,7 @@ function collidePair(w: WorldState, cfg: WorldConfig, i: number, j: number): voi
   const p1 = cfg.beys[i]!;
   const p2 = cfg.beys[j]!;
   if (!b1.alive || !b2.alive) return;
+  if (b1.pendingTicks > 0 || b2.pendingTicks > 0) return; // not launched yet
   if (b1.airborne || b2.airborne) return; // mid-air beys pass over
   const dx = b2.x - b1.x;
   const dy = b2.y - b1.y;
@@ -701,6 +705,11 @@ export function step(w: WorldState, cfg: WorldConfig, s: StadiumSpec, afterglow 
   for (let i = 0; i < w.beys.length; i++) {
     const b = w.beys[i]!;
     if (!b.alive) continue;
+    // still in the launcher: this player released later than the others
+    if (b.pendingTicks > 0) {
+      b.pendingTicks--;
+      continue;
+    }
     // nearest living rival — collision partner and sling target
     let other = b;
     let bestD = Infinity;

@@ -109,6 +109,10 @@ export interface LaunchParams {
   tiltDeg: number; // -20..20 launcher tilt (affects entry radius)
   launcher: LauncherKind;
   spinDir: SpinDir; // effective direction (dual-spin blades choose)
+  /** ticks this bey enters AFTER the countdown — players do not release in
+   * perfect unison, so a late release really does drop in late instead of
+   * everyone magically appearing at once. 0 = dead on the call. */
+  delayTicks?: number;
 }
 
 export type FinishType = "spin" | "over" | "burst" | "xtreme";
@@ -149,6 +153,8 @@ export interface BeyState {
   vz: number;
   /** falling from the launcher — no ground forces/rail/walls until landing */
   airborne: boolean;
+  /** ticks still to wait before this bey is released into the stadium */
+  pendingTicks: number;
   omega: number; // signed rad/s (sign = spin direction)
   burstDamage: number; // accumulated clicks (bursts at clicksMax)
   alive: boolean;

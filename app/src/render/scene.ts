@@ -57,6 +57,16 @@ interface Spark {
  * wind-down is watchable rather than an abrupt stop. */
 const WOBBLE_OMEGA = 55;
 
+/**
+ * How far a pocket's catch tray extends past the wall (m), clamped so the
+ * cut-out can never run off the stadium body — a hole hanging past the deck
+ * edge renders as broken geometry rather than a pocket.
+ */
+export function pocketDepth(s: StadiumSpec): number {
+  const margin = Math.min(s.deckW, s.deckH) / 2 - s.rWall - 0.004;
+  return Math.max(0.012, Math.min(0.04, margin));
+}
+
 export type CameraMode = "orbit" | "gyro" | "launch" | "cinema";
 
 export class BattleView {
@@ -79,6 +89,8 @@ export class BattleView {
   private koFlights: ({ t: number; from: THREE.Vector3; to: THREE.Vector3; spin: number } | null)[] = [];
   /** beys already blown apart, so a burst only detonates once */
   private burstDone: boolean[] = [];
+  /** rendered blade radius per bey (m) */
+  private beyRadius: number[] = [];
   /** free-flying blade/ratchet/bit pieces from a burst */
   private debris: { mesh: THREE.Object3D; vel: THREE.Vector3; spin: THREE.Vector3; rest: number }[] = [];
 
@@ -521,6 +533,7 @@ export class BattleView {
     this.stadium = s;
     this.stadiumGroup.clear();
     const rimZ = surfaceZ(s, s.rWall);
+    const POCKET_OUT = pocketDepth(s);
     // ABS shell, moulded and lightly polished — the real stadiums are a matte
     // white body with a coloured X-Line (docs/MODELING.md §2)
     const bodyMat = absPlastic(s.bodyColor, { rough: 0.46, coat: 0.3 });
@@ -560,6 +573,15 @@ export class BattleView {
     const hole = new THREE.Path();
     hole.absarc(0, 0, s.rWall * 0.998, 0, Math.PI * 2, true);
     deckShape.holes.push(hole);
+    // Cut the exit pockets THROUGH the deck. Without these the deck was a
+    // solid plate over the catch area, so the pockets were built but
+    // completely hidden underneath it — the stadium looked like it had none.
+    for (const p of s.pockets) {
+      const mouth = new THREE.Path();
+      mouth.absarc(0, 0, s.rWall * 0.995, p.angleCenter - p.halfWidth, p.angleCenter + p.halfWidth, false);
+      mouth.absarc(0, 0, s.rWall + POCKET_OUT, p.angleCenter + p.halfWidth, p.angleCenter - p.halfWidth, true);
+      deckShape.holes.push(mouth);
+    }
     const deck = new THREE.Mesh(
       new THREE.ExtrudeGeometry(deckShape, {
         depth: 0.014,
@@ -678,29 +700,53 @@ export class BattleView {
       wall.position.z = rimZ - 0.004;
       this.stadiumGroup.add(wall);
     }
+    // Exit pockets: a sunken catch tray behind the wall mouth, with side
+    // cheeks and a back stop so it reads as a real recess you can see into
+    // through the cut-out in the deck above.
     for (const p of s.pockets) {
       const a0 = p.angleCenter - p.halfWidth;
       const a1 = p.angleCenter + p.halfWidth;
+      const rOut = s.rWall + POCKET_OUT;
+      const floorZ = rimZ - 0.028; // deep enough to swallow a fallen bey
       // Xtreme Zone (3 pt) is the wide red catch; Over Zones (2 pt) amber
       const col = p.kind === "xtreme" ? 0xd8322f : 0xd89b2f;
       const floor = new THREE.Mesh(
-        new THREE.ExtrudeGeometry(ringSegmentShape(s.rWall - 0.004, s.rWall + 0.052, a0, a1), {
+        new THREE.ExtrudeGeometry(ringSegmentShape(s.rWall - 0.004, rOut, a0, a1), {
           depth: 0.004,
           bevelEnabled: false,
+          curveSegments: 48,
         }),
         absPlastic(col, { rough: 0.44, coat: 0.35 }),
       );
-      floor.position.z = rimZ - 0.017; // sunken catch floor
+      floor.position.z = floorZ;
+      floor.receiveShadow = true;
       this.stadiumGroup.add(floor);
+
+      // back stop
       const back = new THREE.Mesh(
-        new THREE.ExtrudeGeometry(ringSegmentShape(s.rWall + 0.052, s.rWall + 0.058, a0, a1), {
-          depth: wallH,
+        new THREE.ExtrudeGeometry(ringSegmentShape(rOut, rOut + 0.006, a0, a1), {
+          depth: rimZ + 0.02 - floorZ,
           bevelEnabled: false,
+          curveSegments: 48,
         }),
         bodyMat,
       );
-      back.position.z = rimZ - 0.017;
+      back.position.z = floorZ;
       this.stadiumGroup.add(back);
+
+      // side cheeks so the tray has walls rather than open ends
+      for (const a of [a0, a1]) {
+        const cheek = new THREE.Mesh(
+          new THREE.ExtrudeGeometry(ringSegmentShape(s.rWall - 0.004, rOut, a - 0.02, a + 0.02), {
+            depth: rimZ + 0.014 - floorZ,
+            bevelEnabled: false,
+            curveSegments: 16,
+          }),
+          bodyMat,
+        );
+        cheek.position.z = floorZ;
+        this.stadiumGroup.add(cheek);
+      }
     }
 
     // mostly-transparent casing: clear walls everywhere EXCEPT the gaps
@@ -768,6 +814,11 @@ export class BattleView {
       return m;
     });
     this.beyParams = list.map((e) => e.params);
+    // the radius actually rendered (dataset diameter, not the derived one) —
+    // used to sit a toppled bey ON the dish instead of through it
+    this.beyRadius = list.map((e) =>
+      partRadiusM(e.rc?.parts.blade ?? e.rc?.parts.mainBlade, e.params.radiusM),
+    );
     this.koFlights = list.map(() => null);
     this.burstDone = list.map(() => false);
     this.clearDebris();
@@ -859,6 +910,13 @@ export class BattleView {
         const m = this.beyMeshes[i];
         const p = this.beyParams[i];
         if (!m || !p) continue;
+        // still in its owner's launcher — not in the stadium yet
+        if (b.pendingTicks > 0) {
+          m.visible = false;
+          sfx.updateHum(i, 0, 0, 0);
+          continue;
+        }
+        if (!m.visible && !this.burstDone[i]) m.visible = true;
         const r = Math.hypot(b.x, b.y);
 
         // A knocked-out bey does not vanish: the sim stops tracking it, so
@@ -887,6 +945,8 @@ export class BattleView {
           m.position.z += Math.sin(k * Math.PI) * 0.05; // tumble arc over the wall
           m.rotation.z = ko.spin + k * 9; // still spinning as it flies
           m.rotation.x = Math.min(Math.PI / 2, k * 2.2); // comes to rest on its side
+          // same tip-pivot correction as the topple: lie ON the floor, not in it
+          m.position.z += (this.beyRadius[i] ?? 0.024) * Math.sin(m.rotation.x);
           this.lastBeyPos[i]?.copy(m.position);
           sfx.updateHum(i, 0, 0, 0);
           continue;
@@ -910,7 +970,12 @@ export class BattleView {
           // burst: the bey comes apart where it stood
           this.explodeBey(i, m.position.clone());
         } else if (b.stoppedTick >= 0) {
-          m.rotation.x = Math.min(1.4, m.rotation.x + dt * 3.2); // lie down
+          // Topple over. The mesh origin is the TIP, so rotating alone swung
+          // the body straight down through the dish — a stopped bey looked
+          // half-buried. Lift by the blade radius as it goes over, which is
+          // exactly where the rim ends up carrying it once it is on its side.
+          m.rotation.x = Math.min(Math.PI / 2, m.rotation.x + dt * 3.2);
+          m.position.z += (this.beyRadius[i] ?? 0.024) * Math.sin(m.rotation.x);
         } else if (absOmega < WOBBLE_OMEGA) {
           // wobble grows as the bey winds down, so the moment it is called
           // stopped it has visibly been dying for a while (not a sudden cut)

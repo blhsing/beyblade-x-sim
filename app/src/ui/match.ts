@@ -196,8 +196,12 @@ export async function humanLaunch(
   meter.remove();
   activeLaunchTeardown = null;
   const aimDeg = Math.max(-12, Math.min(12, result.releaseOffsetMs / 50));
+  // A late release really does enter late. Nobody lets go on the exact same
+  // frame, so the sim holds this bey out of play for the difference instead
+  // of pretending every top appears at once.
+  const delayTicks = Math.max(0, Math.round((result.releaseOffsetMs / 1000) * 240));
   return {
-    launch: { sp: result.sp, aimDeg, tiltDeg: 0, launcher, spinDir: 1 },
+    launch: { sp: result.sp, aimDeg, tiltDeg: 0, launcher, spinDir: 1, delayTicks },
     mislaunch: null,
   };
 }
@@ -224,13 +228,15 @@ async function collectLaunches(
       if (s.kind === "bot") {
         // character-driven and reactive to the opponent's past launches
         const lastDecisive = [...engine.history].reverse().find((h) => h.scorer !== null);
-        out.push(
-          botChooseLaunchAdaptive(s.bot, rotation, (battleSeed ^ (side + 1) * 0x9e37) >>> 0, {
-            oppAvgSp: launchStats()?.avgSp ?? null,
-            lostLast: lastDecisive ? lastDecisive.scorer !== side : false,
-            battleIndex: engine.battleIndex,
-          }),
-        );
+        const bl = botChooseLaunchAdaptive(s.bot, rotation, (battleSeed ^ (side + 1) * 0x9e37) >>> 0, {
+          oppAvgSp: launchStats()?.avgSp ?? null,
+          lostLast: lastDecisive ? lastDecisive.scorer !== side : false,
+          battleIndex: engine.battleIndex,
+        });
+        // bots do not release on the exact frame either — a seeded few
+        // hundredths of a second, identical on every client (lockstep-safe)
+        const jitter = ((battleSeed ^ ((side + 7) * 0x85eb)) >>> 0) % 60;
+        out.push({ ...bl, delayTicks: jitter });
         continue;
       }
       if (bothHuman && side === 1) {
@@ -259,9 +265,13 @@ async function collectLaunches(
         if (penalty) {
           await flashBanner(ZH.mislaunchPenalty, 1500);
           if (engine.winner !== null) return "matchOver";
-          restart = true; // round restarts: recollect everyone
-          break;
         }
+        // A failed launch voids the whole shoot, not just this player's —
+        // everyone in the battle re-launches together, the way a restart
+        // works at a real table.
+        await flashBanner(ZH.relaunchAll, 1200);
+        restart = true;
+        break;
       }
       if (restart) break;
       out.push(launched!);
@@ -359,6 +369,10 @@ export interface MatchHooks {
   /** where 放棄 returns to (defaults to the main menu); online callers
    * leave the room here — aborting forfeits the rest of the matches */
   onAbort?: () => void;
+  /** online rematch handshake: resolves true once BOTH sides agreed, false
+   * if the opponent declined or left. Presence of this hook is what puts a
+   * 再來一場 button on the online result panel. */
+  onRematch?: () => Promise<boolean>;
 }
 
 /** Full match between two configured slots. Calls onDone(winnerIndex). */
@@ -535,8 +549,27 @@ export async function runMatch(
     el("div", { class: "title", style: "font-size:24px" }, fmt(ZH.winner, { name: names[winner] })),
     el("div", { class: "scoreboard" }, `${engine.scores[0]}：${engine.scores[1]}`),
   );
-  const canRematch = !hooks.launches && mode === "快速對戰"; // single-player quick match
-  if (canRematch) {
+  if (hooks.onRematch) {
+    // Online rematch: both sides have to agree, so the button hands off to
+    // the caller's handshake and only restarts if the opponent says yes.
+    const status = el("div", { class: "label", style: "text-align:center" }, "");
+    const rematchBtn = button(ZH.rematch, () => {
+      rematchBtn.disabled = true;
+      status.textContent = ZH.waitingRematch;
+      void hooks.onRematch!().then((agreed) => {
+        if (agreed) {
+          app.frameHook = null;
+          o.remove();
+          void runMatch(app, slots, onDone, hooks, mode);
+        } else {
+          status.textContent = ZH.rematchDeclined;
+          rematchBtn.remove();
+        }
+      });
+    }, "btn primary");
+    panel.append(rematchBtn, status, button(ZH.back, () => leave(o)));
+  } else if (!hooks.launches && mode === "快速對戰") {
+    // single-player quick match restarts immediately
     panel.append(
       button(ZH.rematch, () => {
         app.frameHook = null;

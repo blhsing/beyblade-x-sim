@@ -1,7 +1,7 @@
 # BEYBLADE X 戰鬥陀螺模擬對戰（非官方）
 
 以 TAKARA TOMY《BEYBLADE X 戰鬥陀螺》為題材的**非官方**擬真模擬對戰遊戲。
-繁體中文介面，行動裝置（iOS / Android）與網頁皆可遊玩，目前為開發者自用測試版。
+繁體中文介面的網頁遊戲（手機瀏覽器即可遊玩），目前為開發者自用測試版。
 
 ## 目錄
 
@@ -12,7 +12,7 @@
 - [系統架構](#系統架構)
 - [專案結構](#專案結構)
 - [伺服器與部署](#伺服器與部署)
-- [行動裝置打包](#行動裝置打包)
+- [安裝到手機](#安裝到手機)
 - [開發文件](#開發文件)
 - [聲明與致謝](#聲明與致謝)
 
@@ -68,8 +68,8 @@
   ※ Google 僅接受 HTTPS 網域作為登入來源，因此純 HTTP／IP 位址的伺服器層
   無法使用 Google 登入（會自動隱藏按鈕）。設定方式見
   [docs/PROTOCOL.md](docs/PROTOCOL.md)。
-- **跨層資料同步** — 玩家偏好、選手戰績、對戰紀錄與自訂配置儲存於伺服器
-  文件資料庫，兩個伺服器層彼此自動同步。
+- **伺服器資料庫** — 玩家偏好、選手戰績、對戰紀錄與自訂配置儲存於伺服器
+  文件資料庫（LWW 合併；仍支援與對等伺服器同步，目前僅部署單一層）。
 - **重播與分享** — 每場對戰都以決定論參數（種子＋發射參數）保存，可從
   對戰紀錄重播，或複製連結分享給他人觀看。
 
@@ -134,7 +134,7 @@ go run . -listen 127.0.0.1:8080
 ## 專案結構
 
 ```
-app/            用戶端（Vite + TypeScript + Three.js；PWA / Capacitor）
+app/            用戶端（Vite + TypeScript + Three.js；PWA）
 server/relay/   Go 伺服器：靜態託管＋房間中繼＋文件資料庫＋層間同步
 tools/          零件資料抓取與正規化（Node，無相依套件）
 build/          建置與部署腳本（PowerShell）
@@ -144,18 +144,18 @@ docs/           計畫、規則、物理、通訊協定、資料管線文件
 ## 伺服器與部署
 
 `build\build-relay.ps1` 會建置網頁版並內嵌進 Windows / Linux 兩種單一執行檔。
-部署採雙層架構（主層 Azure App Service（WSS）、備援層 OCI Always Free VM），
-另可純本機執行。詳見 [docs/PROTOCOL.md](docs/PROTOCOL.md) 與
-`build\deploy-azure.ps1`、`build\deploy-oci.ps1`（伺服器位址屬個人設定，
-不隨倉庫提供）。兩層的資料庫每 45 秒互相同步。
+正式部署為 **Azure App Service（HTTPS / WSS）單一伺服器**，另可純本機執行。
+詳見 [docs/PROTOCOL.md](docs/PROTOCOL.md) 與 `build\deploy-azure.ps1`
+（伺服器位址屬個人設定，不隨倉庫提供）。
 
-## 行動裝置打包
+> **為什麼只剩一層**：Google 登入只接受 HTTPS 網域作為來源，純 HTTP／IP 位址
+> 的伺服器無法登入，因此原本的 OCI Always Free VM 備援層已停止部署。
 
-- **PWA**：以 HTTPS 開啟遊戲網址後「加入主畫面」即可，含離線快取。
-- **Android**：`cd app && npm run build && npx cap sync android`，
-  再以 `android/gradlew assembleDebug` 產生 APK 側載安裝。
-- **iOS 原生殼**：Capacitor 專案就緒，需於 macOS + Xcode 建置；
-  在此之前 iPhone 請使用 PWA。
+## 安裝到手機
+
+以 HTTPS 開啟遊戲網址後選擇「加入主畫面」即可（PWA，含離線快取）。
+本專案不再提供原生 App 打包 —— 網頁版在 iOS Safari 與 Android Chrome 上
+功能完整（含體感視角與震動回饋）。
 
 ## 開發文件
 

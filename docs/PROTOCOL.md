@@ -33,11 +33,12 @@ Deploy tiers (mirroring DeskFerry; scripts in `build/`):
   create new webapps), Go process via httpPlatformHandler, site WebSockets
   on + IIS webSocket module off in the vapp web.config. Deploy:
   `build\deploy-azure.ps1`. The DeskFerry root app is not modified.
-- **OCI Always Free VM (tier 2, HTTP)** — `build\deploy-oci.ps1`, blocked on
-  the SSH key (not provisioned per the DeskFerry private runbook). Two modes:
-  `standalone` (own port; needs OCI security-list opening) or `front`
-  (beyblade owns :80 serving the game and `-forward`s `/relay/*` to DeskFerry
-  moved to 127.0.0.1:8081 — run only with explicit approval).
+- ~~OCI Always Free VM (tier 2, HTTP)~~ — **removed.** Google Sign-In only
+  accepts HTTPS origins with a real domain, so a bare-IP HTTP tier could
+  never offer the primary sign-in path. Azure is now the only deployment
+  target; `deploy-oci.ps1` is deleted (recover from git history if a second
+  tier is ever wanted). The relay keeps its generic `-forward` and `-peer`
+  flags, so co-hosting and peer sync still work wherever they are useful.
 
 Relay base URLs are user configuration; private hostnames are never committed.
 

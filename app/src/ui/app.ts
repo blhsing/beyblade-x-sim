@@ -9,7 +9,7 @@ import { STADIUMS, type StadiumSpec } from "../core/stadium";
 import { BOT_ROSTER, botBuildDeck, botChooseLaunch } from "../game/bots";
 import { RULE_PRESETS, RULES_OFFICIAL, type RuleSet } from "../game/rules";
 import { ZH } from "../i18n/zh";
-import { UI_CSS, button, el, overlay } from "./dom";
+import { UI_CSS, button, el, overlay, row } from "./dom";
 import { sfx } from "../audio/sfx";
 import { gyro } from "../sensors/gyro";
 import { showQuickSetup, showTournamentSetup } from "./setup";
@@ -251,15 +251,26 @@ export class GameApp {
         showOnline(this);
       }),
       button(ZH.auth.profile, () => showProfile(this)),
-      (() => {
-        const label = (): string => `${ZH.music}：${sfx.musicEnabled ? ZH.on : ZH.off}`;
-        const b = button(label(), () => {
-          sfx.unlock();
-          sfx.setMusic(!sfx.musicEnabled);
-          b.textContent = label();
-        }, "btn small");
-        return b;
-      })(),
+      row(
+        (() => {
+          const label = (): string => `${ZH.music}：${sfx.musicEnabled ? ZH.on : ZH.off}`;
+          const b = button(label(), () => {
+            sfx.unlock();
+            sfx.setMusic(!sfx.musicEnabled);
+            b.textContent = label();
+          }, "btn small");
+          return b;
+        })(),
+        (() => {
+          const label = (): string => `${ZH.sound}：${sfx.sfxEnabled ? ZH.on : ZH.off}`;
+          const b = button(label(), () => {
+            sfx.unlock();
+            sfx.setSfx(!sfx.sfxEnabled);
+            b.textContent = label();
+          }, "btn small");
+          return b;
+        })(),
+      ),
     );
     o.append(panel);
     this.setScreen(o);

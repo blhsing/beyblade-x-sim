@@ -1,3 +1,12 @@
+/** Persisted on/off flag, defaulting to on, safe without localStorage. */
+function readStored(key: string): boolean {
+  try {
+    return localStorage.getItem(key) !== "0";
+  } catch {
+    return true;
+  }
+}
+
 // Procedurally synthesized sound effects (no third-party assets).
 // Everything is generated with Web Audio primitives; parameters are tied to
 // simulation quantities (RPM, impulse magnitude) for a realistic feel.
@@ -7,7 +16,25 @@ export class Sfx {
   private master: GainNode | null = null;
   private hums: { osc: OscillatorNode; noiseGain: GainNode; gain: GainNode; pan: StereoPannerNode }[] = [];
   private noiseBuf: AudioBuffer | null = null;
-  enabled = true;
+  /** master gate for effects (hums, clashes, clicks, launches, bursts) —
+   * persisted alongside the music setting so it survives a reload. Read
+   * lazily: this module is imported by headless tests where there is no
+   * localStorage at all. */
+  enabled = readStored("beyblade.sfx");
+
+  get sfxEnabled(): boolean {
+    return this.enabled;
+  }
+
+  setSfx(on: boolean): void {
+    this.enabled = on;
+    try {
+      localStorage.setItem("beyblade.sfx", on ? "1" : "0");
+    } catch {
+      /* no storage (headless) — the in-memory flag still applies */
+    }
+    if (!on) this.stopHums(); // silence anything already droning
+  }
 
   /** Must be called from a user gesture (mobile autoplay policy). */
   unlock(): void {
@@ -26,6 +53,26 @@ export class Sfx {
     for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
     this.noiseBuf = buf;
     this.startMusic();
+    this.watchFocus();
+  }
+
+  /** Suspend all audio when the app loses focus / is backgrounded, and pick
+   * it back up on return — a game left in a tab should go quiet. */
+  private focusWatched = false;
+  private watchFocus(): void {
+    if (this.focusWatched) return;
+    this.focusWatched = true;
+    const apply = (): void => {
+      const away = document.hidden || !document.hasFocus();
+      if (!this.ctx) return;
+      if (away && this.ctx.state === "running") void this.ctx.suspend();
+      else if (!away && this.ctx.state === "suspended") void this.ctx.resume();
+    };
+    document.addEventListener("visibilitychange", apply);
+    window.addEventListener("blur", apply);
+    window.addEventListener("focus", apply);
+    window.addEventListener("pagehide", apply);
+    apply();
   }
 
   private noiseSource(): AudioBufferSourceNode | null {
@@ -210,11 +257,15 @@ export class Sfx {
   private musicBar = 0;
 
   get musicEnabled(): boolean {
-    return localStorage.getItem("beyblade.music") !== "0";
+    return readStored("beyblade.music");
   }
 
   setMusic(on: boolean): void {
-    localStorage.setItem("beyblade.music", on ? "1" : "0");
+    try {
+      localStorage.setItem("beyblade.music", on ? "1" : "0");
+    } catch {
+      /* no storage (headless) */
+    }
     if (on) this.startMusic();
     else this.stopMusic();
   }

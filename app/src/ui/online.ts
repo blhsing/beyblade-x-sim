@@ -180,6 +180,96 @@ class QbeginWatch {
   }
 }
 
+/**
+ * Latches bracket results as they arrive.
+ *
+ * The old code installed a listener only at the moment it started waiting,
+ * so a result broadcast while this phone was still finishing its own battle
+ * animation was missed outright — that phone then sat in the finished match
+ * forever while everyone else moved on to the next one. Recording every
+ * result as it lands means a late waiter resolves immediately.
+ */
+class TresWatch {
+  private results = new Map<number, number>();
+  private waiters: (() => void)[] = [];
+
+  constructor(client: RelayClient) {
+    const prev = client.onMsg;
+    client.onMsg = (from, msg) => {
+      prev?.(from, msg);
+      if (msg.t === "tres") {
+        this.results.set(msg.matchId, msg.winner);
+        const ws = this.waiters;
+        this.waiters = [];
+        for (const w of ws) w();
+      }
+    };
+  }
+
+  /** Record a result decided locally, so we never wait on our own battle. */
+  note(matchId: number, winner: number): void {
+    this.results.set(matchId, winner);
+  }
+
+  wait(matchId: number): Promise<number> {
+    return new Promise((resolve) => {
+      const check = (): void => {
+        const r = this.results.get(matchId);
+        if (r !== undefined) resolve(r);
+        else this.waiters.push(check);
+      };
+      check();
+    });
+  }
+}
+
+/** Both sides must press 再來一場 before an online quick match restarts. */
+class RematchWatch {
+  private theirs = false;
+  private gone = false;
+  private waiters: (() => void)[] = [];
+
+  constructor(private client: RelayClient, private oppSlot: number) {
+    const prev = client.onMsg;
+    client.onMsg = (from, msg) => {
+      prev?.(from, msg);
+      if (from !== oppSlot) return;
+      if (msg.t === "rematch") this.theirs = true;
+      else if (msg.t === "leave") this.gone = true;
+      this.poke();
+    };
+    const prevRoom = client.onRoom;
+    client.onRoom = (players) => {
+      prevRoom?.(players);
+      if (!players[oppSlot]) {
+        this.gone = true;
+        this.poke();
+      }
+    };
+  }
+
+  private poke(): void {
+    const ws = this.waiters;
+    this.waiters = [];
+    for (const w of ws) w();
+  }
+
+  /** Announce ours, resolve true when theirs is in too. */
+  request(): Promise<boolean> {
+    this.client.send({ t: "rematch" });
+    return new Promise((resolve) => {
+      const check = (): void => {
+        if (this.theirs) {
+          this.theirs = false; // consumed — the next match needs a fresh one
+          resolve(true);
+        } else if (this.gone) resolve(false);
+        else this.waiters.push(check);
+      };
+      check();
+    });
+  }
+}
+
 /** Shared pre-start lobby: live list of joined phones; the host gets the
  * 開始 button, guests wait for the host's begin broadcast. */
 function lobbyScreen(
@@ -344,6 +434,7 @@ async function quick1v1(app: GameApp, client: RelayClient, pair: [number, number
   const myIdx = pair.indexOf(client.slot) as 0 | 1;
   const oppSlot = pair[(1 - myIdx) as 0 | 1]!;
   const exchange = new LockstepExchange(client, oppSlot);
+  const rematch = new RematchWatch(client, oppSlot);
   const prefs = getPrefs();
   const myComboRef = prefs.quickSlots?.[0] as SlotConfig | undefined;
   const myCombo: ComboSelection =
@@ -384,6 +475,8 @@ async function quick1v1(app: GameApp, client: RelayClient, pair: [number, number
         client.close();
         app.showModeSelect();
       },
+      // both phones must agree before the room replays
+      onRematch: () => rematch.request(),
     },
     "線上對戰",
   );
@@ -708,6 +801,9 @@ async function onlineTournament(
 
   const tour = new Tournament(tSlots, "singleElim");
   const myRelay = client.slot;
+  // must exist BEFORE the bracket loop: results broadcast while this phone
+  // is mid-battle have to be latched, not missed
+  const tres = new TresWatch(client);
 
   // bracket loop — everyone advances the same bracket from broadcast results
   for (;;) {
@@ -724,32 +820,28 @@ async function onlineTournament(
       const opp = iAmA ? b : a;
       const winner = await playOnlineTourMatch(app, client, index, cfg, match.id, a, b, iAmA ? 0 : 1, opp.relaySlot);
       if (winner === "aborted") return; // gave up → forfeited the tournament
-      if ((iAmA && winner === 0) || (iAmB && winner === 1)) {
-        client.send({ t: "tres", matchId: match.id, winner: match.a! } as GameMsg);
-        tour.report(match.id, match.a!);
-        continue;
-      } else {
-        client.send({ t: "tres", matchId: match.id, winner: iAmA ? match.b! : match.a! } as GameMsg);
-        tour.report(match.id, iAmA ? match.b! : match.a!);
-        continue;
-      }
+      const winSlot =
+        (iAmA && winner === 0) || (iAmB && winner === 1)
+          ? match.a!
+          : iAmA
+            ? match.b!
+            : match.a!;
+      client.send({ t: "tres", matchId: match.id, winner: winSlot } as GameMsg);
+      tres.note(match.id, winSlot);
+      tour.report(match.id, winSlot);
+      continue;
     } else if (isHost && a.relaySlot === null && b.relaySlot === null) {
       // bot vs bot: host simulates headless and broadcasts the result
       const winner = simulateBotMatch(app, index, cfg.rules, a, b, 9000 + match.id * 17);
       const winSlot = winner === 0 ? match.a! : match.b!;
       client.send({ t: "tres", matchId: match.id, winner: winSlot } as GameMsg);
+      tres.note(match.id, winSlot);
       tour.report(match.id, winSlot);
       continue;
     } else {
-      // someone else's battle: wait for its result
-      const winSlot = await new Promise<number>((resolve) => {
-        const prev = client.onMsg;
-        client.onMsg = (from, msg) => {
-          prev?.(from, msg);
-          if (msg.t === "tres" && msg.matchId === match.id) resolve(msg.winner as number);
-        };
-      });
-      tour.report(match.id, winSlot);
+      // someone else's battle: wait for its result (latched, so one that
+      // already arrived resolves at once instead of hanging this phone)
+      tour.report(match.id, await tres.wait(match.id));
       continue;
     }
   }

@@ -30,7 +30,7 @@ try {
     go build -trimpath -ldflags '-s -w' -o (Join-Path $out 'beyblade-relay-windows-amd64.exe') .
     if ($LASTEXITCODE -ne 0) { throw 'windows build failed' }
 
-    Write-Host '== linux-amd64 (OCI VM / Linux App Service) =='
+    Write-Host '== linux-amd64 (Linux App Service) =='
     $env:GOOS = 'linux'
     go build -trimpath -ldflags '-s -w' -o (Join-Path $out 'beyblade-relay-linux-amd64') .
     if ($LASTEXITCODE -ne 0) { throw 'linux build failed' }
