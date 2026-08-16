@@ -4,7 +4,7 @@
 // against either URL converge. Fully offline-tolerant: failed pushes queue
 // and retry on next boot.
 
-import { getToken } from "./auth";
+import { getToken, isGuest } from "./auth";
 
 export interface ReplayBattle {
   seed: number;
@@ -95,6 +95,7 @@ async function tryPut(p: Pending): Promise<boolean> {
 }
 
 export function push(col: string, id: string, data: unknown): void {
+  if (isGuest()) return; // guest play leaves nothing on the server
   const p: Pending = { col, id, updatedAt: Date.now(), data };
   void tryPut(p).then((ok) => {
     if (!ok) {
@@ -106,6 +107,7 @@ export function push(col: string, id: string, data: unknown): void {
 }
 
 export async function flushPending(): Promise<void> {
+  if (isGuest()) return;
   const q = readJson<Pending[]>("beyblade.pendingPush", []);
   if (q.length === 0) return;
   const left: Pending[] = [];

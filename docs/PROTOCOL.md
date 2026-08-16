@@ -39,6 +39,38 @@ Deploy tiers (mirroring DeskFerry; scripts in `build/`):
 
 Relay base URLs are user configuration; private hostnames are never committed.
 
+## Accounts, sessions and mail
+
+`/game/auth/*` (signup, verify, signin, me, signout, change-password,
+change-email, confirm-email). Passwords are bcrypt-hashed; sessions are
+bearer tokens with a sliding 10-year expiry (`/me` renews) so a player stays
+signed in until an explicit sign-out. `_users`/`_emails`/`_sessions` are
+private collections: excluded from the public `/game/db` API and exchanged
+between tiers only when `X-Beyblade-Peer-Key` matches `BEYBLADE_PEER_KEY`.
+Public DB writes require a session token.
+
+**Guest play:** clients may sign in with a nickname only. Guests hold no
+token, so they never write to the server (no profile, records, combos or
+prefs); their identity lives in `sessionStorage` and disappears with the
+session. Online play still works — the room relay itself is unauthenticated.
+
+**Mail delivery.** The OCI VM cannot deliver mail itself: outbound port 25 is
+blocked by the cloud provider and the instance has no rDNS/PTR or domain, so
+direct-to-MX submission is rejected by the major providers regardless of
+content. Ports 587/465 are open, so mail must be **relayed through a provider**:
+
+```
+BEYBLADE_SMTP_HOST=smtp.example.com:587   # :465 uses implicit TLS automatically
+BEYBLADE_SMTP_USER=...
+BEYBLADE_SMTP_PASS=...                    # app password for most providers
+BEYBLADE_SMTP_FROM=beyblade@example.com
+```
+
+Until that is configured the server only logs the code, and with
+`BEYBLADE_DEV_MAIL=1` it also returns it in the API response and shows it in
+the UI. **That is a development stub, not verification** — it proves nothing
+about who owns the address. Remove `BEYBLADE_DEV_MAIL` once SMTP works.
+
 ## Game session (client↔client `data` payloads)
 
 Beyblade has no mid-battle input, so online play is **launch-parameter

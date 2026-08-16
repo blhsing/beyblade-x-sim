@@ -30,6 +30,11 @@ export const ZH = {
     submit: "送出",
     needAccount: "還沒有帳號？註冊",
     haveAccount: "已有帳號？登入",
+    guestPlay: "以訪客身分遊玩",
+    guestHint: "只需暱稱即可開始；訪客的戰績、配置與偏好不會保存到伺服器，關閉遊戲後即消失。",
+    guestBadge: "訪客",
+    guestProfile: "訪客模式：沒有帳號資料可管理。登出後可註冊或登入以保存戰績。",
+    devMailWarning: "※ 目前未設定郵件伺服器，驗證碼直接顯示於畫面（開發測試用），並未真正寄出電子郵件。",
     errors: {
       "email-taken": "此電子郵件已註冊",
       "bad-credentials": "電子郵件或密碼錯誤",

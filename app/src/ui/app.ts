@@ -133,7 +133,11 @@ export class GameApp {
     const panel = el("div", { class: "panel" });
     panel.append(
       el("div", { class: "title" }, ZH.appTitle),
-      el("div", { class: "subtitle" }, `${getAuth()?.nickname ?? ""}`),
+      el(
+        "div",
+        { class: "subtitle" },
+        `${getAuth()?.nickname ?? ""}${getAuth()?.guest ? `（${ZH.auth.guestBadge}）` : ""}`,
+      ),
       button(ZH.mode.single, () => {
         sfx.unlock();
         this.showLocalMenu();

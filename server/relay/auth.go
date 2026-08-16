@@ -10,10 +10,12 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"net/smtp"
 	"os"
@@ -51,6 +53,13 @@ func randCode() string        { b := make([]byte, 4); _, _ = rand.Read(b); retur
 func nowMs() int64            { return time.Now().UnixMilli() }
 func devMail() bool           { return os.Getenv("BEYBLADE_DEV_MAIL") == "1" }
 
+// sendMail relays the verification code through a real mail provider.
+//
+// This host cannot deliver mail directly: outbound port 25 is blocked by the
+// cloud provider and the instance has no rDNS/domain, so direct-to-MX mail is
+// rejected by the major services. Ports 587/465 are open, so configure a
+// provider (mailbox account or transactional service) and we submit through
+// it. Auto-detects implicit TLS on :465; :587 (default) uses STARTTLS.
 func sendMail(to, code string) {
 	host := os.Getenv("BEYBLADE_SMTP_HOST")
 	if host == "" {
@@ -63,16 +72,71 @@ func sendMail(to, code string) {
 	if from == "" {
 		from = user
 	}
-	msg := fmt.Sprintf("From: %s\r\nTo: %s\r\nSubject: BEYBLADE X verification code\r\n\r\n驗證碼 Verification code: %s\r\n", from, to, code)
 	addr := host
 	if !strings.Contains(addr, ":") {
 		addr += ":587"
 	}
+	hostOnly, port, err := net.SplitHostPort(addr)
+	if err != nil {
+		log.Printf("auth: bad BEYBLADE_SMTP_HOST %q: %v", host, err)
+		return
+	}
+	msg := []byte(fmt.Sprintf(
+		"From: %s\r\nTo: %s\r\nSubject: BEYBLADE X verification code\r\n"+
+			"MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\n\r\n"+
+			"驗證碼 Verification code: %s\r\n", from, to, code))
+
 	go func() {
-		if err := smtp.SendMail(addr, smtp.PlainAuth("", user, pass, strings.Split(addr, ":")[0]), from, []string{to}, []byte(msg)); err != nil {
-			log.Printf("auth: smtp send to %s failed: %v", to, err)
+		var err error
+		if port == "465" {
+			err = sendImplicitTLS(addr, hostOnly, user, pass, from, to, msg)
+		} else {
+			var auth smtp.Auth
+			if user != "" {
+				auth = smtp.PlainAuth("", user, pass, hostOnly)
+			}
+			err = smtp.SendMail(addr, auth, from, []string{to}, msg)
 		}
+		if err != nil {
+			log.Printf("auth: smtp send to %s failed: %v", to, err)
+			return
+		}
+		log.Printf("auth: verification mail sent to %s via %s", to, addr)
 	}()
+}
+
+// sendImplicitTLS handles providers that expect TLS from the first byte
+// (port 465), which net/smtp's SendMail cannot do on its own.
+func sendImplicitTLS(addr, host, user, pass, from, to string, msg []byte) error {
+	conn, err := tls.Dial("tcp", addr, &tls.Config{ServerName: host, MinVersion: tls.VersionTLS12})
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+	c, err := smtp.NewClient(conn, host)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = c.Quit() }()
+	if user != "" {
+		if err := c.Auth(smtp.PlainAuth("", user, pass, host)); err != nil {
+			return err
+		}
+	}
+	if err := c.Mail(from); err != nil {
+		return err
+	}
+	if err := c.Rcpt(to); err != nil {
+		return err
+	}
+	w, err := c.Data()
+	if err != nil {
+		return err
+	}
+	if _, err := w.Write(msg); err != nil {
+		return err
+	}
+	return w.Close()
 }
 
 func (s *Store) getDoc(col, id string, out any) bool {

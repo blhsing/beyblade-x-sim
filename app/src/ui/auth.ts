@@ -7,12 +7,13 @@ import {
   changePassword,
   confirmEmail,
   getAuth,
+  signInAsGuest,
   signin,
   signout,
   signup,
   verify,
 } from "../game/auth";
-import { savePrefs } from "../game/persist";
+import { getPrefs, savePrefs } from "../game/persist";
 import { ZH } from "../i18n/zh";
 import { button, el, overlay, row } from "./dom";
 import type { GameApp } from "./app";
@@ -33,6 +34,8 @@ export function showAuthGate(app: GameApp, onDone: () => void): void {
   const passIn = field(ZH.auth.password, "password");
   const nickIn = field(ZH.auth.nickname);
   const codeIn = field(ZH.auth.verifyCode);
+  const guestNick = field(ZH.auth.nickname);
+  guestNick.value = getPrefs().name || "";
   let mode: "signin" | "signup" | "verify" = "signin";
   let pendingEmail = "";
 
@@ -60,6 +63,16 @@ export function showAuthGate(app: GameApp, onDone: () => void): void {
         msg.textContent = "";
         render();
       }, "btn small"),
+      el("div", { class: "label", style: "text-align:center; opacity:.5" }, "──────"),
+      guestNick,
+      button(ZH.auth.guestPlay, () => {
+        const s = signInAsGuest(guestNick.value);
+        savePrefs({ name: s.nickname });
+        o.remove();
+        onDone();
+      }, "btn small"),
+      el("div", { class: "label", style: "line-height:1.6" }, ZH.auth.guestHint),
+      el("div", { class: "label", style: "line-height:1.6; opacity:.6" }, ZH.auth.devMailWarning),
     );
   };
 
@@ -106,6 +119,22 @@ export function showProfile(app: GameApp): void {
   const panel = el("div", { class: "panel" });
   const auth = getAuth();
   const msg = el("div", { class: "subtitle" }, "");
+
+  if (auth?.guest) {
+    panel.append(
+      el("div", { class: "title", style: "font-size:22px" }, ZH.auth.profile),
+      el("div", { class: "subtitle" }, `${auth.nickname}（${ZH.auth.guestBadge}）`),
+      el("div", { class: "label", style: "line-height:1.7" }, ZH.auth.guestProfile),
+      button(ZH.auth.signOut, () => {
+        void signout().then(() => app.showMenu());
+      }, "btn primary"),
+      button(ZH.back, () => app.showMenu()),
+    );
+    o.append(panel);
+    app.setScreen(o);
+    return;
+  }
+
   const curPass = field(ZH.auth.currentPassword, "password");
   const newPass = field(ZH.auth.newPassword, "password");
   const newMail = field(ZH.auth.newEmail, "email");
