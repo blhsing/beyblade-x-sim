@@ -37,7 +37,7 @@ import {
   runMatch,
   teardownActiveLaunch,
 } from "./match";
-import { rulesPicker, type SlotConfig } from "./setup";
+import { resolveDeck, rulesPicker, slotEditor, type SlotConfig } from "./setup";
 import { sfx } from "../audio/sfx";
 import type { GameApp } from "./app";
 
@@ -66,7 +66,13 @@ export function showOnline(app: GameApp): void {
     row(roomIn, passIn),
     button(ZH.joinRoom, () => {
       app.enableGyroByDefault();
-      void enterRoom(app, roomIn.value.trim() || "beyx", passIn.value, null);
+      const room = roomIn.value.trim() || "beyx";
+      const pass = passIn.value;
+      // build your bey first, then knock
+      void chooseOnlineDeck(app, ZH.mode.setupTitle).then((slot) => {
+        if (slot) void enterRoom(app, room, pass, null, slot);
+        else showOnline(app);
+      });
     }),
     button(ZH.back, () => app.showModeSelect()),
   );
@@ -111,12 +117,72 @@ function showHost(app: GameApp): void {
         botCount: modeSel.value === "tournament" ? Number(botsSel.value) : 0,
         bots: BOT_ROSTER.slice(0, 8),
       };
-      void enterRoom(app, roomIn.value.trim() || "beyx", passIn.value, cfg);
+      const room = roomIn.value.trim() || "beyx";
+      const pass = passIn.value;
+      void chooseOnlineDeck(app, ZH.mode.setupTitle).then((slot) => {
+        if (slot) void enterRoom(app, room, pass, cfg, slot);
+        else showHost(app);
+      });
     }, "btn primary"),
     button(ZH.back, () => showOnline(app)),
   );
   o.append(panel);
   app.setScreen(o);
+}
+
+/**
+ * Your own bey/deck for an online match.
+ *
+ * Online play used to give you whatever was last saved in the single-player
+ * setup — and tournaments simply handed each human an arbitrary official
+ * preset — so nobody could actually bring the bey they built. This is the
+ * same slot editor the local modes use, locked to "human", shown before the
+ * room is entered so the choice is ready to exchange.
+ */
+function chooseOnlineDeck(app: GameApp, title: string): Promise<SlotConfig | null> {
+  return new Promise((resolve) => {
+    const prefs = getPrefs();
+    const saved = prefs.onlineSlot as SlotConfig | undefined;
+    const cfg: SlotConfig = saved
+      ? { ...saved, kind: "human", bot: BOT_ROSTER[0]!, name: getAuth()?.nickname ?? saved.name }
+      : {
+          kind: "human",
+          name: getAuth()?.nickname ?? prefs.name,
+          bot: BOT_ROSTER[0]!,
+          deckRefs: [],
+          launcher: prefs.launcher,
+        };
+    const o = overlay();
+    const panel = el("div", { class: "panel", style: "max-height:88vh; overflow-y:auto" });
+    const body = el("div", { style: "display:flex; flex-direction:column; gap:8px; width:100%" });
+    const render = (): void => {
+      body.replaceChildren(slotEditor(app, cfg, ZH.mode.yourBey, render, "human"));
+    };
+    render();
+    panel.append(
+      el("div", { class: "title", style: "font-size:20px" }, title),
+      el("div", { class: "label" }, ZH.rules),
+      rulesPicker(app, render),
+      body,
+      button(ZH.start, () => {
+        savePrefs({ onlineSlot: cfg, launcher: cfg.launcher });
+        o.remove();
+        resolve(cfg);
+      }, "btn primary"),
+      button(ZH.back, () => {
+        o.remove();
+        resolve(null);
+      }),
+    );
+    o.append(panel);
+    app.setScreen(o);
+  });
+}
+
+/** The combos this player brings, resolved from their online slot. */
+function myOnlineDeck(app: GameApp, slot: SlotConfig | null): ComboSelection[] {
+  if (slot) return resolveDeck(app, slot, 7001);
+  return [app.db.combos[0]!.parts];
 }
 
 function statusScreen(app: GameApp, text: string): { set: (t: string) => void; close: () => void } {
@@ -344,7 +410,13 @@ function connectedSlots(client: RelayClient): number[] {
 }
 
 /** Connect, run the knock/accept password handshake, then dispatch by mode. */
-async function enterRoom(app: GameApp, room: string, pass: string, hostCfg: RoomCfg | null): Promise<void> {
+async function enterRoom(
+  app: GameApp,
+  room: string,
+  pass: string,
+  hostCfg: RoomCfg | null,
+  mySlot: SlotConfig | null = null,
+): Promise<void> {
   const status = statusScreen(app, ZH.waitingOpponent);
   const client = new RelayClient();
   client.onClose = (r) => status.set(`${ZH.disconnected}: ${r}`);
@@ -380,9 +452,9 @@ async function enterRoom(app: GameApp, room: string, pass: string, hostCfg: Room
     }
     savePrefs({ rulesPreset: app.rules.name === "官方標準" ? "official" : getPrefs().rulesPreset });
     if (cfg!.mode === "quick") {
-      await onlineQuick(app, client, status, isHost);
+      await onlineQuick(app, client, status, isHost, mySlot);
     } else {
-      await onlineTournament(app, client, cfg!, status, isHost);
+      await onlineTournament(app, client, cfg!, status, isHost, mySlot);
     }
   } catch (err) {
     status.set(String(err instanceof Error ? err.message : err));
@@ -397,6 +469,7 @@ async function onlineQuick(
   client: RelayClient,
   status: { set: (t: string) => void; close: () => void },
   isHost: boolean,
+  mySlot: SlotConfig | null,
 ): Promise<void> {
   const watch = new QbeginWatch(client);
   const exchange = new FfaExchange(client); // idle until beginRound
@@ -424,32 +497,37 @@ async function onlineQuick(
   // 1v1 only ever begins at round 0 with exactly two phones; any later
   // qbegin (a reused seat joining an in-progress session) is FFA.
   if (first.slots.length === 2 && first.round === 0) {
-    await quick1v1(app, client, first.slots as [number, number]);
+    await quick1v1(app, client, first.slots as [number, number], mySlot);
   } else {
-    await ffaSession(app, client, exchange, watch, first, isHost);
+    await ffaSession(app, client, exchange, watch, first, isHost, mySlot);
   }
 }
 
 /** Standard online 1v1 between the two relay slots in `pair`. */
-async function quick1v1(app: GameApp, client: RelayClient, pair: [number, number]): Promise<void> {
+async function quick1v1(
+  app: GameApp,
+  client: RelayClient,
+  pair: [number, number],
+  mySlot: SlotConfig | null,
+): Promise<void> {
   const myIdx = pair.indexOf(client.slot) as 0 | 1;
   const oppSlot = pair[(1 - myIdx) as 0 | 1]!;
   const exchange = new LockstepExchange(client, oppSlot);
   const rematch = new RematchWatch(client, oppSlot);
   const prefs = getPrefs();
-  const myComboRef = prefs.quickSlots?.[0] as SlotConfig | undefined;
-  const myCombo: ComboSelection =
-    (myComboRef?.deckRefs?.[0] && safeResolve(app, myComboRef.deckRefs[0])) ||
-    app.db.combos[0]!.parts;
-  const remoteDeck = await exchange.exchangeDeck([myCombo]);
+  // the bey this player actually configured for the room
+  const myDeck = myOnlineDeck(app, mySlot);
+  const myCombo: ComboSelection = myDeck[0]!;
+  const remoteDeck = await exchange.exchangeDeck(myDeck);
   const names: [string, string] = [
     client.players[pair[0]!] || fmt(ZH.playerN, { n: 1 }),
     client.players[pair[1]!] || fmt(ZH.playerN, { n: 2 }),
   ];
-  const decks = myIdx === 0 ? [[myCombo], remoteDeck] : [remoteDeck, [myCombo]];
+  const decks = myIdx === 0 ? [myDeck, remoteDeck] : [remoteDeck, myDeck];
+  const myLauncher = mySlot?.launcher ?? prefs.launcher;
   const slots: [SlotConfig, SlotConfig] = [
-    { kind: myIdx === 0 ? "human" : "bot", name: names[0], bot: BOT_ROSTER[0]!, deckRefs: [], launcher: prefs.launcher },
-    { kind: myIdx === 1 ? "human" : "bot", name: names[1], bot: BOT_ROSTER[0]!, deckRefs: [], launcher: prefs.launcher },
+    { kind: myIdx === 0 ? "human" : "bot", name: names[0], bot: BOT_ROSTER[0]!, deckRefs: [], launcher: myLauncher },
+    { kind: myIdx === 1 ? "human" : "bot", name: names[1], bot: BOT_ROSTER[0]!, deckRefs: [], launcher: myLauncher },
   ];
   await runMatch(
     app,
@@ -492,12 +570,11 @@ async function ffaSession(
   watch: QbeginWatch,
   first: QuickBegin,
   isHost: boolean,
+  mySlot: SlotConfig | null,
 ): Promise<void> {
   const prefs = getPrefs();
-  const myComboRef = prefs.quickSlots?.[0] as SlotConfig | undefined;
-  const myCombo: ComboSelection =
-    (myComboRef?.deckRefs?.[0] && safeResolve(app, myComboRef.deckRefs[0])) ||
-    app.db.combos[0]!.parts;
+  // the bey this player configured before entering the room
+  const myCombo: ComboSelection = myOnlineDeck(app, mySlot)[0]!;
   const wins = new Map<number, number>();
   let cur = first;
   let aborted = false;
@@ -748,6 +825,7 @@ async function onlineTournament(
   cfg: RoomCfg,
   status: { set: (t: string) => void; close: () => void },
   isHost: boolean,
+  mySlot: SlotConfig | null = null,
 ): Promise<void> {
   const index = new PartIndex(app.db);
 
@@ -763,6 +841,19 @@ async function onlineTournament(
       }
     };
   });
+  // Every human announces the bey they built; the host seeds the bracket
+  // with those instead of handing out arbitrary official presets.
+  const brought = new Map<number, ComboSelection[]>();
+  brought.set(client.slot, myOnlineDeck(app, mySlot));
+  {
+    const prev = client.onMsg;
+    client.onMsg = (from, msg) => {
+      prev?.(from, msg);
+      if (msg.t === "deck" && msg.r === undefined) brought.set(from, msg.combos);
+    };
+  }
+  client.send({ t: "deck", combos: myOnlineDeck(app, mySlot) } as GameMsg);
+
   status.close();
   const res = await lobbyScreen(app, client, ZH.menu.tournament, {
     isHost,
@@ -781,7 +872,9 @@ async function onlineTournament(
         name: h.n,
         kind: "human",
         bot: BOT_ROSTER[0]!,
-        deck: [app.db.combos[h.i % app.db.combos.length]!.parts],
+        // the deck that phone announced; the preset is only a fallback for
+        // a client that somehow never sent one
+        deck: brought.get(h.i) ?? [app.db.combos[h.i % app.db.combos.length]!.parts],
         relaySlot: h.i,
       });
     }

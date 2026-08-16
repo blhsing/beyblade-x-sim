@@ -57,6 +57,8 @@ export const ZH = {
     botCount: "電腦參賽者數",
     wrongPassword: "房間密碼錯誤",
     waitingHost: "等待房主開始…",
+    yourBey: "你的戰鬥陀螺",
+    setupTitle: "出戰配置",
     joinedCount: "已加入 {n} 台手機",
     countHint: "參賽人數＝加入房間的手機數；快速對戰 3 台以上自動改打大亂鬥",
     ffa: "大亂鬥",

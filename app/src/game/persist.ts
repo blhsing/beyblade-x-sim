@@ -231,6 +231,8 @@ export interface Prefs {
   musicOn: boolean;
   /** last quick-match setup (both slots), restored on reopen */
   quickSlots?: unknown[];
+  /** the bey/deck this player brings to online rooms */
+  onlineSlot?: unknown;
   /** last tournament setup (count, format, slots), restored on reopen */
   tourSetup?: { count: number; format: string; slots: unknown[] };
   updatedAt: number;

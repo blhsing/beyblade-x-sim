@@ -676,8 +676,15 @@ export class BattleView {
       }
     }
 
-    // walls between pockets + pocket recesses
-    const wallH = 0.055;
+    // Walls between the pockets.
+    //
+    // These used to stand 55 mm proud of the rim — twice a bey's height — in
+    // opaque body plastic, so the NEAR wall simply hid beys running the
+    // front of the bowl. That is also not how the stadium is built: the
+    // moulded shell stops at a low lip and everything above it is the clear
+    // casing (already modelled separately, just below), which is what you
+    // actually see through when watching a real battle.
+    const wallH = 0.014;
     const sorted = [...s.pockets].sort((a, b) => wrapAngle(a.angleCenter) - wrapAngle(b.angleCenter));
     const gaps: { a0: number; a1: number }[] = [];
     if (sorted.length === 0) {
@@ -779,7 +786,8 @@ export class BattleView {
           ),
           caseMat,
         );
-        wallSeg.position.z = rimZ + 0.02;
+        // start just inside the lip so there is no gap to see through
+        wallSeg.position.z = rimZ + 0.008;
         this.stadiumGroup.add(wallSeg);
       }
     }
