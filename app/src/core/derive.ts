@@ -149,6 +149,9 @@ export function deriveBeyParams(
     muMove,
     spinDir: rotation,
     fixedBurst: p.ratchet?.fixedBurst ?? false,
+    // the ratchet's protrusion count = its latch joints ("3-60" → 3):
+    // bursts only advance when a hit lands on one of these joints
+    latchCount: Math.min(9, Math.max(1, Number.parseInt(p.ratchet?.code ?? "", 10) || 4)),
     staminaFactor: 0.8 + stamina / 250,
   };
 }

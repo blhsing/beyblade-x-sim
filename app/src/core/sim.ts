@@ -3,7 +3,7 @@
 // (see docs/PHYSICS.md). Rendering interpolates between ticks; the sim never
 // depends on wall-clock time.
 
-import { clamp, datan2, dsin, dcos, hashFloats, rngNext, PI } from "./fxmath";
+import { clamp, datan2, dsin, dcos, hashFloats, rngNext, wrapAngle, PI } from "./fxmath";
 import type { StadiumSpec } from "./stadium";
 import { inArc, pocketAt, railRadiusAt, railTangentAt, surfaceSlope, surfaceZ } from "./stadium";
 import type {
@@ -61,7 +61,7 @@ const T = {
   dipRadiusFrac: 0.94, // "inside a dip" = rail radius below rRail×this
   railTripSpeed: 0.55, // radial slam speed that trips instead of meshing
   tripSpinKeep: 0.82,
-  tripClicks: 0.7,
+  tripClicks: 0.5, // a trip shocks the latch, but less than a joint hit
   gearEventEvery: 10,
   // the rack is a raised ridge: it physically holds beys in unless they
   // arrive hard enough to hop over it
@@ -76,7 +76,12 @@ const T = {
   spinLossK: 0.5,
   burstNormalK: 2.2,
   burstSmashK: 9,
-  burstScale: 650,
+  burstScale: 850,
+  // bursts are JOINT hits: the impact must land on one of the ratchet's N
+  // latch points (in the bey's rotating frame) and exceed a real impulse —
+  // grazes and off-joint hits never advance the latch
+  burstMinImpulse: 0.12,
+  jointWindow: 0.9, // |wrap(contactAngle×N)| below this = on a joint (~29%)
   hitEventGapTicks: 6,
   // walls / casing — hard smashes loft beys into the clear casing (clank
   // + knocked back in), or out through its loose gaps
@@ -494,11 +499,24 @@ function collide(w: WorldState, cfg: WorldConfig): void {
   b1.omega -= Math.sign(b1.omega) * Math.min(Math.abs(b1.omega), loss1);
   b2.omega -= Math.sign(b2.omega) * Math.min(Math.abs(b2.omega), loss2);
 
-  // burst clicks
-  const dmg2 = ((jn * T.burstNormalK + smash1 * T.burstSmashK) * T.burstScale) / p2.burstRes;
-  const dmg1 = ((jn * T.burstNormalK + smash2 * T.burstSmashK) * T.burstScale) / p1.burstRes;
-  applyBurst(w, b1, p1, 0, dmg1, cfg.clicksMax);
-  applyBurst(w, b2, p2, 1, dmg2, cfg.clicksMax);
+  // burst clicks — physics of the latch: the lock only advances when the
+  // impact lands ON one of the ratchet's N latch joints (checked in each
+  // bey's rotating frame at the instant of contact) AND carries a real
+  // impulse. Grazes and off-joint hits knock the bey around but never
+  // crack it. Where the joints are at impact time is deterministic chaos —
+  // exactly like the real toy.
+  const hitAngle1 = datan2(n.y, n.x) - b1.phase; // impact spot on bey1's rim
+  const hitAngle2 = datan2(-n.y, -n.x) - b2.phase;
+  const onJoint1 = Math.abs(wrapAngle(hitAngle1 * p1.latchCount)) < T.jointWindow;
+  const onJoint2 = Math.abs(wrapAngle(hitAngle2 * p2.latchCount)) < T.jointWindow;
+  const imp1 = jn * T.burstNormalK + smash2 * T.burstSmashK;
+  const imp2 = jn * T.burstNormalK + smash1 * T.burstSmashK;
+  if (onJoint1 && imp1 > T.burstMinImpulse) {
+    applyBurst(w, b1, p1, 0, (imp1 * T.burstScale) / p1.burstRes, cfg.clicksMax);
+  }
+  if (onJoint2 && imp2 > T.burstMinImpulse) {
+    applyBurst(w, b2, p2, 1, (imp2 * T.burstScale) / p2.burstRes, cfg.clicksMax);
+  }
 
   b1.contacted = true;
   b2.contacted = true;

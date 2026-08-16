@@ -96,6 +96,8 @@ export interface BeyParams {
   muMove: number; // translational damping (1/s)
   spinDir: SpinDir;
   fixedBurst: boolean; // cannot burst (integrated/locked ratchet)
+  /** ratchet protrusion count — its burst-latch joints (N-fold symmetric) */
+  latchCount: number;
   staminaFactor: number; // scales effective spin energy
 }
 

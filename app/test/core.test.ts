@@ -31,6 +31,7 @@ const baseParams = (over: Partial<BeyParams> = {}): BeyParams => ({
   muMove: 0.9,
   spinDir: 1,
   fixedBurst: false,
+  latchCount: 4,
   staminaFactor: 1,
   ...over,
 });
