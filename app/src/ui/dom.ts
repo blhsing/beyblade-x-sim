@@ -53,15 +53,6 @@ export const UI_CSS = `
    UNDER the full-screen launchzone: visible, but every tap went to the
    launcher instead, so the match ran on with a dead-looking menu on top. */
 .overlay.modal { z-index: 40; background: rgba(11,16,32,.55); }
-/* audio is blocked until the first gesture (browser autoplay policy) —
-   this says so, and removes itself the moment sound starts */
-.audiohint { position: fixed; left: 50%; transform: translateX(-50%);
-  bottom: calc(env(safe-area-inset-bottom, 0px) + 14px); z-index: 45;
-  padding: 8px 14px; border-radius: 999px; font-size: 13px;
-  background: rgba(20,27,58,.72); border: 1px solid rgba(74,93,168,.5);
-  color: #e8ecff; pointer-events: none; backdrop-filter: blur(6px);
-  animation: audiopulse 2.2s ease-in-out infinite; }
-@keyframes audiopulse { 0%,100% { opacity: .95; } 50% { opacity: .55; } }
 .panel { background: rgba(20,27,58,.4); border: 1px solid rgba(74,93,168,.45);
   border-radius: 14px; backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
   padding: 16px; width: min(92vw, 420px); display: flex; flex-direction: column; gap: 10px;

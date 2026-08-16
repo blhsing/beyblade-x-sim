@@ -122,6 +122,11 @@ export class Sfx {
     return this.enabled;
   }
 
+  /** Whether the audio context is actually producing sound right now. */
+  get contextRunning(): boolean {
+    return this.ctx?.state === "running";
+  }
+
   setSfx(on: boolean): void {
     this.enabled = on;
     try {
@@ -577,11 +582,15 @@ export class Sfx {
 
 export const sfx = new Sfx();
 
-// Browsers do not allow ANY audio before the user's first interaction —
-// that is the autoplay policy, not something the page can opt out of, so a
-// game opened and left untouched is silent by rule. What we can do is make
-// the very first interaction of any kind start everything, and tell the UI
-// the moment it happens so it can stop advertising a tap.
+// Audio startup, in two attempts.
+//
+// 1. TRY IMMEDIATELY at load. Plenty of situations allow it — a returning
+//    visitor, an installed PWA, a desktop browser with engagement — and
+//    this path never existed before: the context was only ever created from
+//    a button handler, so the game could not start with music even when the
+//    browser would have permitted it.
+// 2. If the browser refuses (context comes up suspended), the first
+//    interaction of ANY kind resumes it.
 if (typeof document !== "undefined") {
   const EVENTS = ["pointerdown", "touchend", "keydown", "click"];
   const kick = (): void => {
@@ -591,10 +600,24 @@ if (typeof document !== "undefined") {
     window.dispatchEvent(new CustomEvent("beyblade:audio"));
   };
   for (const ev of EVENTS) document.addEventListener(ev, kick, true);
+  // attempt 1 — harmless if the browser says no, the listener above covers it
+  const autostart = (): void => {
+    sfx.unlock();
+    if (sfx.contextRunning) {
+      audioUnlocked = true;
+      for (const ev of EVENTS) document.removeEventListener(ev, kick, true);
+      window.dispatchEvent(new CustomEvent("beyblade:audio"));
+    }
+  };
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", autostart, { once: true });
+  } else {
+    autostart();
+  }
 }
 
 let audioUnlocked = false;
-/** True once a user gesture has let the audio context start. */
+/** True once audio is actually running. */
 export function isAudioUnlocked(): boolean {
   return audioUnlocked;
 }

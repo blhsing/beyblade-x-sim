@@ -71,7 +71,6 @@ export const ZH = {
   giveUp: "放棄",
   confirmGiveUp: "確定要放棄這場比賽嗎？（線上模式將視同棄權並退出整場賽事）",
   fastForward: "快轉 ⏩",
-  tapForSound: "🔇 點一下畫面開啟音效與音樂",
   waitingRematch: "等待對手同意再戰…",
   rematchDeclined: "對手已離開房間",
   zoomHint: "雙指縮放、拖曳平移",

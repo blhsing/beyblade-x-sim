@@ -10,7 +10,7 @@ import { BOT_ROSTER, botBuildDeck, botChooseLaunch } from "../game/bots";
 import { RULE_PRESETS, RULES_OFFICIAL, type RuleSet } from "../game/rules";
 import { ZH } from "../i18n/zh";
 import { UI_CSS, button, el, overlay, row } from "./dom";
-import { isAudioUnlocked, sfx } from "../audio/sfx";
+import { sfx } from "../audio/sfx";
 import { gyro } from "../sensors/gyro";
 import { showQuickSetup, showTournamentSetup } from "./setup";
 import { showOnline } from "./online";
@@ -60,7 +60,6 @@ export class GameApp {
     readonly root: HTMLElement,
   ) {
     document.head.append(el("style", {}, UI_CSS));
-    this.showAudioHint();
     this.index = new PartIndex(db);
     this.view = new BattleView(root);
     this.view.setStadium(this.stadium());
@@ -74,19 +73,6 @@ export class GameApp {
     };
     requestAnimationFrame(loop);
     this.startMenuCinema(); // live bot battles fade behind every menu
-  }
-
-  /**
-   * Browsers forbid audio until the user interacts — the game genuinely
-   * cannot make a sound before then, on any site. Rather than leave that
-   * looking broken, say so, and clear the notice the instant the first tap
-   * starts everything.
-   */
-  private showAudioHint(): void {
-    if (isAudioUnlocked()) return;
-    const hint = el("div", { class: "audiohint" }, ZH.tapForSound);
-    document.body.append(hint);
-    window.addEventListener("beyblade:audio", () => hint.remove(), { once: true });
   }
 
   // ---- menu-background cinema: live bot matches with movie-style shots ----
