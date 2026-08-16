@@ -30,6 +30,7 @@ import {
 import { button, el, overlay, row, select } from "./dom";
 import {
   collectLocalLaunch,
+  confirmModal,
   flashBanner,
   humanLaunch,
   playBattle,
@@ -406,6 +407,12 @@ async function ffaSession(
   const wins = new Map<number, number>();
   let cur = first;
   let aborted = false;
+  // resolves the moment 放棄 is confirmed, so an in-flight launch gesture
+  // unwinds instead of leaving the session running behind the menu
+  let fireAbort: () => void = () => {};
+  const abortSignal = new Promise<void>((res) => {
+    fireAbort = () => res();
+  });
   let bar: HTMLElement | null = null;
   let waitOverlay: HTMLElement | null = null; // whichever wait UI is up right now
 
@@ -423,11 +430,14 @@ async function ffaSession(
     app.showModeSelect();
   };
   const giveUp = (): void => {
-    if (!window.confirm(ZH.confirmGiveUp)) return;
-    aborted = true;
-    teardownActiveLaunch();
-    client.send({ t: "leave" });
-    cleanup();
+    void confirmModal(ZH.confirmGiveUp).then((yes) => {
+      if (!yes) return;
+      aborted = true;
+      fireAbort();
+      teardownActiveLaunch();
+      client.send({ t: "leave" });
+      cleanup();
+    });
   };
   const showBar = (order: number[]): void => {
     bar?.remove();
@@ -498,6 +508,7 @@ async function ffaSession(
       // my launch — a mislaunch simply retries (non-standard mode, no penalty)
       let mine: LaunchParams | null = null;
       while (!mine) {
+        if (aborted) return;
         const r = await humanLaunch(
           app,
           nameOf(client.slot),
@@ -505,8 +516,10 @@ async function ffaSession(
           prefs.launcher,
           rcs[myIdx]!,
           params[myIdx]!,
+          null,
+          abortSignal,
         );
-        if (aborted) return;
+        if (r.aborted || aborted) return;
         if (r.launch) {
           recordLaunch(r.launch.sp, r.launch.aimDeg);
           const spinDir = rot === "left" || rot === "both-left-origin" ? -1 : 1;
@@ -540,7 +553,7 @@ async function ffaSession(
         clicksMax: 4,
         maxTicks: 240 * 180,
       };
-      const world = await playBattle(app, wcfg, { allowSkip: false, abort: () => aborted });
+      const world = await playBattle(app, wcfg, { abort: () => aborted });
       if (aborted) return;
 
       // action keeps running under the banners (afterglow)

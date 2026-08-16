@@ -10,6 +10,8 @@ export interface LaunchGestureResult {
   /** ms relative to the "SHOOT" instant (negative = released early) */
   releaseOffsetMs: number;
   mislaunch: "early" | "late" | "weak" | null;
+  /** the match was given up mid-gesture; nothing was launched */
+  aborted?: boolean;
 }
 
 export interface LaunchGestureOptions {
@@ -21,6 +23,10 @@ export interface LaunchGestureOptions {
   /** dx/dy = live pointer offset from where the finger touched down (px),
    * so the string/winder can track the actual touch in real time */
   onProgress?: (sp: number, pullPx: number, dx: number, dy: number) => void;
+  /** resolves when the player gives up — the gesture then resolves as
+   * `aborted` instead of hanging until the late-launch timeout, which is
+   * what used to leave a "finished" match still running in the background */
+  abortSignal?: Promise<unknown>;
 }
 
 const CLICK_EVERY_PX = 26; // winder ratchet click spacing
@@ -115,6 +121,9 @@ export function captureLaunch(
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerup", onUp);
     el.addEventListener("pointercancel", onUp);
+    void opts.abortSignal?.then(() =>
+      finish({ sp: 0, releaseOffsetMs: 0, mislaunch: null, aborted: true }),
+    );
   });
 }
 

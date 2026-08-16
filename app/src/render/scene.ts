@@ -53,6 +53,10 @@ interface Spark {
   life: number;
 }
 
+/** |ω| where a bey starts visibly wobbling, well above OMEGA_STOP so the
+ * wind-down is watchable rather than an abrupt stop. */
+const WOBBLE_OMEGA = 55;
+
 export type CameraMode = "orbit" | "gyro" | "launch" | "cinema";
 
 export class BattleView {
@@ -69,6 +73,8 @@ export class BattleView {
   private orbitYaw = -Math.PI / 2;
   private orbitPitch = 0.9;
   private orbitDist = 0.56; // frames the true-scale (wider) bowls
+  /** look-at point, moved by two-finger pan */
+  private orbitTarget = new THREE.Vector3(0, 0, 0.02);
   launchSide: 0 | 1 = 0;
   /** silences hums/sfx/haptics (menu-background battles) */
   audioMuted = false;
@@ -337,25 +343,96 @@ export class BattleView {
     });
   }
 
+  /**
+   * Touch camera: one finger orbits, two fingers pinch to zoom and drag to
+   * pan (and the wheel zooms on desktop). Pan moves the orbit target across
+   * the stadium plane in the camera's own screen axes, so dragging feels
+   * like moving the stadium under your finger.
+   */
   private attachOrbitControls(el: HTMLElement): void {
-    let dragging = false;
-    let px = 0;
-    let py = 0;
+    const pts = new Map<number, { x: number; y: number }>();
+    let pinchDist = 0;
+    let pinchMid = { x: 0, y: 0 };
+
+    const centreAndSpread = (): { cx: number; cy: number; d: number } => {
+      const list = [...pts.values()];
+      const cx = list.reduce((s, p) => s + p.x, 0) / list.length;
+      const cy = list.reduce((s, p) => s + p.y, 0) / list.length;
+      const d =
+        list.length > 1 ? Math.hypot(list[0]!.x - list[1]!.x, list[0]!.y - list[1]!.y) : 0;
+      return { cx, cy, d };
+    };
+
     el.addEventListener("pointerdown", (e) => {
       if (this.mode !== "orbit") return;
-      dragging = true;
-      px = e.clientX;
-      py = e.clientY;
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const c = centreAndSpread();
+      pinchDist = c.d;
+      pinchMid = { x: c.cx, y: c.cy };
     });
+
     el.addEventListener("pointermove", (e) => {
-      if (!dragging || this.mode !== "orbit") return;
-      this.orbitYaw -= (e.clientX - px) * 0.006;
-      this.orbitPitch = Math.min(1.45, Math.max(0.25, this.orbitPitch + (e.clientY - py) * 0.005));
-      px = e.clientX;
-      py = e.clientY;
+      if (this.mode !== "orbit" || !pts.has(e.pointerId)) return;
+      const prev = pts.get(e.pointerId)!;
+      if (pts.size === 1) {
+        this.orbitYaw -= (e.clientX - prev.x) * 0.006;
+        this.orbitPitch = Math.min(
+          1.45,
+          Math.max(0.12, this.orbitPitch + (e.clientY - prev.y) * 0.005),
+        );
+        pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+        return;
+      }
+      pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+      const c = centreAndSpread();
+      if (pinchDist > 0 && c.d > 0) this.zoomBy(pinchDist / c.d);
+      this.panBy(c.cx - pinchMid.x, c.cy - pinchMid.y);
+      pinchDist = c.d;
+      pinchMid = { x: c.cx, y: c.cy };
     });
-    el.addEventListener("pointerup", () => (dragging = false));
-    el.addEventListener("pointercancel", () => (dragging = false));
+
+    const lift = (e: PointerEvent): void => {
+      pts.delete(e.pointerId);
+      const c = centreAndSpread();
+      pinchDist = c.d;
+      pinchMid = { x: c.cx, y: c.cy };
+    };
+    el.addEventListener("pointerup", lift);
+    el.addEventListener("pointercancel", lift);
+    el.addEventListener(
+      "wheel",
+      (e) => {
+        if (this.mode !== "orbit") return;
+        e.preventDefault();
+        this.zoomBy(Math.exp(e.deltaY * 0.0012));
+      },
+      { passive: false },
+    );
+  }
+
+  /** factor > 1 pulls the camera back */
+  zoomBy(factor: number): void {
+    this.orbitDist = Math.min(1.6, Math.max(0.09, this.orbitDist * factor));
+  }
+
+  /** Drag the look-at point across the stadium plane, in screen axes. */
+  panBy(dxPx: number, dyPx: number): void {
+    const k = (this.orbitDist * 1.4) / Math.max(320, window.innerHeight);
+    const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 0);
+    const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 1);
+    this.orbitTarget
+      .addScaledVector(right, -dxPx * k)
+      .addScaledVector(up, dyPx * k);
+    const lim = 0.4;
+    this.orbitTarget.x = Math.max(-lim, Math.min(lim, this.orbitTarget.x));
+    this.orbitTarget.y = Math.max(-lim, Math.min(lim, this.orbitTarget.y));
+    this.orbitTarget.z = Math.max(-0.05, Math.min(0.3, this.orbitTarget.z));
+  }
+
+  /** Recentre the touch camera (used when a new battle starts). */
+  resetView(): void {
+    this.orbitTarget.set(0, 0, 0.02);
+    this.orbitDist = 0.56;
   }
 
   resize(): void {
@@ -464,8 +541,11 @@ export class BattleView {
           prev = pt;
         }
       }
-      // real rack teeth: trapezoidal, cut across the line of travel
-      const toothGeo = new THREE.CylinderGeometry(0.0018, 0.0026, 0.006, 4, 4);
+      // Real rack teeth: trapezoidal, cut across the line of travel, and
+      // TALL — the X-Line stands proud of the floor as a ridge, which is
+      // what stops a bey rolling over it. The physics barrier and this
+      // height are deliberately the same story.
+      const toothGeo = new THREE.CylinderGeometry(0.0022, 0.0032, 0.0075, 4, 4);
       toothGeo.rotateX(Math.PI / 2);
       toothGeo.rotateZ(Math.PI / 4);
       const toothMat = absPlastic(s.railColor, { rough: 0.38, coat: 0.5 });
@@ -716,8 +796,13 @@ export class BattleView {
           m.rotation.x = Math.min(1.35, m.rotation.x + dt * 6); // burst keel
         } else if (b.exited) {
           m.position.z -= 0.05; // sunk into pocket
-        } else if (absOmega < 140) {
-          m.rotation.x = Math.sin(b.phase * 0.23) * (1 - absOmega / 140) * 0.35;
+        } else if (b.stoppedTick >= 0) {
+          m.rotation.x = Math.min(1.4, m.rotation.x + dt * 3.2); // lie down
+        } else if (absOmega < WOBBLE_OMEGA) {
+          // wobble grows as the bey winds down, so the moment it is called
+          // stopped it has visibly been dying for a while (not a sudden cut)
+          const t = 1 - absOmega / WOBBLE_OMEGA;
+          m.rotation.x = Math.sin(b.phase * 0.23) * t * t * 0.5;
         } else {
           m.rotation.x = 0;
         }
@@ -837,7 +922,6 @@ export class BattleView {
       gyro.apply(this.camera);
       return;
     }
-    const pivot = new THREE.Vector3(0, 0, 0.02);
     if (this.mode === "launch") {
       const side = this.launchSide === 0 ? 1 : -1;
       const base = new THREE.Vector3(-0.16 * side, -0.4, 0.3);
@@ -845,11 +929,13 @@ export class BattleView {
       this.camera.lookAt(0, 0.03, 0.02);
       return;
     }
+    // orbit around the (pannable) target at the (pinchable) distance
+    const t = this.orbitTarget;
     this.camera.position.set(
-      Math.cos(this.orbitYaw) * Math.cos(this.orbitPitch) * this.orbitDist,
-      Math.sin(this.orbitYaw) * Math.cos(this.orbitPitch) * this.orbitDist,
-      Math.sin(this.orbitPitch) * this.orbitDist + 0.02,
+      t.x + Math.cos(this.orbitYaw) * Math.cos(this.orbitPitch) * this.orbitDist,
+      t.y + Math.sin(this.orbitYaw) * Math.cos(this.orbitPitch) * this.orbitDist,
+      t.z + Math.sin(this.orbitPitch) * this.orbitDist,
     );
-    this.camera.lookAt(pivot.x, pivot.y, pivot.z);
+    this.camera.lookAt(t.x, t.y, t.z);
   }
 }

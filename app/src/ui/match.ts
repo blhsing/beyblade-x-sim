@@ -31,6 +31,26 @@ export async function flashBanner(text: string, ms = 1400): Promise<void> {
   b.remove();
 }
 
+/** In-game confirmation dialog — the browser's own confirm() looked like a
+ * bug report next to the rest of the UI, and blocks the render loop. */
+export function confirmModal(question: string, okLabel = ZH.giveUp): Promise<boolean> {
+  return new Promise((resolve) => {
+    const o = overlay();
+    const done = (v: boolean): void => {
+      o.remove();
+      resolve(v);
+    };
+    const panel = el("div", { class: "panel" });
+    panel.append(
+      el("div", { class: "subtitle", style: "font-size:16px" }, question),
+      button(okLabel, () => done(true), "btn primary"),
+      button(ZH.back, () => done(false)),
+    );
+    o.append(panel);
+    document.body.append(o);
+  });
+}
+
 function scoreboard(
   app: GameApp,
   engine: MatchEngine,
@@ -47,7 +67,9 @@ function scoreboard(
   if (onGiveUp) {
     bar.append(
       button(ZH.giveUp, () => {
-        if (window.confirm(ZH.confirmGiveUp)) onGiveUp();
+        void confirmModal(ZH.confirmGiveUp).then((yes) => {
+          if (yes) onGiveUp();
+        });
       }, "btn small fixed"),
     );
   }
@@ -72,7 +94,12 @@ export async function humanLaunch(
   rc: ResolvedCombo | null = null,
   beyParams: BeyParams | null = null,
   opp: { rc: ResolvedCombo; params: BeyParams; side: 0 | 1 } | null = null,
-): Promise<{ launch: LaunchParams | null; mislaunch: "early" | "late" | "weak" | null }> {
+  abortSignal?: Promise<unknown>,
+): Promise<{
+  launch: LaunchParams | null;
+  mislaunch: "early" | "late" | "weak" | null;
+  aborted?: boolean;
+}> {
   app.view.mode = app.view.mode === "gyro" ? "gyro" : "launch";
   app.view.launchSide = side;
   if (rc && beyParams) {
@@ -121,11 +148,22 @@ export async function humanLaunch(
   const result = await captureLaunch(zone, {
     shootAtMs: shootAt,
     ...LAUNCH_WINDOWS,
+    abortSignal,
     onProgress: (sp, _pullPx, dx, dy) => {
       fill.style.width = `${Math.min(100, (sp / 11000) * 100)}%`;
       app.view.setLauncherPointer(dx, dy); // string follows the finger live
     },
   });
+
+  if (result.aborted) {
+    // gave up mid-gesture: tear the rig down and unwind, never launch
+    app.view.removeLauncher();
+    app.view.removeOpponentLauncher();
+    zone.remove();
+    meter.remove();
+    activeLaunchTeardown = null;
+    return { launch: null, mislaunch: null, aborted: true };
+  }
 
   if (result.mislaunch) {
     app.view.removeLauncher();
@@ -155,9 +193,11 @@ async function collectLaunches(
   slots: [SlotConfig, SlotConfig],
   names: [string, string],
   battleSeed: number,
-): Promise<[LaunchParams, LaunchParams] | "matchOver"> {
+  abort?: { flag: { requested: boolean }; signal: Promise<unknown> },
+): Promise<[LaunchParams, LaunchParams] | "matchOver" | "aborted"> {
   const bothHuman = slots[0].kind === "human" && slots[1].kind === "human";
   for (;;) {
+    if (abort?.flag.requested) return "aborted";
     const out: LaunchParams[] = [];
     let restart = false;
     for (const side of [0, 1] as const) {
@@ -186,7 +226,11 @@ async function collectLaunches(
       const opp = { rc: oppRc, params: deriveBeyParams(oppRc), side: oppSide };
       let launched: LaunchParams | null = null;
       while (!launched) {
-        const r = await humanLaunch(app, names[side], side, s.launcher, rc, deriveBeyParams(rc), opp);
+        if (abort?.flag.requested) return "aborted";
+        const r = await humanLaunch(
+          app, names[side], side, s.launcher, rc, deriveBeyParams(rc), opp, abort?.signal,
+        );
+        if (r.aborted || abort?.flag.requested) return "aborted";
         if (r.launch) {
           const spinDir =
             rotation === "left" || rotation === "both-left-origin" ? -1 : 1;
@@ -206,6 +250,7 @@ async function collectLaunches(
       if (restart) break;
       out.push(launched!);
     }
+    if (abort?.flag.requested) return "aborted";
     if (!restart) return out as [LaunchParams, LaunchParams];
   }
 }
@@ -214,20 +259,28 @@ async function collectLaunches(
 export function playBattle(
   app: GameApp,
   cfg: WorldConfig,
-  opts: { allowSkip: boolean; abort?: () => boolean },
+  opts: { allowSkip?: boolean; abort?: () => boolean },
 ): Promise<WorldState> {
   return new Promise((resolve) => {
     const stadium = app.stadium();
     const world = createWorld(cfg);
     let acc = 0;
+    // Fast-forward is available in EVERY battle, not just bot-vs-bot: once
+    // both beys are launched there is no further input, so skipping ahead
+    // never skips a decision the player still had to make.
     let skipBtn: HTMLElement | null = null;
-    if (opts.allowSkip) {
+    if (opts.allowSkip !== false) {
       skipBtn = el("div", { class: "topbar", style: "top:auto; bottom: 12px" });
       skipBtn.append(
         el("div", { class: "spacer" }),
-        button("快轉 ⏩", () => {
-          while (!world.finish && !world.draw && world.ffaWinner === null)
+        button(ZH.fastForward, () => {
+          let guard = 0;
+          while (
+            !world.finish && !world.draw && world.ffaWinner === null &&
+            world.tick < cfg.maxTicks && guard++ < cfg.maxTicks
+          ) {
             step(world, cfg, stadium);
+          }
         }, "btn small"),
       );
       document.body.append(skipBtn);
@@ -311,7 +364,10 @@ export async function runMatch(
   hooks.setup?.(engine);
   const bothBots = slots[0].kind === "bot" && slots[1].kind === "bot";
 
-  // 放棄: resolvable from ANY phase (countdown, drag, battle, online waits)
+  // 放棄: resolvable from ANY phase (countdown, drag, battle, online waits).
+  // The flag object is shared LIVE with the launch collector so an orphaned
+  // await cannot keep the "aborted" match running behind the menu — racing
+  // the promise alone only unblocked runMatch, it never stopped the loser.
   const abortFlag = { requested: false };
   let fireAbort: () => void = () => {};
   const abortPromise = new Promise<"aborted">((res) => {
@@ -320,6 +376,7 @@ export async function runMatch(
       res("aborted");
     };
   });
+  const abort = { flag: abortFlag, signal: abortPromise as Promise<unknown> };
   const giveUp = (): void => fireAbort();
 
   let hud = scoreboard(app, engine, names, giveUp);
@@ -366,7 +423,7 @@ export async function runMatch(
     const launches = await Promise.race([
       hooks.launches
         ? hooks.launches(engine, seed)
-        : collectLaunches(app, engine, slots, names, seed),
+        : collectLaunches(app, engine, slots, names, seed, abort),
       abortPromise,
     ]);
     if (launches === "aborted" || abortFlag.requested) break;
@@ -384,10 +441,7 @@ export async function runMatch(
       maxTicks: 240 * 180,
     };
     replayBattles.push({ seed, launches: [launches[0], launches[1]], deckA: combo0, deckB: combo1 });
-    const world = await playBattle(app, cfg, {
-      allowSkip: bothBots,
-      abort: () => abortFlag.requested,
-    });
+    const world = await playBattle(app, cfg, { abort: () => abortFlag.requested });
     if (abortFlag.requested) break;
     lastWorld = world;
     lastCfg = cfg;

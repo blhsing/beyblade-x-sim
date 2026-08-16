@@ -20,6 +20,8 @@ import {
   paintedMetal,
   pomTranslucent,
   rubberMat,
+  stickerMaterial,
+  stickerTexture,
 } from "./materials";
 
 /** Official colourway names (phstudy `part_colors`) → linear render colours. */
@@ -209,61 +211,79 @@ export function buildBlade(
   const color = bladeColorOf(part, accent);
   const outline = outlineFor(type, R, part?.stats.attack ?? 40, seed);
 
-  // metal upper — sloped top face, square-ish striking rim, undercut below.
-  // ≈ 11 mm from the blade's underside to its crown.
-  const metalTop = baseZ + 0.0112;
-  const upper = sweepSolid(
+  // A real blade is mostly MOULDED COLOUR PLASTIC (PMMA/ABS) with a zinc
+  // alloy ring exposed at the contact points and a die-cut sticker over the
+  // crown — not a solid metal puck. Building it that way is what makes it
+  // read as the actual toy (docs/MODELING.md §1.4).
+  const top = baseZ + 0.0112;
+
+  // 1. plastic body: the full silhouette, in the part's colourway
+  const body = sweepSolid(
     [
-      { f: 0.0, z: metalTop },
-      { f: 0.42, z: metalTop },
-      { f: 0.82, z: metalTop - 0.0012 }, // top face slopes down to the rim
-      { f: 1.0, z: metalTop - 0.0035 },
-      { f: 1.0, z: metalTop - 0.0072 }, // vertical striking wall
-      { f: 0.86, z: metalTop - 0.0092 }, // undercut
-      { f: 0.5, z: metalTop - 0.0098 },
-      { f: 0.0, z: metalTop - 0.0088 },
+      { f: 0.0, z: top },
+      { f: 0.5, z: top },
+      { f: 0.86, z: top - 0.0014 }, // crown slopes gently to the rim
+      { f: 1.0, z: top - 0.004 },
+      { f: 1.0, z: top - 0.0076 }, // outer wall
+      { f: 0.88, z: top - 0.0098 }, // undercut
+      { f: 0.42, z: baseZ + 0.0008 },
+      { f: 0.0, z: baseZ + 0.0008 },
     ],
     outline,
   );
-  const bare = seed > 0.55; // some blades ship bare metal, others painted
-  const metalMesh = new THREE.Mesh(
-    upper,
-    bare ? diecastMetal(color, { rough: 0.26 + seed * 0.1 }) : paintedMetal(color),
-  );
-  metalMesh.castShadow = true;
-  metalMesh.receiveShadow = true;
-  g.add(metalMesh);
+  const bodyMesh = new THREE.Mesh(body, absPlastic(color, { rough: 0.3, coat: 0.85 }));
+  bodyMesh.castShadow = true;
+  bodyMesh.receiveShadow = true;
+  g.add(bodyMesh);
 
-  // plastic core beneath the metal, slightly inboard so the metal overhangs
-  const core = sweepSolid(
+  // 2. metal contact ring: a band of bare zinc alloy exposed around the
+  // striking edge, inset so the plastic wraps above and below it
+  const ring = sweepSolid(
     [
-      { f: 0.0, z: metalTop - 0.0088 },
-      { f: 0.9, z: metalTop - 0.0092 },
-      { f: 0.9, z: baseZ + 0.0016 },
-      { f: 0.34, z: baseZ + 0.0004 },
-      { f: 0.0, z: baseZ + 0.0004 },
+      { f: 1.0, z: top - 0.0034 },
+      { f: 1.005, z: top - 0.0044 },
+      { f: 1.005, z: top - 0.0074 },
+      { f: 1.0, z: top - 0.0084 },
+      { f: 0.9, z: top - 0.0074 },
+      { f: 0.9, z: top - 0.0044 },
     ],
-    (th) => outline(th) * 0.93,
+    outline,
   );
-  const coreMesh = new THREE.Mesh(
-    core,
-    absPlastic(new THREE.Color(color).multiplyScalar(0.55).getHex(), { rough: 0.5 }),
+  const ringMesh = new THREE.Mesh(
+    ring,
+    seed > 0.72
+      ? paintedMetal(color, 0.3) // metal-coat variants are tinted
+      : diecastMetal(0xd3d7e2, { rough: 0.24 + seed * 0.08 }),
   );
-  coreMesh.castShadow = true;
-  g.add(coreMesh);
+  ringMesh.castShadow = true;
+  g.add(ringMesh);
 
-  // emblem boss: the moulded character face every blade carries on top
-  const bossMat = absPlastic(seed > 0.5 ? 0x1b1b24 : 0xe6e8f2, { rough: 0.3, coat: 0.8 });
-  const boss = new THREE.Mesh(new THREE.CylinderGeometry(R * 0.3, R * 0.33, 0.0022, DETAIL.radial), bossMat);
-  boss.rotation.x = Math.PI / 2;
-  boss.position.z = metalTop + 0.0011;
-  g.add(boss);
-  const emblem = new THREE.Mesh(
-    new THREE.TorusGeometry(R * 0.19, R * 0.035, 24, Math.max(3, 3 + Math.round(seed * 4)) * 12),
-    paintedMetal(0xcfae4a, 0.28),
+  // 3. the sticker: a glossy die-cut laminate disc on the crown, slightly
+  // domed so its highlight sweeps as the bey spins
+  const stickerR = R * 0.52;
+  const stickerGeo = new THREE.CircleGeometry(stickerR, DETAIL.radial);
+  const sticker = new THREE.Mesh(
+    stickerGeo,
+    stickerMaterial(
+      stickerTexture({
+        key: part?.key ?? "?",
+        label: part?.code ?? part?.name.en ?? "BEY",
+        base: color,
+        accent: new THREE.Color(color).offsetHSL(0.5, 0.1, 0.12).getHex(),
+        seed,
+      }),
+    ),
   );
-  emblem.position.z = metalTop + 0.0024;
-  g.add(emblem);
+  sticker.position.z = top + 0.0002;
+  g.add(sticker);
+
+  // moulded lip that the sticker sits inside
+  const lip = new THREE.Mesh(
+    new THREE.TorusGeometry(stickerR * 1.06, R * 0.02, 16, DETAIL.radial),
+    absPlastic(new THREE.Color(color).multiplyScalar(0.45).getHex(), { rough: 0.4 }),
+  );
+  lip.position.z = top;
+  g.add(lip);
   return g;
 }
 

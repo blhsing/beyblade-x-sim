@@ -18,7 +18,13 @@ export const DT = 1 / 240;
 export const TICKS_PER_SECOND = 240;
 
 const G = 9.81;
-export const OMEGA_STOP = 30; // rad/s below which a bey has "stopped"
+// A top at 30 rad/s (~290 rpm) is still visibly spinning, so calling the
+// spin finish there announced the result while the bey was clearly alive.
+// Stop means stopped: ~95 rpm, held for a moment so the bey has actually
+// wound down and keeled over before the banner appears.
+export const OMEGA_STOP = 10; // rad/s below which a bey has "stopped"
+/** |ω| must stay under OMEGA_STOP this long before the finish is called */
+export const STOP_DWELL_TICKS = 72; // 0.3 s at 240 Hz
 
 const T = {
   // launch — bowl escape speed is ~0.77 m/s, so entries stay below it and
@@ -65,8 +71,12 @@ const T = {
   gearEventEvery: 10,
   // the rack is a raised ridge: it physically holds beys in unless they
   // arrive hard enough to hop over it
-  railBreakSpeed: 1.7, // only true smashes clear the ridge
-  railBumpRestitution: 0.35,
+  // Tuned on the balance batch WITH continuous containment (scratchpad
+  // rail-sweep): 1.15→95% KO in 4 s (rack does nothing), 2.0→30% KO but a
+  // near-wall. 1.9 keeps the rack holding most drift while a real smash can
+  // still punch a bey over it — ~40% KO, ~12 s, ~13 clashes per battle.
+  railBreakSpeed: 1.9, // only true smashes clear the ridge
+  railBumpRestitution: 0.42,
   railBarrierInner: 0.75, // barrier sits at railR - halfWidth×this
   // collisions (rim slip ≈ 16 m/s at full spin → smash impulse ~0.01–0.02
   // kg·m/s → Δv ~0.3–0.5 m/s and spin loss ~15–40 rad/s per solid hit)
@@ -138,6 +148,7 @@ function makeBey(
     alive: true,
     exited: null,
     stoppedTick: -1,
+    stopDwell: 0,
     contacted: false,
     railTicks: 0,
     railDir: 1,
@@ -377,7 +388,11 @@ function stepBey(
       const railRB = railRadiusAt(s, angleB);
       const inner = railRB - s.railHalfWidth * T.railBarrierInner;
       const rB = Math.sqrt(b.x * b.x + b.y * b.y);
-      if (r <= inner && rB > inner) {
+      // Containment is CONTINUOUS, not just on the crossing tick: a bey that
+      // is already past the ridge line and still drifting outward gets held
+      // too. Only checking the crossing let beys leak over the rack whenever
+      // the crossing happened during a dash or a rail cooldown.
+      if (rB > inner) {
         const uB = { x: b.x / rB, y: b.y / rB };
         const vrB = b.vx * uB.x + b.vy * uB.y;
         if (vrB > 0 && vrB < T.railBreakSpeed) {
@@ -440,9 +455,15 @@ function stepBey(
     b.y -= u.y * over;
   }
 
-  // spin finish detection
-  if (Math.abs(b.omega) < OMEGA_STOP && b.stoppedTick < 0) {
-    b.stoppedTick = w.tick;
+  // spin finish detection: only after the bey has been under the threshold
+  // long enough to have visibly stopped (a brief dip must not end a battle)
+  if (Math.abs(b.omega) < OMEGA_STOP) {
+    b.stopDwell++;
+    if (b.stopDwell >= STOP_DWELL_TICKS && b.stoppedTick < 0) {
+      b.stoppedTick = w.tick;
+    }
+  } else {
+    b.stopDwell = 0;
   }
 }
 

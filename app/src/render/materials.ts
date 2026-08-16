@@ -208,6 +208,125 @@ export function skinNormal(): THREE.Texture {
   });
 }
 
+/**
+ * The printed sticker every Beyblade X blade carries on its crown. Real
+ * blades are moulded colour plastic with a glossy die-cut sticker over the
+ * centre showing the beast emblem, so this draws one: a metallic-ink ring,
+ * radial "energy" wedges, a stylised beast glyph built from the part's own
+ * seed (so each blade gets its own recognisable mark), and the part code.
+ */
+export function stickerTexture(opts: {
+  key: string;
+  label: string;
+  base: number;
+  accent: number;
+  seed: number;
+}): THREE.Texture {
+  return cached(`sticker:${opts.key}:${opts.base}:${opts.accent}`, () => {
+    const S = 512;
+    const hex = (c: number): string => `#${c.toString(16).padStart(6, "0")}`;
+    const cv = canvas(S, (c) => {
+      const R = S / 2;
+      c.clearRect(0, 0, S, S);
+      // die-cut disc
+      c.save();
+      c.beginPath();
+      c.arc(R, R, R * 0.98, 0, Math.PI * 2);
+      c.clip();
+
+      const g = c.createRadialGradient(R * 0.8, R * 0.7, R * 0.1, R, R, R);
+      g.addColorStop(0, hex(opts.base));
+      g.addColorStop(0.65, hex(opts.base));
+      g.addColorStop(1, "#0d0f16");
+      c.fillStyle = g;
+      c.fillRect(0, 0, S, S);
+
+      // radial energy wedges in the accent colour
+      const wedges = 6 + Math.floor(opts.seed * 6);
+      c.fillStyle = hex(opts.accent);
+      c.globalAlpha = 0.55;
+      for (let i = 0; i < wedges; i++) {
+        const a = (i / wedges) * Math.PI * 2 + opts.seed * 2;
+        c.beginPath();
+        c.moveTo(R, R);
+        c.arc(R, R, R * 0.96, a, a + Math.PI / wedges);
+        c.closePath();
+        c.fill();
+      }
+      c.globalAlpha = 1;
+
+      // beast glyph: a seeded star-polygon mark, foil-bright
+      const pts = 5 + Math.floor(opts.seed * 4);
+      c.beginPath();
+      for (let i = 0; i <= pts * 2; i++) {
+        const a = (i / (pts * 2)) * Math.PI * 2 - Math.PI / 2;
+        const rr = R * (i % 2 ? 0.3 : 0.66);
+        const x = R + Math.cos(a) * rr;
+        const y = R + Math.sin(a) * rr;
+        if (i === 0) c.moveTo(x, y);
+        else c.lineTo(x, y);
+      }
+      c.closePath();
+      const foil = c.createLinearGradient(0, 0, S, S);
+      foil.addColorStop(0, "#ffffff");
+      foil.addColorStop(0.4, "#dfe6f5");
+      foil.addColorStop(0.6, "#98a4c0");
+      foil.addColorStop(1, "#ffffff");
+      c.fillStyle = foil;
+      c.fill();
+      c.lineWidth = S * 0.012;
+      c.strokeStyle = "#10131c";
+      c.stroke();
+
+      // inner eye
+      c.beginPath();
+      c.arc(R, R, R * 0.17, 0, Math.PI * 2);
+      c.fillStyle = hex(opts.accent);
+      c.fill();
+      c.lineWidth = S * 0.008;
+      c.strokeStyle = "#10131c";
+      c.stroke();
+
+      // part name around the bottom of the disc
+      c.fillStyle = "#f2f4ff";
+      c.font = `700 ${Math.round(S * 0.072)}px sans-serif`;
+      c.textAlign = "center";
+      c.textBaseline = "middle";
+      c.fillText(opts.label.slice(0, 14).toUpperCase(), R, R * 1.68);
+
+      // rim ink + a faint gloss sweep across the laminate
+      c.beginPath();
+      c.arc(R, R, R * 0.93, 0, Math.PI * 2);
+      c.lineWidth = S * 0.03;
+      c.strokeStyle = "#0d0f16";
+      c.stroke();
+      const gloss = c.createLinearGradient(0, 0, S * 0.8, S);
+      gloss.addColorStop(0, "rgba(255,255,255,0.34)");
+      gloss.addColorStop(0.45, "rgba(255,255,255,0.04)");
+      gloss.addColorStop(1, "rgba(255,255,255,0)");
+      c.fillStyle = gloss;
+      c.fillRect(0, 0, S, S);
+      c.restore();
+    });
+    const t = texture(cv, { srgb: true });
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    return t;
+  });
+}
+
+/** Glossy laminated sticker over moulded plastic. */
+export function stickerMaterial(map: THREE.Texture): THREE.MeshPhysicalMaterial {
+  return new THREE.MeshPhysicalMaterial({
+    map,
+    transparent: true,
+    metalness: 0.25,
+    roughness: 0.18,
+    clearcoat: 1,
+    clearcoatRoughness: 0.05,
+    envMapIntensity: 1.1,
+  });
+}
+
 /** Table surface the stadium sits on (matters for the anchored AR view). */
 export function tableMaps(): { map: THREE.Texture; normalMap: THREE.Texture } {
   const key = "table";

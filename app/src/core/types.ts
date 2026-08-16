@@ -154,6 +154,9 @@ export interface BeyState {
   alive: boolean;
   exited: "over" | "xtreme" | "top" | null;
   stoppedTick: number; // tick when spin finished (-1 = spinning)
+  /** consecutive ticks under OMEGA_STOP — the spin finish needs a dwell so
+   * the result is announced only once the bey has really wound down */
+  stopDwell: number;
   contacted: boolean; // has touched the opponent at least once
   railTicks: number; // remaining xtreme dash ticks (0 = not dashing)
   railDir: 1 | -1; // tangential direction of current dash
