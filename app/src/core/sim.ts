@@ -73,9 +73,9 @@ const T = {
   // arrive hard enough to hop over it
   // Tuned on the balance batch WITH continuous containment (scratchpad
   // rail-sweep): 1.15→95% KO in 4 s (rack does nothing), 2.0→30% KO but a
-  // near-wall. 1.9 keeps the rack holding most drift while a real smash can
-  // still punch a bey over it — ~40% KO, ~12 s, ~13 clashes per battle.
-  railBreakSpeed: 1.9, // only true smashes clear the ridge
+  // near-wall. 1.8 is a slightly lower ridge than 1.9 — the rack still holds
+  // ordinary drift, but a solid hit tips a bey over it a bit more readily.
+  railBreakSpeed: 1.8, // only real smashes clear the ridge
   railBumpRestitution: 0.42,
   railBarrierInner: 0.75, // barrier sits at railR - halfWidth×this
   // collisions (rim slip ≈ 16 m/s at full spin → smash impulse ~0.01–0.02

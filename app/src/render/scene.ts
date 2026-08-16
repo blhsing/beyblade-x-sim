@@ -663,7 +663,7 @@ export class BattleView {
       // TALL — the X-Line stands proud of the floor as a ridge, which is
       // what stops a bey rolling over it. The physics barrier and this
       // height are deliberately the same story.
-      const toothGeo = new THREE.CylinderGeometry(0.0022, 0.0032, 0.0075, 4, 4);
+      const toothGeo = new THREE.CylinderGeometry(0.0022, 0.0032, 0.0064, 4, 4);
       toothGeo.rotateX(Math.PI / 2);
       toothGeo.rotateZ(Math.PI / 4);
       const toothMat = absPlastic(s.railColor, { rough: 0.38, coat: 0.5 });
