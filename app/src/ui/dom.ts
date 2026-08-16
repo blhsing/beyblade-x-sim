@@ -45,27 +45,30 @@ export function overlay(cls = ""): HTMLDivElement {
 export const UI_CSS = `
 .overlay { position: fixed; inset: 0; display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: 14px; padding: 18px;
-  background: rgba(11,16,32,.7); overflow-y: auto; z-index: 10; }
+  background: rgba(11,16,32,.42); overflow-y: auto; z-index: 10; }
 .overlay.transparent { background: transparent; pointer-events: none; }
 .overlay.transparent > * { pointer-events: auto; }
-.panel { background: #141b3a; border: 1px solid #35408a; border-radius: 14px;
+.panel { background: rgba(20,27,58,.6); border: 1px solid rgba(74,93,168,.55);
+  border-radius: 14px; backdrop-filter: blur(6px); -webkit-backdrop-filter: blur(6px);
   padding: 16px; width: min(92vw, 420px); display: flex; flex-direction: column; gap: 10px; }
 .title { font-size: 30px; font-weight: 900; letter-spacing: 3px;
   text-shadow: 0 0 18px #3f7bff88; text-align: center; }
 .subtitle { opacity: .7; font-size: 13px; text-align: center; }
 .btn { font: inherit; font-size: 17px; padding: 12px 20px; border-radius: 10px;
-  border: 1px solid #4b5bd7; background: #1a2350; color: #e8ecff; width: 100%; }
-.btn:active { background: #2c3a86; }
-.btn.primary { background: #2c47c9; border-color: #6b83ff; font-weight: 700; }
+  border: 1px solid #4b5bd7; background: rgba(26,35,80,.72); color: #e8ecff; width: 100%; }
+.btn:active { background: rgba(44,58,134,.85); }
+.btn.primary { background: rgba(44,71,201,.85); border-color: #6b83ff; font-weight: 700; }
 .btn.small { width: auto; font-size: 14px; padding: 7px 12px; }
-.sel, input[type=text] { font: inherit; font-size: 15px; padding: 9px 10px;
-  border-radius: 8px; border: 1px solid #35408a; background: #0e1430; color: #e8ecff;
-  width: 100%; }
+.sel, input[type=text], input[type=email], input[type=password] {
+  font: inherit; font-size: 15px; padding: 9px 10px;
+  border-radius: 8px; border: 1px solid #35408a; background: rgba(14,20,48,.65);
+  color: #e8ecff; width: 100%; }
 .row { display: flex; gap: 8px; align-items: center; }
 .row > * { flex: 1; }
 .row > .fixed { flex: 0 0 auto; }
 .label { font-size: 13px; opacity: .75; }
-.card { background: #0e1430; border: 1px solid #2a356e; border-radius: 10px; padding: 10px;
+.card { background: rgba(14,20,48,.5); border: 1px solid rgba(42,53,110,.7);
+  border-radius: 10px; padding: 10px;
   display: flex; flex-direction: column; gap: 8px; }
 .scoreboard { display: flex; justify-content: center; gap: 20px; font-size: 22px;
   font-weight: 800; }
@@ -89,12 +92,12 @@ export const UI_CSS = `
 .gstrip { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory;
   padding: 8px 22vw; width: 100vw; -webkit-overflow-scrolling: touch; }
 .gcard { flex: 0 0 56vw; max-width: 230px; scroll-snap-align: center;
-  background: #141b3a; border: 2px solid #2a356e; border-radius: 14px;
+  background: rgba(20,27,58,.72); border: 2px solid #2a356e; border-radius: 14px;
   padding: 10px; text-align: center; }
 .gcard img { width: 100%; aspect-ratio: 1/1; border-radius: 8px; background: #0e1430; }
 .gcard.focus { border-color: #6b83ff; box-shadow: 0 0 18px #3f7bff66; }
 .gdetail { min-height: 150px; }
-.brwrap { width: min(94vw, 460px); overflow-x: auto; background: #0e1430;
+.brwrap { width: min(94vw, 460px); overflow-x: auto; background: rgba(14,20,48,.55);
   border: 1px solid #2a356e; border-radius: 12px; }
 .brsvg text { fill: #e8ecff; font-size: 12px; font-family: inherit; }
 .brsvg text.win { fill: #7dffa8; font-weight: 700; }

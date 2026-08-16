@@ -1007,7 +1007,9 @@ export class BattleView {
     }
   }
 
-  /** Pick the next cinematic shot (movie-style menu backgrounds). */
+  /** Pick the next cinematic shot (movie-style menu backgrounds).
+   * All shots stay at ≤ ~30° elevation — steeper angles read as
+   * "sideways"/disorienting behind the menus. */
   private nextCineShot(): void {
     const c = this.cine;
     c.shot = Math.floor(Math.random() * 4);
@@ -1016,7 +1018,7 @@ export class BattleView {
     c.a0 = Math.random() * Math.PI * 2;
     c.speed = (0.12 + Math.random() * 0.25) * (Math.random() < 0.5 ? -1 : 1);
     c.dist = 0.38 + Math.random() * 0.25;
-    c.pitch = 0.35 + Math.random() * 0.85;
+    c.pitch = 0.12 + Math.random() * 0.4; // 7°..30° above the stadium plane
     c.bey = Math.random() < 0.5 ? 0 : 1;
   }
 
@@ -1054,8 +1056,13 @@ export class BattleView {
         );
         lookAt.copy(this.lastBeyPos[c.bey]).multiplyScalar(0.6);
       } else if (c.shot === 3) {
-        // overhead slow spin
-        target.set(Math.cos(yaw) * 0.1, Math.sin(yaw) * 0.1, 0.55);
+        // wide establishing arc: far out, still under the 30° elevation cap
+        const p = 0.42 + (c.pitch % 0.1); // ~24°..30°
+        target.set(
+          Math.cos(yaw * 0.6) * Math.cos(p) * 0.62,
+          Math.sin(yaw * 0.6) * Math.cos(p) * 0.62,
+          Math.sin(p) * 0.62 + 0.02,
+        );
       } else if (c.shot === 4) {
         // launch framing: watch the launcher corner from just inside the bowl
         target.set(Math.cos(c.a0) * c.dist * 0.4, Math.sin(c.a0) * c.dist * 0.4, 0.1);
