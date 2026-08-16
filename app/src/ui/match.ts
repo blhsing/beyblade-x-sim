@@ -7,8 +7,8 @@ import type { BeyParams } from "../core/types";
 import { DT, createWorld, simulateBattle, step } from "../core/sim";
 import type { LaunchParams, WorldConfig, WorldState } from "../core/types";
 import { MatchEngine, pointsForFinish, type PlayerSetup } from "../game/rules";
-import { botChooseLaunch } from "../game/bots";
-import { bumpProfile, recordMatch } from "../game/persist";
+import { botChooseLaunch, botChooseLaunchAdaptive } from "../game/bots";
+import { bumpProfile, launchStats, recordLaunch, recordMatch, type ReplayBattle } from "../game/persist";
 import { captureLaunch, LAUNCH_WINDOWS } from "../input/launcher";
 import { ZH, fmt } from "../i18n/zh";
 import { button, el, overlay } from "./dom";
@@ -51,12 +51,16 @@ async function humanLaunch(
   launcher: LaunchParams["launcher"] = "string",
   rc: ResolvedCombo | null = null,
   beyParams: BeyParams | null = null,
+  opp: { rc: ResolvedCombo; params: BeyParams; side: 0 | 1 } | null = null,
 ): Promise<{ launch: LaunchParams | null; mislaunch: "early" | "late" | "weak" | null }> {
   app.view.mode = app.view.mode === "gyro" ? "gyro" : "launch";
   app.view.launchSide = side;
   if (rc && beyParams) {
     app.view.attachLauncher(rc, beyParams, side === 0 ? 0x3f7bff : 0xff5b4d);
   }
+  // the opponent launches at the countdown too — their launcher hovers over
+  // their corner and releases exactly on GO SHOOT
+  if (opp) app.view.attachOpponentLauncher(opp.rc, opp.params, opp.side);
 
   const zone = el("div", { class: "launchzone" });
   const hint = el("div", { class: "banner-big", style: "font-size:20px" }, `${playerName}｜${ZH.pullToLaunch}`);
@@ -80,6 +84,12 @@ async function humanLaunch(
       sfx.beep(s.text.startsWith("GO"));
     }, s.at + 300);
   }
+  if (opp) {
+    setTimeout(() => {
+      sfx.launch(7500);
+      void app.view.playOpponentRelease(opp.side);
+    }, Math.max(0, shootAt - Date.now()));
+  }
 
   const result = await captureLaunch(zone, {
     shootAtMs: shootAt,
@@ -92,12 +102,14 @@ async function humanLaunch(
 
   if (result.mislaunch) {
     app.view.removeLauncher();
+    app.view.removeOpponentLauncher(); // re-battle: everyone re-launches
     zone.remove();
     meter.remove();
     return { launch: null, mislaunch: result.mislaunch };
   }
   await app.view.releaseLauncher(); // bey rips off, launcher lifts away
   app.view.removeLauncher();
+  app.view.removeOpponentLauncher();
   zone.remove();
   meter.remove();
   const aimDeg = Math.max(-12, Math.min(12, result.releaseOffsetMs / 50));
@@ -125,19 +137,32 @@ async function collectLaunches(
       const rc = resolveCombo(app.index, combo);
       const rotation = rc.parts.blade?.rotation ?? rc.parts.lockChip?.rotation ?? "right";
       if (s.kind === "bot") {
-        out.push(botChooseLaunch(s.bot, rotation, (battleSeed ^ (side + 1) * 0x9e37) >>> 0));
+        // character-driven and reactive to the opponent's past launches
+        const lastDecisive = [...engine.history].reverse().find((h) => h.scorer !== null);
+        out.push(
+          botChooseLaunchAdaptive(s.bot, rotation, (battleSeed ^ (side + 1) * 0x9e37) >>> 0, {
+            oppAvgSp: launchStats()?.avgSp ?? null,
+            lostLast: lastDecisive ? lastDecisive.scorer !== side : false,
+            battleIndex: engine.battleIndex,
+          }),
+        );
         continue;
       }
       if (bothHuman && side === 1) {
         await flashBanner(fmt(ZH.passPhone, { name: names[1] }), 1600);
       }
+      // the opponent's launcher shows + fires during my countdown
+      const oppSide = (1 - side) as 0 | 1;
+      const oppRc = resolveCombo(app.index, engine.deckOf(oppSide));
+      const opp = { rc: oppRc, params: deriveBeyParams(oppRc), side: oppSide };
       let launched: LaunchParams | null = null;
       while (!launched) {
-        const r = await humanLaunch(app, names[side], side, s.launcher, rc, deriveBeyParams(rc));
+        const r = await humanLaunch(app, names[side], side, s.launcher, rc, deriveBeyParams(rc), opp);
         if (r.launch) {
           const spinDir =
             rotation === "left" || rotation === "both-left-origin" ? -1 : 1;
           launched = { ...r.launch, spinDir };
+          recordLaunch(launched.sp, launched.aimDeg); // feeds bot adaptivity
           break;
         }
         await flashBanner(ZH.mislaunch[r.mislaunch!], 1100);
@@ -160,7 +185,7 @@ async function collectLaunches(
 export function playBattle(
   app: GameApp,
   cfg: WorldConfig,
-  opts: { allowSkip: boolean },
+  opts: { allowSkip: boolean; abort?: () => boolean },
 ): Promise<WorldState> {
   return new Promise((resolve) => {
     const stadium = app.stadium();
@@ -187,7 +212,7 @@ export function playBattle(
       }
       app.view.consumeEvents(world);
       app.view.update(world, dt);
-      if (world.finish || world.draw) {
+      if (world.finish || world.draw || opts.abort?.()) {
         app.frameHook = null;
         skipBtn?.remove();
         resolve(world);
@@ -207,10 +232,14 @@ export async function collectLocalLaunch(
   const combo = engine.deckOf(side);
   const rc = resolveCombo(app.index, combo);
   const rotation = rc.parts.blade?.rotation ?? rc.parts.lockChip?.rotation ?? "right";
+  const oppSide = (1 - side) as 0 | 1;
+  const oppRc = resolveCombo(app.index, engine.deckOf(oppSide));
+  const opp = { rc: oppRc, params: deriveBeyParams(oppRc), side: oppSide };
   for (;;) {
-    const r = await humanLaunch(app, name, side, launcher, rc, deriveBeyParams(rc));
+    const r = await humanLaunch(app, name, side, launcher, rc, deriveBeyParams(rc), opp);
     if (r.launch) {
       const spinDir = rotation === "left" || rotation === "both-left-origin" ? -1 : 1;
+      recordLaunch(r.launch.sp, r.launch.aimDeg);
       return { ...r.launch, spinDir };
     }
     await flashBanner(ZH.mislaunch[r.mislaunch!], 1100);
@@ -251,6 +280,7 @@ export async function runMatch(
   document.body.append(hud);
 
   await flashBanner(ZH.battleStart, 1000);
+  const replayBattles: ReplayBattle[] = [];
   while (engine.winner === null) {
     const combo0 = engine.deckOf(0);
     const combo1 = engine.deckOf(1);
@@ -276,6 +306,7 @@ export async function runMatch(
       clicksMax: 4,
       maxTicks: 240 * 180,
     };
+    replayBattles.push({ seed, launches: [launches[0], launches[1]], deckA: combo0, deckB: combo1 });
     const world = await playBattle(app, cfg, { allowSkip: bothBots });
 
     if (world.finish) {
@@ -310,6 +341,11 @@ export async function runMatch(
     finishes: engine.history
       .filter((h) => h.finish)
       .map((h) => `${h.finish!.type}:${names[h.finish!.winner]}`),
+    replay: {
+      rules: { ...app.rules },
+      stadiumKey: app.rules.stadium,
+      battles: replayBattles,
+    },
   });
   for (const i of [0, 1] as const) {
     if (slots[i].kind === "human") bumpProfile(names[i], winner === i);

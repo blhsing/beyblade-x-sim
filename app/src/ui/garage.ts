@@ -8,6 +8,7 @@ import type { ComboSelection, PartCategory, PartEntry } from "../core/types";
 import { pushCombo } from "../game/persist";
 import { ZH } from "../i18n/zh";
 import { button, el, overlay, row, select } from "./dom";
+import { openGallery, partItems } from "./gallery";
 import type { GameApp } from "./app";
 
 const EMPTY: ComboSelection = {
@@ -49,13 +50,31 @@ export function showGarage(app: GameApp, onBack?: () => void): void {
   const cxToggle = el("input", { type: "checkbox" });
   const statsBox = el("div", { class: "card" });
 
-  const mkSelect = (cat: PartCategory, optionalNone: boolean): HTMLSelectElement => {
+  // part picker: swipeable 3D gallery; a hidden <select> keeps the state so
+  // the existing stat/refresh logic is untouched
+  const mkSelect = (cat: PartCategory, optionalNone: boolean): HTMLElement => {
     const opts = app.db.parts[cat].map((p) => ({ value: p.key, label: partLabel(p) }));
     if (optionalNone) opts.unshift({ value: "", label: "（無）" });
     const s = select(opts, optionalNone ? "" : opts[0]?.value);
+    s.style.display = "none";
     s.addEventListener("change", refresh);
     sels.set(cat, s);
-    return s;
+    const labelOf = (): string =>
+      s.value ? (opts.find((o) => o.value === s.value)?.label ?? s.value) : "（無）";
+    const b = button(labelOf(), () => {
+      openGallery(
+        CAT_LABEL[cat],
+        partItems(app, cat, optionalNone),
+        s.value,
+        (key) => {
+          s.value = key;
+          s.dispatchEvent(new Event("change"));
+          b.textContent = labelOf();
+        },
+        () => {},
+      );
+    }, "btn small");
+    return el("div", {}, b, s);
   };
 
   const bxRows = el(

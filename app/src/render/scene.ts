@@ -125,7 +125,7 @@ function ringSegmentShape(rIn: number, rOut: number, a0: number, a1: number): TH
 }
 
 /** Star-ish 2D outline: base radius with N lobes of given depth. */
-function lobedShape(r: number, lobes: number, depth: number, sharp: number): THREE.Shape {
+export function lobedShape(r: number, lobes: number, depth: number, sharp: number): THREE.Shape {
   const s = new THREE.Shape();
   const steps = 128;
   for (let i = 0; i <= steps; i++) {
@@ -141,7 +141,7 @@ function lobedShape(r: number, lobes: number, depth: number, sharp: number): THR
 }
 
 /** Parametric bey mesh from the resolved combo (no third-party assets). */
-function buildBeyMesh(rc: ResolvedCombo | null, params: BeyParams, accent: number): THREE.Group {
+export function buildBeyMesh(rc: ResolvedCombo | null, params: BeyParams, accent: number): THREE.Group {
   const g = new THREE.Group();
   const r = params.radiusM;
   const bladePart = rc?.parts.blade ?? rc?.parts.mainBlade;
@@ -541,6 +541,82 @@ export class BattleView {
       this.camera.remove(this.launcherRig.group);
       this.launcherRig = null;
     }
+  }
+
+  // ---- opponent launcher (world-anchored; bots launch at the countdown) ---
+
+  private oppRigs: { group: THREE.Group; beySpin: THREE.Group; side: 0 | 1 }[] = [];
+
+  /** Simplified launcher hovering over the opponent's entry corner, with
+   * their actual bey attached — released in sync with GO SHOOT. */
+  attachOpponentLauncher(rc: ResolvedCombo | null, params: BeyParams, side: 0 | 1): void {
+    this.removeOpponentLauncher(side);
+    const g = new THREE.Group();
+    const plastic = new THREE.MeshPhysicalMaterial({
+      color: side === 0 ? 0x2b3a9e : 0x8e2b2b,
+      roughness: 0.35,
+      clearcoat: 0.5,
+    });
+    const prof: THREE.Vector2[] = [];
+    for (let i = 0; i <= 10; i++) {
+      const t = i / 10;
+      prof.push(new THREE.Vector2(0.034 * Math.sin((t * Math.PI) / 2) + 0.001, 0.022 * t));
+    }
+    const body = new THREE.Mesh(new THREE.LatheGeometry(prof, 32), plastic);
+    body.castShadow = true;
+    g.add(body);
+    const grip = new THREE.Mesh(new THREE.CapsuleGeometry(0.01, 0.05, 6, 10), plastic);
+    grip.rotation.z = Math.PI / 2.4;
+    grip.position.set(-0.045, 0.02, 0);
+    g.add(grip);
+
+    const beySpin = new THREE.Group();
+    beySpin.add(buildBeyMesh(rc, params, side === 0 ? 0x3f7bff : 0xff5b4d));
+    beySpin.rotation.x = Math.PI / 2; // hang under the body, tip down
+    beySpin.position.y = -0.035;
+    g.add(beySpin);
+
+    const baseAngle = side === 0 ? Math.PI - 0.55 : 0.55;
+    const r0 = 0.075;
+    g.position.set(Math.cos(baseAngle) * r0, Math.sin(baseAngle) * r0, 0.17);
+    g.rotation.x = Math.PI / 2; // body upright, bey toward the floor
+    g.rotation.y = (side === 0 ? 1 : -1) * 0.25; // aimed slightly inward
+    this.scene.add(g);
+    this.oppRigs.push({ group: g, beySpin, side });
+  }
+
+  /** Drop the bey to the surface with spin-up, lift the launcher, remove. */
+  playOpponentRelease(side?: 0 | 1): Promise<void> {
+    const rigs = this.oppRigs.filter((r) => side === undefined || r.side === side);
+    if (rigs.length === 0) return Promise.resolve();
+    return new Promise((resolve) => {
+      const t0 = performance.now();
+      const tick = (): void => {
+        const t = Math.min(1, (performance.now() - t0) / 500);
+        for (const rig of rigs) {
+          rig.beySpin.rotation.y = t * t * 70; // spin-up around its axis
+          rig.beySpin.position.y = -0.035 - t * 0.115; // down to the bowl
+          rig.group.position.z = 0.17 + t * 0.08; // launcher lifts away
+        }
+        if (t < 1) requestAnimationFrame(tick);
+        else {
+          for (const rig of rigs) this.scene.remove(rig.group);
+          this.oppRigs = this.oppRigs.filter((r) => !rigs.includes(r));
+          resolve();
+        }
+      };
+      requestAnimationFrame(tick);
+    });
+  }
+
+  removeOpponentLauncher(side?: 0 | 1): void {
+    this.oppRigs = this.oppRigs.filter((r) => {
+      if (side === undefined || r.side === side) {
+        this.scene.remove(r.group);
+        return false;
+      }
+      return true;
+    });
   }
 
   private attachOrbitControls(el: HTMLElement): void {

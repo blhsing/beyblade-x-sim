@@ -6,7 +6,22 @@
 
 import { getToken } from "./auth";
 
+export interface ReplayBattle {
+  seed: number;
+  launches: [unknown, unknown]; // LaunchParams pair (kept loose to avoid cycles)
+  deckA: unknown; // ComboSelection
+  deckB: unknown;
+}
+
+export interface ReplayData {
+  rules: unknown; // full RuleSet snapshot
+  stadiumKey: string;
+  battles: ReplayBattle[];
+}
+
 export interface MatchRecord {
+  /** doc id in the matches collection — share links reference this */
+  id?: string;
   ts: number;
   mode: string;
   players: { name: string; kind: "human" | "bot" }[];
@@ -15,6 +30,8 @@ export interface MatchRecord {
   rules: string;
   stadium: string;
   finishes: string[];
+  /** deterministic replay data (seed + launches per battle) */
+  replay?: ReplayData;
 }
 
 export interface Profile {
@@ -145,11 +162,41 @@ export async function pull(): Promise<void> {
   }
 }
 
-export function recordMatch(rec: MatchRecord): void {
+export function recordMatch(rec: MatchRecord): string {
+  const id = `${playerId()}.${rec.ts.toString(36)}`;
+  rec.id = id;
   const matches = readJson<MatchRecord[]>("beyblade.matches", []);
   matches.unshift(rec);
   writeJson("beyblade.matches", matches.slice(0, 200));
-  push("matches", `${playerId()}.${rec.ts.toString(36)}`, rec);
+  push("matches", id, rec);
+  return id;
+}
+
+/** Fetch one shared match record by doc id (works unauthenticated). */
+export async function fetchMatchDoc(id: string): Promise<MatchRecord | null> {
+  try {
+    const res = await fetch(`${apiBase()}/matches`);
+    if (!res.ok) return null;
+    const out = (await res.json()) as { docs: { id: string; data: MatchRecord }[] };
+    const local = localMatches().find((m) => m.id === id);
+    return out.docs.find((d) => d.id === id)?.data ?? local ?? null;
+  } catch {
+    return localMatches().find((m) => m.id === id) ?? null;
+  }
+}
+
+// ---- launch-tendency history (feeds adaptive bot strategies) --------------
+
+export function recordLaunch(sp: number, aimDeg: number): void {
+  const h = readJson<{ sp: number; aim: number }[]>("beyblade.launchHistory", []);
+  h.push({ sp, aim: aimDeg });
+  writeJson("beyblade.launchHistory", h.slice(-30));
+}
+
+export function launchStats(): { avgSp: number; n: number } | null {
+  const h = readJson<{ sp: number; aim: number }[]>("beyblade.launchHistory", []);
+  if (h.length < 3) return null;
+  return { avgSp: h.reduce((a, x) => a + x.sp, 0) / h.length, n: h.length };
 }
 
 export function bumpProfile(name: string, won: boolean): void {

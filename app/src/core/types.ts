@@ -42,6 +42,8 @@ export interface PartEntry {
   diameterMm: number | null;
   /** official colorway name from phstudy part_colors (e.g. "blue", "gold") */
   color?: string | null;
+  /** short zh-TW flavor/performance description */
+  desc?: string | null;
   line: "BX" | "UX" | "CX" | null;
   fixedBurst: boolean;
   releaseAt: string | null;

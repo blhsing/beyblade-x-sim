@@ -78,7 +78,11 @@ export async function signout(): Promise<void> {
   saveAuth(null);
 }
 
-/** Validate the stored session against the server (offline keeps it). */
+/**
+ * Refresh the stored session (also slides its server-side expiry). The game
+ * remembers the player until an EXPLICIT sign-out: errors — offline, server
+ * hiccups, even a lost server session — never clear the stored identity.
+ */
 export async function refreshMe(): Promise<AuthState | null> {
   const cur = getAuth();
   if (!cur) return null;
@@ -87,10 +91,8 @@ export async function refreshMe(): Promise<AuthState | null> {
     const s: AuthState = { token: cur.token, email: r.email!, nickname: r.nickname! };
     saveAuth(s);
     return s;
-  } catch (e) {
-    if (e instanceof AuthError && e.message === "offline") return cur;
-    saveAuth(null);
-    return null;
+  } catch {
+    return cur; // keep the player signed in; only 登出 clears
   }
 }
 

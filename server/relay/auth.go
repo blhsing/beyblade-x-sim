@@ -26,7 +26,9 @@ import (
 
 var emailRe = regexp.MustCompile(`^[^@\s]+@[^@\s]+\.[^@\s]+$`)
 
-const sessionTTL = 30 * 24 * time.Hour
+// sessions live until explicit sign-out: effectively non-expiring, and /me
+// slides the expiry forward on every app launch
+const sessionTTL = 10 * 365 * 24 * time.Hour
 
 type userDoc struct {
 	Email        string `json:"email"`
@@ -190,6 +192,11 @@ func (s *Store) ServeAuth(w http.ResponseWriter, r *http.Request) {
 		if uid == "" || !s.getDoc("_users", uid, &u) {
 			fail(401, "no-session")
 			return
+		}
+		// sliding renewal: stay signed in until explicit sign-out
+		tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
+		if idPattern.MatchString(tok) {
+			s.putDoc("_sessions", tok, sessionDoc{UserID: uid, Exp: nowMs() + sessionTTL.Milliseconds()})
 		}
 		ok(map[string]string{"email": u.Email, "nickname": u.Nickname})
 	case "signout":

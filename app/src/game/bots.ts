@@ -206,4 +206,57 @@ export function describeBot(profile: BotProfile): string {
   return `${profile.name}（${BOT_SKILLS[profile.skill].zh}・${BOT_CHARACTERS[profile.character].zh}）`;
 }
 
+export interface LaunchContext {
+  /** opponent's recent average shoot power (from their launch history) */
+  oppAvgSp?: number | null;
+  /** did this bot lose the previous decisive battle of the match? */
+  lostLast?: boolean;
+  battleIndex?: number;
+}
+
+/**
+ * Character-driven, opponent-reactive launch: starts from the deterministic
+ * base launch and applies personality adjustments. Only used in local play —
+ * online bot launches stay pure botChooseLaunch so every client derives the
+ * identical value from the shared seed.
+ */
+export function botChooseLaunchAdaptive(
+  profile: BotProfile,
+  bladeRotation: PartEntry["rotation"],
+  seed: number,
+  ctx: LaunchContext,
+): LaunchParams {
+  const l = botChooseLaunch(profile, bladeRotation, seed);
+  const hot = (ctx.oppAvgSp ?? 0) > 8200; // opponent launches hard
+  const idx = ctx.battleIndex ?? 0;
+  switch (profile.character) {
+    case "defensive":
+      if (hot) {
+        l.sp = Math.max(2500, l.sp - 650); // soften: hold the center, absorb
+        l.aimDeg *= 0.5;
+      }
+      break;
+    case "stamina":
+      if (hot) l.sp = Math.max(2200, l.sp - 550); // outlast the storm
+      break;
+    case "aggressive":
+      if (ctx.lostLast) {
+        l.sp = Math.min(11000, l.sp + 400); // double down
+        l.aimDeg += l.aimDeg >= 0 ? 4 : -4; // steeper bank
+      }
+      break;
+    case "tricky":
+      if (ctx.lostLast) {
+        l.aimDeg = -l.aimDeg + (idx % 2 === 0 ? 5 : -5); // switch it up
+        l.sp += idx % 2 === 0 ? 420 : -420;
+        l.sp = Math.max(2000, Math.min(11000, l.sp));
+      }
+      break;
+    case "balanced":
+      l.sp = l.sp * 0.85 + 7800 * 0.15; // regress toward reliable form
+      break;
+  }
+  return l;
+}
+
 export { PartIndex };

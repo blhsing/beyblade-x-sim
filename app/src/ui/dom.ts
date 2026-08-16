@@ -86,6 +86,29 @@ export const UI_CSS = `
 .topbar { position: fixed; top: env(safe-area-inset-top, 0); left: 0; right: 0;
   display: flex; gap: 8px; padding: 8px 10px; z-index: 11; align-items: center; }
 .topbar .spacer { flex: 1; }
+.gstrip { display: flex; gap: 12px; overflow-x: auto; scroll-snap-type: x mandatory;
+  padding: 8px 22vw; width: 100vw; -webkit-overflow-scrolling: touch; }
+.gcard { flex: 0 0 56vw; max-width: 230px; scroll-snap-align: center;
+  background: #141b3a; border: 2px solid #2a356e; border-radius: 14px;
+  padding: 10px; text-align: center; }
+.gcard img { width: 100%; aspect-ratio: 1/1; border-radius: 8px; background: #0e1430; }
+.gcard.focus { border-color: #6b83ff; box-shadow: 0 0 18px #3f7bff66; }
+.gdetail { min-height: 150px; }
+.brwrap { width: min(94vw, 460px); overflow-x: auto; background: #0e1430;
+  border: 1px solid #2a356e; border-radius: 12px; }
+.brsvg text { fill: #e8ecff; font-size: 12px; font-family: inherit; }
+.brsvg text.win { fill: #7dffa8; font-weight: 700; }
+.brsvg rect.node { fill: #141b3a; stroke: #35408a; }
+.brsvg rect.winrect { stroke: #4dcf7a; }
+.brsvg rect.nextm { stroke: #ffd766; stroke-width: 2; cursor: pointer;
+  animation: brpulse 1.2s ease-in-out infinite; }
+.brsvg polyline { fill: none; stroke: #35408a; }
+@keyframes brpulse { 0%, 100% { stroke-opacity: 1; } 50% { stroke-opacity: .35; } }
+.rrgrid { display: grid; grid-template-columns: 1fr 3.2em 3.2em; gap: 4px;
+  font-size: 13px; width: min(92vw, 420px); }
+.rrgrid .cell { background: #141b3a; border: 1px solid #2a356e; border-radius: 6px;
+  padding: 5px 7px; text-align: center; }
+.rrgrid .hd { background: #1a2350; font-weight: 700; }
 .chev { animation: chevflow 1.05s ease-in infinite; opacity: 0; }
 .c2 { animation-delay: .16s; }
 .c3 { animation-delay: .32s; }

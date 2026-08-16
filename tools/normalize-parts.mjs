@@ -182,6 +182,14 @@ for (const [category, map] of Object.entries(groups)) {
         }
       }
 
+      // short zh-TW description: drop the "included in ..." first line
+      let desc = null;
+      const rawDesc = rep.description?.["zh-TW"];
+      if (rawDesc) {
+        const lines = String(rawDesc).split(/\\n|\n/).map((x) => x.trim()).filter(Boolean);
+        desc = (lines[1] ?? lines[0] ?? "").slice(0, 120) || null;
+      }
+
       const key = idx === 0 ? groupKey : `${groupKey}#${idx + 1}`;
       for (const r of sigRecs) idToEntry.set(r.id, { category, key });
 
@@ -205,6 +213,7 @@ for (const [category, map] of Object.entries(groups)) {
         weightG,
         diameterMm,
         color,
+        desc,
         line: lineOf(rep.tags),
         fixedBurst: rep.fixed_burst ?? false,
         releaseAt: firstRelease(sigRecs) === "9999" ? null : firstRelease(sigRecs),

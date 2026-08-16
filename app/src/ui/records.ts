@@ -4,6 +4,7 @@
 import { localMatches, localProfiles, pull } from "../game/persist";
 import { ZH } from "../i18n/zh";
 import { button, el, overlay } from "./dom";
+import { playReplay } from "./replay";
 import type { GameApp } from "./app";
 
 export function showRecords(app: GameApp): void {
@@ -31,10 +32,30 @@ export function showRecords(app: GameApp): void {
     for (const m of matches.slice(0, 20)) {
       const d = new Date(m.ts);
       const when = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
+      const actions = el("div", { class: "row" });
+      if (m.replay && m.replay.battles.length > 0) {
+        actions.append(
+          button(ZH.replay, () => void playReplay(app, m, () => showRecords(app)), "btn small"),
+        );
+      }
+      if (m.id) {
+        actions.append(
+          button(ZH.share, () => {
+            let base = window.location.pathname;
+            if (!base.endsWith("/")) base = base.slice(0, base.lastIndexOf("/") + 1);
+            const link = `${window.location.origin}${base}?replay=${encodeURIComponent(m.id!)}`;
+            void navigator.clipboard
+              ?.writeText(link)
+              .then(() => window.alert(`${ZH.linkCopied}\n${link}`))
+              .catch(() => window.prompt(ZH.share, link));
+          }, "btn small"),
+        );
+      }
       body.append(
-        el("div", { class: "card", style: "gap:2px" },
+        el("div", { class: "card", style: "gap:4px" },
           el("div", {}, `${m.players[0]?.name} ${m.scores[0]}：${m.scores[1]} ${m.players[1]?.name}`),
           el("div", { class: "label" }, `${when}｜${m.mode}｜${m.stadium}｜勝者：${m.winner}`),
+          actions,
         ),
       );
     }

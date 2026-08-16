@@ -3,6 +3,7 @@
 
 import { BOT_CHARACTERS, BOT_ROSTER, BOT_SKILLS, botBuildDeck, type BotCharacter, type BotProfile, type BotSkill } from "../game/bots";
 import { getPrefs, savePrefs } from "../game/persist";
+import { comboItems, openGallery } from "./gallery";
 import { RULE_PRESETS, type RuleSet } from "../game/rules";
 import { STADIUMS } from "../core/stadium";
 import type { LauncherKind } from "../core/types";
@@ -95,24 +96,41 @@ export function slotEditor(
   skillSel.addEventListener("change", () => (cfg.bot.skill = skillSel.value as BotSkill));
   charSel.addEventListener("change", () => (cfg.bot.character = charSel.value as BotCharacter));
 
-  const deckOpts = [{ value: "auto", label: `${ZH.deck}：自動` }, ...app.comboOptions()];
-  const deckSels: HTMLSelectElement[] = [];
+  // bey picker: swipeable 3D gallery instead of a dropdown
+  const deckVals: string[] = [];
   const deckWrap = el("div", { class: "row", style: "flex-direction:column; gap:6px" });
+  const labelFor = (v: string): string =>
+    v === "auto"
+      ? `${ZH.deck}：自動`
+      : (app.comboOptions().find((o) => o.value === v)?.label ?? v);
+  const syncDecks = (): void => {
+    const refs = deckVals.filter((v) => v !== "auto");
+    cfg.deckRefs = refs.length === deckVals.length ? refs : [];
+  };
   const rebuildDecks = (): void => {
     deckWrap.replaceChildren();
-    deckSels.length = 0;
+    deckVals.length = 0;
     const n = Math.max(1, app.rules.deckSize);
+    const fallback = cfg.kind === "bot" ? "auto" : (app.comboOptions()[0]?.value ?? "auto");
     for (let i = 0; i < n; i++) {
-      const s = select(deckOpts, cfg.deckRefs[i] ?? (cfg.kind === "bot" ? "auto" : deckOpts[1]?.value ?? "auto"));
-      s.addEventListener("change", () => syncDecks());
-      deckSels.push(s);
-      deckWrap.append(s);
+      deckVals.push(cfg.deckRefs[i] ?? fallback);
+      const idx = i;
+      const b = button(labelFor(deckVals[idx]!), () => {
+        openGallery(
+          ZH.deck,
+          comboItems(app, cfg.kind === "bot"),
+          deckVals[idx]!,
+          (key) => {
+            deckVals[idx] = key;
+            b.textContent = labelFor(key);
+            syncDecks();
+          },
+          () => {},
+        );
+      }, "btn small");
+      deckWrap.append(b);
     }
     syncDecks();
-  };
-  const syncDecks = (): void => {
-    const refs = deckSels.map((s) => s.value).filter((v) => v !== "auto");
-    cfg.deckRefs = refs.length === deckSels.length ? refs : [];
   };
 
   const launcherSel = select(
