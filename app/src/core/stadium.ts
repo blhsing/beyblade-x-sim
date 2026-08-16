@@ -23,6 +23,14 @@ export interface RailArc {
   end: number;
 }
 
+/** A concave section of the Xtreme Line: the rail bows toward the bowl
+ * center around `center`, over ±`halfWidth` radians, by `depth`×rRail. */
+export interface RailDip {
+  center: number;
+  halfWidth: number;
+  depth: number;
+}
+
 export interface StadiumSpec {
   name: string;
   labelZh: string;
@@ -31,9 +39,13 @@ export interface StadiumSpec {
   rWall: number; // wall radius (m)
   rimRise: number; // z rise from ridge to wall (m)
   rimBaseSlope: number; // constant extra slope on the rim band
-  rRail: number; // xtreme line radius (m)
+  rRail: number; // xtreme line base radius (m)
   railHalfWidth: number; // radial capture band of the gear rack (m)
   railArcs: RailArc[];
+  /** oval rails (BX-32): x/y scale of the base circle */
+  railEllipse?: { a: number; b: number };
+  /** concave sections matching the real molded line */
+  railDips?: RailDip[];
   railColor: number; // render hint
   pockets: PocketSpec[];
   wallRestitution: number;
@@ -57,7 +69,10 @@ export const STADIUM_BX10: StadiumSpec = {
   railHalfWidth: 0.011,
   // the gear ring circles the whole bowl; dashes release toward the exits
   railArcs: [{ start: -PI, end: PI }],
-  railColor: 0x5a70d6,
+  // one pronounced concave curve opposite the Xtreme Zone (per the real
+  // BX-10 molding): riding through it slings beys across toward the exits
+  railDips: [{ center: 1.5708, halfWidth: 0.55, depth: 0.2 }],
+  railColor: 0x35b24a,
   pockets: [
     { angleCenter: -1.5707963, halfWidth: 0.42, kind: "xtreme" },
     { angleCenter: -2.53, halfWidth: 0.24, kind: "over" },
@@ -80,14 +95,19 @@ export const STADIUM_BX32: StadiumSpec = {
   rWall: 0.185,
   rimRise: 0.022,
   rimBaseSlope: 0.09,
-  rRail: 0.156,
+  rRail: 0.15,
   railHalfWidth: 0.012,
-  // two indigo X-lines sweeping into the corner Xtreme Zones
-  railArcs: [
-    { start: -3.05, end: -1.75 },
-    { start: -1.39, end: -0.09 },
+  // one continuous indigo loop following the wide oval bowl…
+  railArcs: [{ start: -PI, end: PI }],
+  railEllipse: { a: 1.15, b: 0.92 },
+  // …with a strong concave curve at front-center (between the two corner
+  // Xtreme Zones — it slings beys along the front wall into them) and a
+  // subtler one at the back (per the real BX-32 molding)
+  railDips: [
+    { center: -1.5708, halfWidth: 0.6, depth: 0.2 },
+    { center: 1.5708, halfWidth: 0.5, depth: 0.12 },
   ],
-  railColor: 0x6b52c9,
+  railColor: 0x5246c9,
   pockets: [
     { angleCenter: -2.53, halfWidth: 0.3, kind: "xtreme" },
     { angleCenter: -0.61, halfWidth: 0.3, kind: "xtreme" },
@@ -148,6 +168,45 @@ export function surfaceSlope(s: StadiumSpec, r: number): number {
   if (r <= s.rDish) return (2 * s.dishDepth * r) / (s.rDish * s.rDish);
   const t = (r - s.rDish) / (s.rWall - s.rDish);
   return (2 * s.rimRise * t) / (s.rWall - s.rDish) + s.rimBaseSlope;
+}
+
+// ---- rail curve (deterministic — used by the sim) -------------------------
+
+import { dcos, dsin } from "./fxmath";
+
+/** Radial distance of the Xtreme Line at polar angle θ. */
+export function railRadiusAt(s: StadiumSpec, theta: number): number {
+  let r = s.rRail;
+  const e = s.railEllipse;
+  if (e) {
+    const cx = e.b * dcos(theta);
+    const cy = e.a * dsin(theta);
+    r = (s.rRail * e.a * e.b) / Math.sqrt(cx * cx + cy * cy);
+  }
+  for (const d of s.railDips ?? []) {
+    const u = wrapAngle(theta - d.center) / d.halfWidth;
+    if (u > -1 && u < 1) {
+      r -= s.rRail * d.depth * 0.5 * (1 + dcos(PI * u));
+    }
+  }
+  return r;
+}
+
+/** Point on the rail curve. */
+export function railPointAt(s: StadiumSpec, theta: number): { x: number; y: number } {
+  const r = railRadiusAt(s, theta);
+  return { x: r * dcos(theta), y: r * dsin(theta) };
+}
+
+/** Unit tangent of the rail curve (central difference — deterministic). */
+export function railTangentAt(s: StadiumSpec, theta: number): { x: number; y: number } {
+  const h = 0.001;
+  const p0 = railPointAt(s, theta - h);
+  const p1 = railPointAt(s, theta + h);
+  const dx = p1.x - p0.x;
+  const dy = p1.y - p0.y;
+  const len = Math.sqrt(dx * dx + dy * dy);
+  return len > 1e-12 ? { x: dx / len, y: dy / len } : { x: 1, y: 0 };
 }
 
 export function inArc(arc: RailArc, angle: number): boolean {

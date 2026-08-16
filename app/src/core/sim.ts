@@ -5,7 +5,7 @@
 
 import { clamp, datan2, dsin, dcos, hashFloats, rngNext, PI } from "./fxmath";
 import type { StadiumSpec } from "./stadium";
-import { inArc, pocketAt, surfaceSlope } from "./stadium";
+import { inArc, pocketAt, railRadiusAt, railTangentAt, surfaceSlope } from "./stadium";
 import type {
   BeyParams,
   BeyState,
@@ -185,20 +185,23 @@ function stepBey(
   if (absOmega > decay) b.omega -= Math.sign(b.omega) * decay;
   else b.omega = 0;
 
-  // Xtreme Line (gear rack) engagement
+  // Xtreme Line (gear rack) engagement — the rack follows the real molded
+  // curve (railRadiusAt: oval base + concave dips), so riding through a
+  // concave section naturally slings the bey across the stadium.
   if (b.railTicks < 0) b.railTicks++; // cooldown
   if (
     xtremeDash &&
     s.railArcs.length > 0 &&
     b.railTicks === 0 &&
-    Math.abs(r - s.rRail) < s.railHalfWidth &&
+    Math.abs(r - railRadiusAt(s, angle)) < s.railHalfWidth &&
     speed > T.railMinSpeed &&
     absOmega > OMEGA_STOP * 2
   ) {
     for (const arc of s.railArcs) {
       if (inArc(arc, angle)) {
         b.railTicks = T.railTicks;
-        const vt = b.vx * tang.x + b.vy * tang.y;
+        const ct = railTangentAt(s, angle);
+        const vt = b.vx * ct.x + b.vy * ct.y;
         b.railDir = vt >= 0 ? 1 : -1;
         pushEvent(w, "dashStart", i, speed);
         break;
@@ -206,22 +209,24 @@ function stepBey(
     }
   }
   if (b.railTicks > 0) {
+    const railR = railRadiusAt(s, angle);
     const inBand =
-      Math.abs(r - s.rRail) < s.railHalfWidth * 2 &&
+      Math.abs(r - railR) < s.railHalfWidth * 2.5 &&
       s.railArcs.some((a) => inArc(a, angle));
     if (!inBand) {
-      // flung off the end of the rack — dart across the stadium
+      // flung off the rack — dart across the stadium
       b.railTicks = -T.railCooldownTicks;
       b.vx += -ur.x * T.railFlingRadial * p.dashFactor;
       b.vy += -ur.y * T.railFlingRadial * p.dashFactor;
       pushEvent(w, "dashEnd", i, Math.sqrt(b.vx * b.vx + b.vy * b.vy));
     } else {
       b.railTicks--;
+      const ct = railTangentAt(s, angle);
       const a = T.railAccel * p.dashFactor;
-      b.vx += tang.x * b.railDir * p.spinDir * a * DT;
-      b.vy += tang.y * b.railDir * p.spinDir * a * DT;
-      // radial spring keeps the gear meshed with the rack
-      const dr = r - s.rRail;
+      b.vx += ct.x * b.railDir * a * DT;
+      b.vy += ct.y * b.railDir * a * DT;
+      // radial spring keeps the gear meshed with the curved rack
+      const dr = r - railR;
       b.vx += -ur.x * dr * T.railSpring * DT;
       b.vy += -ur.y * dr * T.railSpring * DT;
       if (b.railTicks === 0) b.railTicks = -T.railCooldownTicks;

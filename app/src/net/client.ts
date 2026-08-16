@@ -35,7 +35,7 @@ export function defaultRelayWsBase(): string {
   // keep the path base (e.g. /beyblade/ on the Azure tier vapp)
   let base = loc.pathname;
   if (!base.endsWith("/")) base = base.slice(0, base.lastIndexOf("/") + 1);
-  if (loc.port === "5173") return `ws://${loc.hostname}:8080/game`; // vite dev → local relay
+  if (loc.port === "5173") return `ws://${loc.host}/game`; // vite proxies to the local relay
   return `${proto}//${loc.host}${base}game`.replace(/\/game$/, "/game");
 }
 

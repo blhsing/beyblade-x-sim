@@ -175,6 +175,10 @@ export interface Prefs {
   pointsToWin: number;
   stadium: string;
   musicOn: boolean;
+  /** last quick-match setup (both slots), restored on reopen */
+  quickSlots?: unknown[];
+  /** last tournament setup (count, format, slots), restored on reopen */
+  tourSetup?: { count: number; format: string; slots: unknown[] };
   updatedAt: number;
 }
 

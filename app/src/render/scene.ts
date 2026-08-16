@@ -6,7 +6,7 @@
 import * as THREE from "three";
 import { RoomEnvironment } from "three/addons/environments/RoomEnvironment.js";
 
-import { surfaceZ, type StadiumSpec } from "../core/stadium";
+import { railPointAt, railTangentAt, surfaceZ, type StadiumSpec } from "../core/stadium";
 import { wrapAngle } from "../core/fxmath";
 import type { BeyParams, WorldState } from "../core/types";
 import type { ResolvedCombo } from "../core/derive";
@@ -449,43 +449,55 @@ export class BattleView {
     ridge.position.z = surfaceZ(s, s.rDish);
     this.stadiumGroup.add(ridge);
 
-    // Xtreme Line gear rack: instanced teeth along each arc
+    // Xtreme Line gear rack: teeth walked along the real curved path
+    // (oval base + concave dips) at constant arc-length pitch, oriented to
+    // the local tangent, plus a base strip so the line reads like molding.
     if (s.railArcs.length > 0) {
-      const toothPitch = 0.0056; // m along circumference
-      let total = 0;
-      const arcs = s.railArcs.map((a) => {
+      const toothPitch = 0.0056;
+      const placements: { p: { x: number; y: number }; rot: number }[] = [];
+      const stripPts: THREE.Vector3[] = [];
+      for (const a of s.railArcs) {
         const span = a.end > a.start ? a.end - a.start : a.end + Math.PI * 2 - a.start;
-        const count = Math.max(4, Math.floor((span * s.rRail) / toothPitch));
-        total += count;
-        return { ...a, span, count };
-      });
-      const toothGeo = new THREE.BoxGeometry(0.006, 0.0032, 0.0026);
+        const steps = Math.max(64, Math.ceil(span / 0.01));
+        let acc = toothPitch; // place the first tooth immediately
+        let prev = railPointAt(s, a.start);
+        for (let i = 0; i <= steps; i++) {
+          const th = a.start + (span * i) / steps;
+          const pt = railPointAt(s, th);
+          stripPts.push(new THREE.Vector3(pt.x, pt.y, surfaceZ(s, Math.hypot(pt.x, pt.y)) + 0.0011));
+          acc += Math.hypot(pt.x - prev.x, pt.y - prev.y);
+          if (acc >= toothPitch) {
+            acc = 0;
+            const t = railTangentAt(s, th);
+            placements.push({ p: pt, rot: Math.atan2(t.y, t.x) });
+          }
+          prev = pt;
+        }
+      }
+      const toothGeo = new THREE.BoxGeometry(0.0032, 0.006, 0.0026); // tangential × radial
       const toothMat = new THREE.MeshStandardMaterial({
         color: s.railColor,
         roughness: 0.45,
         metalness: 0.15,
       });
-      const inst = new THREE.InstancedMesh(toothGeo, toothMat, total);
+      const inst = new THREE.InstancedMesh(toothGeo, toothMat, placements.length);
       const m4 = new THREE.Matrix4();
       const q = new THREE.Quaternion();
-      let idx = 0;
-      for (const a of arcs) {
-        for (let i = 0; i < a.count; i++) {
-          const th = a.start + (a.span * (i + 0.5)) / a.count;
-          q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), th);
-          m4.compose(
-            new THREE.Vector3(
-              Math.cos(th) * s.rRail,
-              Math.sin(th) * s.rRail,
-              surfaceZ(s, s.rRail) + 0.0013,
-            ),
-            q,
-            new THREE.Vector3(1, 1, 1),
-          );
-          inst.setMatrixAt(idx++, m4);
-        }
-      }
+      placements.forEach((pl, idx) => {
+        q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), pl.rot);
+        m4.compose(
+          new THREE.Vector3(pl.p.x, pl.p.y, surfaceZ(s, Math.hypot(pl.p.x, pl.p.y)) + 0.0014),
+          q,
+          new THREE.Vector3(1, 1, 1),
+        );
+        inst.setMatrixAt(idx, m4);
+      });
       this.stadiumGroup.add(inst);
+      const strip = new THREE.Line(
+        new THREE.BufferGeometry().setFromPoints(stripPts),
+        new THREE.LineBasicMaterial({ color: s.railColor }),
+      );
+      this.stadiumGroup.add(strip);
     }
 
     // walls between pockets + pocket recesses

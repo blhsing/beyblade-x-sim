@@ -13,7 +13,14 @@ async function boot(): Promise<void> {
   if (!res.ok) throw new Error(`parts.json HTTP ${res.status}`);
   const db = (await res.json()) as PartsDb;
   const root = document.getElementById("app")!;
-  const app = new GameApp(db, root);
+  let app: GameApp;
+  try {
+    app = new GameApp(db, root);
+  } catch (err) {
+    throw new Error(
+      `此裝置或瀏覽器無法建立 WebGL 3D 環境（請確認未停用硬體加速）。${String(err)}`,
+    );
+  }
   app.showMenu();
 }
 

@@ -177,11 +177,34 @@ export function rulesPicker(app: GameApp): HTMLElement {
   return el("div", { style: "display:flex; flex-direction:column; gap:8px" }, row(presetSel, ptsSel), row(stadiumSel));
 }
 
+/** Rehydrate a saved slot config, dropping combo refs that no longer resolve. */
+function restoreSlot(app: GameApp, saved: unknown, i: number): SlotConfig {
+  const base = defaultSlot(i);
+  if (!saved || typeof saved !== "object") return base;
+  const sv = saved as Partial<SlotConfig>;
+  const s: SlotConfig = {
+    ...base,
+    ...sv,
+    bot: { ...base.bot, ...(sv.bot ?? {}) },
+    deckRefs: [...(sv.deckRefs ?? [])],
+  };
+  s.deckRefs = s.deckRefs.filter((ref) => {
+    try {
+      app.resolveComboRef(ref);
+      return true;
+    } catch {
+      return false;
+    }
+  });
+  return s;
+}
+
 export function showQuickSetup(app: GameApp): void {
   const o = overlay();
   const panel = el("div", { class: "panel" });
-  const a = defaultSlot(0);
-  const b = defaultSlot(1);
+  const savedQuick = getPrefs().quickSlots;
+  const a = restoreSlot(app, savedQuick?.[0], 0);
+  const b = restoreSlot(app, savedQuick?.[1], 1);
   panel.append(
     el("div", { class: "title", style: "font-size:22px" }, ZH.menu.quick),
     rulesPicker(app),
@@ -189,7 +212,10 @@ export function showQuickSetup(app: GameApp): void {
     slotEditor(app, b, fmt(ZH.playerN, { n: 2 }), () => showQuickSetup(app)),
     button(ZH.start, () => {
       app.enableGyroByDefault(); // inside the click gesture for iOS permission
-      if (a.kind === "human") savePrefs({ name: a.name, launcher: a.launcher });
+      savePrefs({
+        ...(a.kind === "human" ? { name: a.name, launcher: a.launcher } : {}),
+        quickSlots: [a, b], // whole setup persists to the next match
+      });
       void runMatch(app, [a, b], () => app.showMenu(), {}, "快速對戰");
     }, "btn primary"),
     button(ZH.back, () => app.showMenu()),
@@ -203,22 +229,26 @@ export function showTournamentSetup(app: GameApp): void {
   const panel = el("div", { class: "panel" });
   panel.append(el("div", { class: "title", style: "font-size:22px" }, ZH.menu.tournament));
 
+  const savedTour = getPrefs().tourSetup;
   const countSel = select(
     [2, 3, 4, 6, 8, 12, 16].map((n) => ({ value: String(n), label: `${n} 人` })),
-    "4",
+    String(savedTour?.count ?? 4),
   );
   const fmtSel = select(
     [
       { value: "singleElim", label: ZH.singleElim },
       { value: "roundRobin", label: ZH.roundRobin },
     ],
-    "singleElim",
+    savedTour?.format === "roundRobin" ? "roundRobin" : "singleElim",
   );
   const slotsWrap = el("div", { style: "display:flex; flex-direction:column; gap:8px; width:100%" });
   let slots: SlotConfig[] = [];
   const rebuild = (): void => {
     const n = Number(countSel.value);
-    slots = Array.from({ length: n }, (_, i) => slots[i] ?? defaultSlot(i));
+    slots = Array.from(
+      { length: n },
+      (_, i) => slots[i] ?? restoreSlot(app, savedTour?.slots?.[i], i),
+    );
     slots.length = n;
     slotsWrap.replaceChildren(
       ...slots.map((s, i) =>
@@ -234,6 +264,9 @@ export function showTournamentSetup(app: GameApp): void {
     row(countSel, fmtSel),
     slotsWrap,
     button(ZH.start, () => {
+      savePrefs({
+        tourSetup: { count: slots.length, format: fmtSel.value, slots }, // persists to next time
+      });
       const tSlots: TournamentSlot[] = slots.map((s, i) => ({
         name: slotDisplayName(s),
         kind: s.kind,
