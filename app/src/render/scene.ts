@@ -732,10 +732,17 @@ export class BattleView {
       floor.receiveShadow = true;
       this.stadiumGroup.add(floor);
 
-      // back stop
+      // Back stop — a LIP on the catch tray, not a wall.
+      //
+      // This is what was hiding beys: at 48 mm it stood well above the rim,
+      // and the front pocket sits between the camera and the bowl, so from
+      // any low angle it simply covered the near half of the floor. Measured
+      // with a per-mesh occlusion probe: hiding this one mesh restored the
+      // bey. It only has to stop a bey rolling out, so it stays below the
+      // rim where it can never block the view in.
       const back = new THREE.Mesh(
         new THREE.ExtrudeGeometry(ringSegmentShape(rOut, rOut + 0.006, a0, a1), {
-          depth: rimZ + 0.02 - floorZ,
+          depth: rimZ - 0.006 - floorZ,
           bevelEnabled: false,
           curveSegments: 48,
         }),
@@ -748,7 +755,8 @@ export class BattleView {
       for (const a of [a0, a1]) {
         const cheek = new THREE.Mesh(
           new THREE.ExtrudeGeometry(ringSegmentShape(s.rWall - 0.004, rOut, a - 0.02, a + 0.02), {
-            depth: rimZ + 0.014 - floorZ,
+            // same rule as the back stop: never above the rim
+            depth: rimZ - 0.006 - floorZ,
             bevelEnabled: false,
             curveSegments: 16,
           }),

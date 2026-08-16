@@ -67,27 +67,27 @@ const SCORES: Record<ScoreName, Score> = {
   },
   // fast, syncopated, minor — an attack type is on the dish
   battleAttack: {
-    bar: 1.85, chords: [[110.0, 164.81, 220.0], [116.54, 174.61, 233.08], [98.0, 146.83, 196.0], [103.83, 155.56, 207.65]],
-    padWave: "sawtooth", padGain: 0.07, lp: [500, 2100], arps: 8, arpWave: "square",
-    arpGain: 0.055, arpOct: [2, 4], bass: 0.1, beat: 1, delay: 0.19, feedback: 0.28, level: 0.19,
+    bar: 1.7, chords: [[110.0, 164.81, 220.0], [116.54, 174.61, 233.08], [98.0, 146.83, 196.0], [103.83, 155.56, 207.65]],
+    padWave: "sawtooth", padGain: 0.075, lp: [520, 2400], arps: 16, arpWave: "square",
+    arpGain: 0.07, arpOct: [2, 4], bass: 0.16, beat: 1.15, delay: 0.17, feedback: 0.26, level: 0.21,
   },
   // heavy, low and deliberate — defense grinding it out
   battleDefense: {
-    bar: 3.2, chords: [[65.41, 98.0, 130.81], [73.42, 110.0, 146.83], [61.74, 92.5, 123.47], [69.3, 103.83, 138.59]],
-    padWave: "sawtooth", padGain: 0.115, lp: [220, 900], arps: 3, arpWave: "triangle",
-    arpGain: 0.06, arpOct: [2], bass: 0.13, beat: 0.55, delay: 0.36, feedback: 0.33, level: 0.19,
+    bar: 2.6, chords: [[65.41, 98.0, 130.81], [73.42, 110.0, 146.83], [61.74, 92.5, 123.47], [69.3, 103.83, 138.59]],
+    padWave: "sawtooth", padGain: 0.115, lp: [230, 1100], arps: 8, arpWave: "triangle",
+    arpGain: 0.07, arpOct: [2], bass: 0.2, beat: 0.95, delay: 0.3, feedback: 0.3, level: 0.21,
   },
   // hypnotic cycling — a stamina war that will go the distance
   battleStamina: {
-    bar: 2.8, chords: [[98.0, 146.83, 220.0], [110.0, 164.81, 246.94], [87.31, 130.81, 196.0], [98.0, 155.56, 233.08]],
-    padWave: "triangle", padGain: 0.085, lp: [380, 1400], arps: 10, arpWave: "sine",
-    arpGain: 0.07, arpOct: [4, 8], bass: 0.05, beat: 0.35, delay: 0.45, feedback: 0.42, level: 0.17,
+    bar: 2.4, chords: [[98.0, 146.83, 220.0], [110.0, 164.81, 246.94], [87.31, 130.81, 196.0], [98.0, 155.56, 233.08]],
+    padWave: "triangle", padGain: 0.085, lp: [400, 1700], arps: 16, arpWave: "sine",
+    arpGain: 0.075, arpOct: [4, 8], bass: 0.12, beat: 0.8, delay: 0.4, feedback: 0.4, level: 0.19,
   },
   // bright and anthemic — balance types, and the default field
   battleBalance: {
-    bar: 2.4, chords: [[130.81, 196.0, 261.63], [110.0, 164.81, 220.0], [146.83, 220.0, 293.66], [123.47, 185.0, 246.94]],
-    padWave: "sawtooth", padGain: 0.08, lp: [460, 1800], arps: 6, arpWave: "triangle",
-    arpGain: 0.07, arpOct: [2, 4], bass: 0.08, beat: 0.7, delay: 0.26, feedback: 0.3, level: 0.18,
+    bar: 2.1, chords: [[130.81, 196.0, 261.63], [110.0, 164.81, 220.0], [146.83, 220.0, 293.66], [123.47, 185.0, 246.94]],
+    padWave: "sawtooth", padGain: 0.08, lp: [480, 2100], arps: 12, arpWave: "triangle",
+    arpGain: 0.08, arpOct: [2, 4], bass: 0.15, beat: 1.05, delay: 0.24, feedback: 0.28, level: 0.21,
   },
   // grander, march-like — bracket play
   tournament: {
@@ -487,24 +487,45 @@ export class Sfx {
         }
       }
 
-      // beat: noise kick + hats, density from the score
+      // Beat: a real 16-step pattern, not an alternating tick. Kick on the
+      // downbeats, snare on the backbeat, hats on the offbeats — that
+      // backbeat is what makes a battle feel driven rather than ambient.
       if (sc.beat > 0 && this.noiseBuf) {
-        const hits = Math.round(4 * sc.beat) + 2;
-        for (let i = 0; i < hits; i++) {
-          const t = t0 + (i * BAR) / hits;
-          const kick = i % 2 === 0;
+        const STEPS = 16;
+        const KICK = [0, 3, 6, 8, 11, 14];
+        const SNARE = [4, 12];
+        for (let i = 0; i < STEPS; i++) {
+          const t = t0 + (i * BAR) / STEPS;
+          const isKick = KICK.includes(i);
+          const isSnare = SNARE.includes(i);
+          const isHat = i % 2 === 1;
+          if (!isKick && !isSnare && !isHat) continue;
+          // sub-bass thump for the kick, so it lands in the chest
+          if (isKick) {
+            const o = ctx.createOscillator();
+            o.type = "sine";
+            o.frequency.setValueAtTime(150, t);
+            o.frequency.exponentialRampToValueAtTime(46, t + 0.11);
+            const kg = ctx.createGain();
+            kg.gain.setValueAtTime(0.34 * sc.beat, t);
+            kg.gain.exponentialRampToValueAtTime(0.0001, t + 0.19);
+            o.connect(kg).connect(out);
+            o.start(t);
+            o.stop(t + 0.22);
+          }
           const src = ctx.createBufferSource();
           src.buffer = this.noiseBuf;
           const bp = ctx.createBiquadFilter();
-          bp.type = kick ? "lowpass" : "highpass";
-          bp.frequency.value = kick ? 150 : 6500;
+          bp.type = isSnare ? "bandpass" : isKick ? "lowpass" : "highpass";
+          bp.frequency.value = isSnare ? 1900 : isKick ? 140 : 8200;
+          if (isSnare) bp.Q.value = 0.8;
           const g = ctx.createGain();
-          const amp = (kick ? 0.16 : 0.035) * sc.beat;
+          const amp = (isSnare ? 0.2 : isKick ? 0.1 : 0.05) * sc.beat;
           g.gain.setValueAtTime(amp, t);
-          g.gain.exponentialRampToValueAtTime(0.0001, t + (kick ? 0.16 : 0.05));
+          g.gain.exponentialRampToValueAtTime(0.0001, t + (isSnare ? 0.13 : isKick ? 0.08 : 0.035));
           src.connect(bp).connect(g).connect(out);
           src.start(t);
-          src.stop(t + 0.2);
+          src.stop(t + 0.24);
         }
       }
 
