@@ -4,6 +4,8 @@
 // against either URL converge. Fully offline-tolerant: failed pushes queue
 // and retry on next boot.
 
+import { getToken } from "./auth";
+
 export interface MatchRecord {
   ts: number;
   mode: string;
@@ -61,9 +63,12 @@ interface Pending {
 
 async function tryPut(p: Pending): Promise<boolean> {
   try {
+    const headers: Record<string, string> = { "Content-Type": "application/json" };
+    const tok = getToken();
+    if (tok) headers.Authorization = `Bearer ${tok}`;
     const res = await fetch(`${apiBase()}/${p.col}/${p.id}`, {
       method: "PUT",
-      headers: { "Content-Type": "application/json" },
+      headers,
       body: JSON.stringify({ updatedAt: p.updatedAt, data: p.data }),
     });
     return res.ok;

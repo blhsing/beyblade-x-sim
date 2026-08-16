@@ -36,13 +36,20 @@ const T = {
   lowSpinDrag: 1.6,
   spinDecayBase: 130,
   spinDecaySpeed: 26,
-  // rail
-  railMinSpeed: 0.25,
-  railTicks: 36,
-  railAccel: 7,
+  // rail — a real rack-and-pinion: the bit's bottom gear (r≈4 mm) meshes
+  // with the rack and drives the bey toward synchronous speed v = ω·r_gear
+  railMinSpeed: 0.2,
+  railTicks: 60,
+  gearRadius: 0.004,
+  railMeshAccel: 26, // m/s² toward synchronous speed while meshed
+  railMaxSpeed: 2.6,
   railSpring: 60,
   railCooldownTicks: 96,
   railFlingRadial: 0.4,
+  railTripSpeed: 0.55, // radial slam speed that trips instead of meshing
+  tripSpinKeep: 0.82,
+  tripClicks: 0.7,
+  gearEventEvery: 10,
   // collisions (rim slip ≈ 16 m/s at full spin → smash impulse ~0.01–0.02
   // kg·m/s → Δv ~0.3–0.5 m/s and spin loss ~15–40 rad/s per solid hit)
   restitution: 0.25,
@@ -142,6 +149,7 @@ function stepBey(
   p: BeyParams,
   i: 0 | 1,
   xtremeDash: boolean,
+  clicksMax: number,
 ): void {
   const r = Math.sqrt(b.x * b.x + b.y * b.y);
   const ur = r > 1e-9 ? { x: b.x / r, y: b.y / r } : { x: 1, y: 0 };
@@ -198,14 +206,28 @@ function stepBey(
     absOmega > OMEGA_STOP * 2
   ) {
     for (const arc of s.railArcs) {
-      if (inArc(arc, angle)) {
+      if (!inArc(arc, angle)) continue;
+      const vr = b.vx * ur.x + b.vy * ur.y; // outward radial speed
+      if (vr > T.railTripSpeed) {
+        // slammed into the rack: teeth clash instead of meshing — the bey
+        // is tripped: bounced off, destabilized, and takes a burst click
+        b.railTicks = -T.railCooldownTicks;
+        b.vx -= ur.x * vr * 1.6;
+        b.vy -= ur.y * vr * 1.6;
+        const jolt = (rand(w) - 0.5) * 0.5;
+        b.vx += -ur.y * jolt;
+        b.vy += ur.x * jolt;
+        b.omega *= T.tripSpinKeep;
+        applyBurst(w, b, p, i, (T.tripClicks * 120) / p.burstRes, clicksMax);
+        pushEvent(w, "trip", i, vr);
+      } else {
         b.railTicks = T.railTicks;
         const ct = railTangentAt(s, angle);
         const vt = b.vx * ct.x + b.vy * ct.y;
         b.railDir = vt >= 0 ? 1 : -1;
         pushEvent(w, "dashStart", i, speed);
-        break;
       }
+      break;
     }
   }
   if (b.railTicks > 0) {
@@ -222,13 +244,21 @@ function stepBey(
     } else {
       b.railTicks--;
       const ct = railTangentAt(s, angle);
-      const a = T.railAccel * p.dashFactor;
-      b.vx += ct.x * b.railDir * a * DT;
-      b.vy += ct.y * b.railDir * a * DT;
+      // rack-and-pinion drive: accelerate toward synchronous speed
+      // (spin → travel), efficiency scaled by the bit's dash stat
+      const meshEff = 0.45 + 0.55 * Math.min(1, p.dashFactor / 1.6);
+      const vSync = Math.min(T.railMaxSpeed, absOmega * T.gearRadius) * meshEff;
+      const vAlong = (b.vx * ct.x + b.vy * ct.y) * b.railDir;
+      const dv = Math.min(Math.max(0, vSync - vAlong), T.railMeshAccel * DT);
+      b.vx += ct.x * b.railDir * dv;
+      b.vy += ct.y * b.railDir * dv;
+      // driving the rack costs spin (energy conservation, loosely)
+      b.omega -= Math.sign(b.omega) * dv * 6;
       // radial spring keeps the gear meshed with the curved rack
       const dr = r - railR;
       b.vx += -ur.x * dr * T.railSpring * DT;
       b.vy += -ur.y * dr * T.railSpring * DT;
+      if (b.railTicks % T.gearEventEvery === 0) pushEvent(w, "gear", i, vAlong);
       if (b.railTicks === 0) b.railTicks = -T.railCooldownTicks;
     }
   }
@@ -253,9 +283,23 @@ function stepBey(
       return;
     }
     if (!pocket && vr > T.overTopSpeed) {
-      b.exited = "top";
-      b.alive = false;
-      pushEvent(w, "exit", i, vr);
+      // flying over the wall: the transparent casing knocks it back in,
+      // unless it finds one of the loose gaps — then it falls out (over
+      // finish for the opponent)
+      const inGap = s.coverGaps.some((g) => inArc(g, angleNow));
+      if (inGap) {
+        b.exited = "top";
+        b.alive = false;
+        pushEvent(w, "exit", i, vr);
+        return;
+      }
+      b.vx -= (1 + 0.35) * vr * u.x;
+      b.vy -= (1 + 0.35) * vr * u.y;
+      b.omega *= 0.96;
+      pushEvent(w, "coverHit", i, vr);
+      const over2 = r2 - wallR;
+      b.x -= u.x * over2;
+      b.y -= u.y * over2;
       return;
     }
     if (vr > 0) {
@@ -407,10 +451,8 @@ function resolveFinish(w: WorldState, cfg: WorldConfig): void {
   const loser = t1 ? 0 : 1;
   const lb = loser === 0 ? b1 : b2;
   const kind = t1 ?? t2;
-  if (lb.exited === "top") {
-    w.draw = true; // flew out over the top: no count, replay round
-    return;
-  }
+  // "top" = escaped through a casing gap and fell out of the stadium —
+  // scored as an over finish (own-finish rule applies as usual)
   w.finish = {
     type:
       kind === "burst"
@@ -431,8 +473,8 @@ export function step(w: WorldState, cfg: WorldConfig, s: StadiumSpec): void {
   if (w.finish || w.draw) return;
   w.tick++;
   const [b1, b2] = w.beys;
-  if (b1.alive) stepBey(w, s, b1, cfg.beys[0], 0, cfg.xtremeDashEnabled);
-  if (b2.alive) stepBey(w, s, b2, cfg.beys[1], 1, cfg.xtremeDashEnabled);
+  if (b1.alive) stepBey(w, s, b1, cfg.beys[0], 0, cfg.xtremeDashEnabled, cfg.clicksMax);
+  if (b2.alive) stepBey(w, s, b2, cfg.beys[1], 1, cfg.xtremeDashEnabled, cfg.clicksMax);
   collide(w, cfg);
   resolveFinish(w, cfg);
 }

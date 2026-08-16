@@ -71,9 +71,9 @@ export const UI_CSS = `
   font-weight: 800; }
 .banner-big { font-size: 34px; font-weight: 900; letter-spacing: 2px;
   text-align: center; text-shadow: 0 2px 12px #000; }
-.launchzone { position: fixed; left: 0; right: 0; bottom: 0; height: 58vh;
-  touch-action: none; z-index: 12; display: flex; flex-direction: column;
-  align-items: center; justify-content: flex-end; padding-bottom: 8vh; }
+.launchzone { position: fixed; inset: 0; touch-action: none; z-index: 12;
+  display: flex; flex-direction: column; align-items: center;
+  justify-content: flex-start; padding-top: 14vh; }
 .spmeter { position: fixed; left: 8vw; right: 8vw; bottom: 4vh; height: 14px;
   border: 1px solid #4b5bd7; border-radius: 7px; overflow: hidden; z-index: 12; }
 .spfill { height: 100%; width: 0%; background: linear-gradient(90deg,#3f7bff,#ff5b4d);

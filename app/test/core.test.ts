@@ -122,7 +122,7 @@ describe("battle outcomes", () => {
   it("glass-cannon matchup ends in a burst", () => {
     const smasher = baseParams({ attackFactor: 9, fixedBurst: true, grip: 0.9 });
     const victim = baseParams({ burstRes: 6, defenseFactor: 1 });
-    const noExit: StadiumSpec = { ...STADIUM_BX10, exitSpeed: 99, pockets: [] };
+    const noExit: StadiumSpec = { ...STADIUM_BX10, exitSpeed: 99, pockets: [], coverGaps: [] };
     const w = simulateBattle(cfg(smasher, victim, 3), noExit);
     expect(w.finish?.type).toBe("burst");
     expect(w.finish?.winner).toBe(0);

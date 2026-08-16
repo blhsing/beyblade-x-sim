@@ -126,25 +126,55 @@ func (s *Store) Changes(sinceMs int64) []Doc {
 
 // ---- HTTP API under /game/db/ --------------------------------------------
 
+// peerKeyOK: the other tier authenticates with the shared BEYBLADE_PEER_KEY.
+func peerKeyOK(req *http.Request) bool {
+	k := os.Getenv("BEYBLADE_PEER_KEY")
+	return k != "" && req.Header.Get("X-Beyblade-Peer-Key") == k
+}
+
+func isPrivateCol(col string) bool { return strings.HasPrefix(col, "_") }
+
 func (s *Store) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	rest := strings.TrimPrefix(req.URL.Path, "/game/db/")
 	w.Header().Set("Content-Type", "application/json")
 	switch {
 	case rest == "changes" && req.Method == http.MethodGet:
 		since, _ := strconv.ParseInt(req.URL.Query().Get("since"), 10, 64)
+		docs := s.Changes(since)
+		if !peerKeyOK(req) {
+			filtered := docs[:0]
+			for _, d := range docs {
+				if !isPrivateCol(d.Col) {
+					filtered = append(filtered, d)
+				}
+			}
+			docs = filtered
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{
-			"docs": s.Changes(since),
+			"docs": docs,
 			"now":  time.Now().UnixMilli(),
 		})
 	case rest == "sync" && req.Method == http.MethodPost:
 		n := s.pullPeerOnce()
 		fmt.Fprintf(w, `{"merged":%d}`, n)
 	case req.Method == http.MethodGet && idPattern.MatchString(rest):
+		if isPrivateCol(rest) {
+			http.Error(w, `{"error":"private"}`, http.StatusForbidden)
+			return
+		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"docs": s.List(rest)})
 	case req.Method == http.MethodPut:
 		parts := strings.SplitN(rest, "/", 2)
 		if len(parts) != 2 {
 			http.Error(w, `{"error":"bad-path"}`, http.StatusBadRequest)
+			return
+		}
+		if isPrivateCol(parts[0]) && !peerKeyOK(req) {
+			http.Error(w, `{"error":"private"}`, http.StatusForbidden)
+			return
+		}
+		if !isPrivateCol(parts[0]) && !peerKeyOK(req) && s.SessionUser(req) == "" {
+			http.Error(w, `{"error":"signin-required"}`, http.StatusUnauthorized)
 			return
 		}
 		body, err := io.ReadAll(io.LimitReader(req.Body, maxDocBytes+1024))
@@ -193,7 +223,11 @@ func (s *Store) pullPeerOnce() int {
 	cursor := peerCursor
 	peerMu.Unlock()
 	client := &http.Client{Timeout: 20 * time.Second}
-	resp, err := client.Get(fmt.Sprintf("%s/game/db/changes?since=%d", peerBase, cursor))
+	req, _ := http.NewRequest(http.MethodGet, fmt.Sprintf("%s/game/db/changes?since=%d", peerBase, cursor), nil)
+	if k := os.Getenv("BEYBLADE_PEER_KEY"); k != "" {
+		req.Header.Set("X-Beyblade-Peer-Key", k) // include private (auth) collections
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Printf("peer sync: %v", err)
 		return 0

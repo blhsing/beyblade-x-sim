@@ -20,6 +20,25 @@ const TYPE_COLORS: Record<string, number> = {
   balance: 0xc2a23c,
 };
 
+/** Official colorway names (phstudy part_colors) → render colors. */
+const COLOR_NAMES: Record<string, number> = {
+  red: 0xc22e2e, blue: 0x2e55c2, navy: 0x1d2a66, cyan: 0x2eb8c2,
+  green: 0x2ea34a, yellow: 0xd8c22e, orange: 0xd8802e, purple: 0x7a3fc2,
+  pink: 0xd85f9e, white: 0xe8e8f0, black: 0x22222a, gray: 0x8a8a94,
+  grey: 0x8a8a94, silver: 0xc8ccd8, gold: 0xcfae4a, bronze: 0xb08048,
+  brown: 0x7a5636, clear: 0xd8e0f0, lime: 0x9ed82e, magenta: 0xc22ea3,
+  turquoise: 0x2ec2a3, violet: 0x8a4ad8,
+};
+
+/** Stable tiny hash so every part gets a distinct-but-repeatable look. */
+function partSeed(key: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < key.length; i++) {
+    h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+  }
+  return (h >>> 0) / 4294967296;
+}
+
 // ---- procedural textures (no third-party assets) --------------------------
 
 function canvasTex(size: number, draw: (c: CanvasRenderingContext2D, s: number) => void): THREE.CanvasTexture {
@@ -125,12 +144,18 @@ function lobedShape(r: number, lobes: number, depth: number, sharp: number): THR
 function buildBeyMesh(rc: ResolvedCombo | null, params: BeyParams, accent: number): THREE.Group {
   const g = new THREE.Group();
   const r = params.radiusM;
-  const type = rc?.parts.blade?.type ?? rc?.parts.mainBlade?.type ?? null;
-  const color = type ? TYPE_COLORS[type]! : accent;
-  const attack = rc?.parts.blade?.stats.attack ?? 40;
+  const bladePart = rc?.parts.blade ?? rc?.parts.mainBlade;
+  const type = bladePart?.type ?? null;
+  // official colorway first, then type color, then side accent
+  const named = bladePart?.color ? COLOR_NAMES[bladePart.color.toLowerCase()] : undefined;
+  const color = named ?? (type ? TYPE_COLORS[type]! : accent);
+  const attack = bladePart?.stats.attack ?? 40;
+  // per-part seeded variation → each blade silhouette is recognizably its own
+  const seed = partSeed(bladePart?.key ?? "?");
+  const seed2 = partSeed((bladePart?.key ?? "?") + "b");
 
   // ---- blade: die-cast metal disc with type-dependent silhouette ----
-  const silhouette =
+  const base =
     type === "attack"
       ? { lobes: Math.max(3, Math.round(attack / 18)), depth: 0.13, sharp: 1.6 }
       : type === "defense"
@@ -138,6 +163,11 @@ function buildBeyMesh(rc: ResolvedCombo | null, params: BeyParams, accent: numbe
         : type === "stamina"
           ? { lobes: 12, depth: 0.02, sharp: 0.8 }
           : { lobes: 6, depth: 0.075, sharp: 1.2 };
+  const silhouette = {
+    lobes: Math.max(3, base.lobes + Math.round((seed - 0.5) * 4)),
+    depth: Math.max(0.015, base.depth * (0.75 + seed2 * 0.6)),
+    sharp: base.sharp * (0.8 + seed * 0.5),
+  };
   const bladeGeo = new THREE.ExtrudeGeometry(
     lobedShape(r, silhouette.lobes, silhouette.depth, silhouette.sharp),
     { depth: 0.0075, bevelEnabled: true, bevelSize: 0.0008, bevelThickness: 0.0008, bevelSegments: 2 },
@@ -359,9 +389,158 @@ export class BattleView {
     this.scene.add(table);
 
     this.scene.add(this.stadiumGroup);
+    this.scene.add(this.camera); // so camera-attached rigs (launcher) render
     this.sparkMat = new THREE.MeshBasicMaterial({ color: 0xffd766 });
     window.addEventListener("resize", () => this.resize());
     this.attachOrbitControls(container);
+  }
+
+  // ---- 3D launcher rig (launch phase) -------------------------------------
+
+  private launcherRig: {
+    group: THREE.Group;
+    winder: THREE.Group;
+    stringMesh: THREE.Mesh;
+    beyPivot: THREE.Group;
+    beySpin: THREE.Group;
+    pullM: number;
+  } | null = null;
+
+  /** Camera-attached string launcher holding the player's actual bey. */
+  attachLauncher(rc: ResolvedCombo | null, params: BeyParams, accent: number): void {
+    this.removeLauncher();
+    const g = new THREE.Group();
+    const plastic = new THREE.MeshPhysicalMaterial({
+      color: 0x2b3a9e,
+      roughness: 0.35,
+      clearcoat: 0.5,
+      clearcoatRoughness: 0.3,
+    });
+    const skin = new THREE.MeshStandardMaterial({ color: 0xe0aa82, roughness: 0.65 });
+    const red = new THREE.MeshPhysicalMaterial({ color: 0xc23434, roughness: 0.4, clearcoat: 0.4 });
+
+    // body: rounded puck with a beveled profile
+    const prof: THREE.Vector2[] = [];
+    for (let i = 0; i <= 12; i++) {
+      const t = i / 12;
+      prof.push(new THREE.Vector2(0.036 * Math.sin((t * Math.PI) / 2) + 0.001, 0.024 * t));
+    }
+    const body = new THREE.Mesh(new THREE.LatheGeometry(prof, 40), plastic);
+    body.rotation.x = Math.PI / 2;
+    body.castShadow = true;
+    g.add(body);
+    const capRing = new THREE.Mesh(
+      new THREE.TorusGeometry(0.024, 0.0035, 10, 32),
+      new THREE.MeshStandardMaterial({ color: 0xdadff5, metalness: 0.6, roughness: 0.3 }),
+    );
+    capRing.position.z = 0.013;
+    g.add(capRing);
+
+    // grip below-rear + left hand wrapped around it
+    const grip = new THREE.Mesh(new THREE.CapsuleGeometry(0.011, 0.035, 6, 12), plastic);
+    grip.position.set(-0.012, -0.008, 0.035);
+    grip.rotation.x = 1.15;
+    g.add(grip);
+    for (let f = 0; f < 4; f++) {
+      const finger = new THREE.Mesh(new THREE.CapsuleGeometry(0.0055, 0.02, 4, 8), skin);
+      finger.position.set(-0.03 + f * 0.0025, -0.012 + f * 0.004, 0.032 + f * 0.008);
+      finger.rotation.z = 1.2;
+      g.add(finger);
+    }
+    const palm = new THREE.Mesh(new THREE.SphereGeometry(0.016, 12, 10), skin);
+    palm.position.set(-0.028, -0.01, 0.045);
+    g.add(palm);
+
+    // string port + string + winder T-handle + right hand
+    const port = new THREE.Mesh(new THREE.BoxGeometry(0.01, 0.012, 0.012), plastic);
+    port.position.set(0.038, 0, 0);
+    g.add(port);
+    const stringMesh = new THREE.Mesh(
+      new THREE.CylinderGeometry(0.0012, 0.0012, 1, 6),
+      new THREE.MeshStandardMaterial({ color: 0xe8ecf8, roughness: 0.6 }),
+    );
+    g.add(stringMesh);
+    const winder = new THREE.Group();
+    const stem = new THREE.Mesh(new THREE.CylinderGeometry(0.005, 0.005, 0.028, 10), red);
+    winder.add(stem);
+    const bar = new THREE.Mesh(new THREE.CylinderGeometry(0.007, 0.007, 0.055, 10), red);
+    bar.rotation.z = Math.PI / 2;
+    bar.position.y = -0.018;
+    winder.add(bar);
+    const fist = new THREE.Mesh(new THREE.SphereGeometry(0.018, 12, 10), skin);
+    fist.scale.set(1, 0.8, 0.9);
+    fist.position.y = -0.02;
+    winder.add(fist);
+    winder.position.set(0.055, 0, 0);
+    g.add(winder);
+
+    // the player's actual bey mounted underneath (tip pointing down-forward)
+    const beyPivot = new THREE.Group();
+    const beySpin = new THREE.Group();
+    beySpin.add(buildBeyMesh(rc, params, accent));
+    beyPivot.add(beySpin);
+    beyPivot.rotation.x = -Math.PI / 2;
+    beyPivot.position.set(0, -0.048, 0.004);
+    g.add(beyPivot);
+
+    g.position.set(0.03, -0.085, -0.24);
+    g.rotation.x = -0.55;
+    this.camera.add(g);
+    this.launcherRig = { group: g, winder, stringMesh, beyPivot, beySpin, pullM: 0 };
+    this.updateLauncherString();
+  }
+
+  private updateLauncherString(): void {
+    const rig = this.launcherRig;
+    if (!rig) return;
+    const from = new THREE.Vector3(0.042, 0, 0);
+    const to = rig.winder.position.clone();
+    const mid = from.clone().add(to).multiplyScalar(0.5);
+    rig.stringMesh.position.copy(mid);
+    const dir = to.clone().sub(from);
+    rig.stringMesh.scale.y = Math.max(0.012, dir.length());
+    rig.stringMesh.quaternion.setFromUnitVectors(new THREE.Vector3(0, 1, 0), dir.normalize());
+  }
+
+  /** Pull in screen px → winder + string follow (full-screen granularity). */
+  setLauncherPull(px: number): void {
+    const rig = this.launcherRig;
+    if (!rig) return;
+    rig.pullM = Math.min(0.42, px * 0.00075);
+    rig.winder.position.set(0.055 + rig.pullM * 0.25, -rig.pullM, 0.01 * rig.pullM);
+    this.updateLauncherString();
+  }
+
+  /** Release: bey spins up, rips off toward the stadium; launcher lifts away. */
+  releaseLauncher(): Promise<void> {
+    const rig = this.launcherRig;
+    if (!rig) return Promise.resolve();
+    return new Promise((resolve) => {
+      const t0 = performance.now();
+      const tick = (): void => {
+        const rigNow = this.launcherRig;
+        if (!rigNow) {
+          resolve();
+          return;
+        }
+        const t = Math.min(1, (performance.now() - t0) / 650);
+        rigNow.beySpin.rotation.z = t * t * 90; // visible spin-up
+        rigNow.beyPivot.position.set(0, -0.048 - t * 0.45, 0.004 - t * 0.4);
+        rigNow.winder.position.set(0.055, -rigNow.pullM * (1 - t), 0);
+        rigNow.group.position.set(0.03, -0.085 + t * 0.22, -0.24 + t * 0.1);
+        this.updateLauncherString();
+        if (t < 1) requestAnimationFrame(tick);
+        else resolve();
+      };
+      requestAnimationFrame(tick);
+    });
+  }
+
+  removeLauncher(): void {
+    if (this.launcherRig) {
+      this.camera.remove(this.launcherRig.group);
+      this.launcherRig = null;
+    }
   }
 
   private attachOrbitControls(el: HTMLElement): void {
@@ -551,6 +730,47 @@ export class BattleView {
       this.stadiumGroup.add(back);
     }
 
+    // mostly-transparent casing: clear walls everywhere EXCEPT the gaps
+    // (loose coverage — beys can still find their way out there)
+    {
+      const caseMat = new THREE.MeshPhysicalMaterial({
+        color: 0xdfe8ff,
+        transparent: true,
+        opacity: 0.16,
+        roughness: 0.12,
+        metalness: 0,
+        clearcoat: 1,
+        clearcoatRoughness: 0.15,
+        side: THREE.DoubleSide,
+        depthWrite: false,
+      });
+      const gaps = [...s.coverGaps].sort((a, b) => wrapAngle(a.start) - wrapAngle(b.start));
+      const covered: { a0: number; a1: number }[] = [];
+      if (gaps.length === 0) {
+        covered.push({ a0: 0, a1: Math.PI * 2 });
+      } else {
+        for (let i = 0; i < gaps.length; i++) {
+          const cur = gaps[i]!;
+          const nxt = gaps[(i + 1) % gaps.length]!;
+          const a0 = wrapAngle(cur.end);
+          let a1 = wrapAngle(nxt.start);
+          if (a1 <= a0) a1 += Math.PI * 2;
+          covered.push({ a0, a1 });
+        }
+      }
+      for (const seg of covered) {
+        const wallSeg = new THREE.Mesh(
+          new THREE.ExtrudeGeometry(
+            ringSegmentShape(s.rWall + 0.007, s.rWall + 0.011, seg.a0, seg.a1),
+            { depth: s.coverHeight, bevelEnabled: false },
+          ),
+          caseMat,
+        );
+        wallSeg.position.z = rimZ + 0.02;
+        this.stadiumGroup.add(wallSeg);
+      }
+    }
+
     // shoot position markers on the deck
     for (const a of s.shootAngles) {
       const marker = new THREE.Mesh(
@@ -595,6 +815,15 @@ export class BattleView {
         if (navigator.vibrate) navigator.vibrate(15);
       } else if (e.kind === "dashStart") {
         sfx.dash();
+      } else if (e.kind === "gear") {
+        sfx.click(0.5); // rack teeth ticking under the bit gear
+      } else if (e.kind === "trip") {
+        this.spawnSparks(e.magnitude * 0.6);
+        sfx.hit(0.9);
+        if (navigator.vibrate) navigator.vibrate([25, 30, 45]);
+      } else if (e.kind === "coverHit") {
+        sfx.click(1.3); // plastic clank off the casing
+        sfx.hit(e.magnitude * 0.15);
       } else if (e.kind === "exit") {
         sfx.pocket();
         if (navigator.vibrate) navigator.vibrate([30, 40, 60]);

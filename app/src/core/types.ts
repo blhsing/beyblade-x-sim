@@ -40,6 +40,8 @@ export interface PartEntry {
   rotation: Rotation;
   weightG: number | null;
   diameterMm: number | null;
+  /** official colorway name from phstudy part_colors (e.g. "blue", "gold") */
+  color?: string | null;
   line: "BX" | "UX" | "CX" | null;
   fixedBurst: boolean;
   releaseAt: string | null;
@@ -118,7 +120,16 @@ export interface FinishEvent {
 
 export interface SimEvent {
   tick: number;
-  kind: "hit" | "wallHit" | "dashStart" | "dashEnd" | "click" | "exit";
+  kind:
+    | "hit"
+    | "wallHit"
+    | "dashStart"
+    | "dashEnd"
+    | "click"
+    | "exit"
+    | "gear" // rack-pinion tooth engagement tick
+    | "trip" // slammed into the rack too fast and got tripped
+    | "coverHit"; // bounced off the transparent casing
   bey: 0 | 1;
   magnitude: number;
 }

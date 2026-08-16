@@ -13,6 +13,7 @@ const FILES = [
   "hardcoded.json",
   "part_weights.json",
   "part_code_names.json",
+  "part_colors.json",
   "ui_i18n.json",
 ];
 

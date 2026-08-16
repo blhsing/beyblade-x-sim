@@ -27,7 +27,6 @@ export class GyroCamera {
   private qF = new THREE.Quaternion(); // camera orientation in F
   private qAlign: THREE.Quaternion | null = null;
   private wantCalibrate = true;
-  private parallax = new THREE.Vector3();
   private euler = new THREE.Euler();
   private onOrient = (e: DeviceOrientationEvent): void => this.handleOrient(e);
   private onMotion = (e: DeviceMotionEvent): void => this.handleMotion(e);
@@ -87,24 +86,38 @@ export class GyroCamera {
       const yawF = Math.atan2(top.x, -top.z); // angle from -Z toward +X
       const qYaw = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(0, 1, 0), yawF);
       this.qAlign = Q_SWAP.clone().multiply(qYaw);
-      this.parallax.set(0, 0, 0);
+      this.vel.set(0, 0, 0);
+      this.off.set(0, 0, 0);
     }
   }
 
+  /**
+   * Translation from the accelerometer (leaky double-integration in the
+   * WORLD frame, bounded + recentering): physically raising the phone lifts
+   * the viewpoint toward an overhead look, lowering or side-stepping gives
+   * low/side angles. Gyro still owns rotation, so aim stays anchored.
+   */
+  private vel = new THREE.Vector3();
+  private off = new THREE.Vector3();
+
   private handleMotion(e: DeviceMotionEvent): void {
     const a = e.acceleration;
-    if (!a || a.x === null) return;
-    const k = 0.0016;
-    this.parallax.x = this.parallax.x * 0.92 - (a.x ?? 0) * k;
-    this.parallax.y = this.parallax.y * 0.92 - (a.y ?? 0) * k;
-    this.parallax.z = this.parallax.z * 0.92 - (a.z ?? 0) * k;
+    if (!a || a.x === null || !this.qAlign) return;
+    const dt = Math.min(0.1, (e.interval ?? 16) / 1000);
+    const worldQ = this.qAlign.clone().multiply(this.qF);
+    const acc = new THREE.Vector3(a.x ?? 0, a.y ?? 0, a.z ?? 0).applyQuaternion(worldQ);
+    this.vel.addScaledVector(acc, dt).multiplyScalar(0.9);
+    this.off.addScaledVector(this.vel, dt).multiplyScalar(0.982);
+    this.off.x = Math.max(-0.35, Math.min(0.35, this.off.x));
+    this.off.y = Math.max(-0.3, Math.min(0.25, this.off.y));
+    this.off.z = Math.max(-0.14, Math.min(0.5, this.off.z));
   }
 
   /** Applies the anchored pose to the camera (stadium is at the origin). */
   apply(camera: THREE.PerspectiveCamera): void {
     if (!this.active || !this.qAlign) return;
     camera.quaternion.copy(this.qAlign).multiply(this.qF);
-    camera.position.copy(HOLD_POS).add(this.parallax);
+    camera.position.copy(HOLD_POS).add(this.off);
   }
 }
 

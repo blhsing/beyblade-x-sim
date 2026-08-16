@@ -58,7 +58,9 @@ export function slotEditor(
   cfg: SlotConfig,
   title: string,
   reopen?: () => void,
+  lockKind?: "human" | "bot",
 ): HTMLElement {
+  if (lockKind) cfg.kind = lockKind;
   const card = el("div", { class: "card" });
   card.append(el("div", { class: "label" }, title));
 
@@ -138,6 +140,10 @@ export function slotEditor(
       ? button(ZH.menu.garage, () => showGarage(app, reopen), "btn small fixed")
       : el("span", {}),
   );
+  if (lockKind) {
+    kindSel.value = lockKind;
+    kindSel.setAttribute("disabled", "");
+  }
   card.append(row(kindSel), humanRow, botRows, deckHeader, deckWrap);
   syncKind();
   return card;
@@ -159,7 +165,7 @@ export function rulesPicker(app: GameApp): HTMLElement {
     app.rules = { ...RULE_PRESETS[presetSel.value]! };
     app.rules.pointsToWin = Number(ptsSel.value);
     app.rules.stadium = stadiumSel.value as RuleSet["stadium"];
-    app.rules.xtremeDashEnabled = app.rules.stadium !== "burstStd";
+    app.rules.xtremeDashEnabled = true; // both official stadiums have X-lines
     app.view.setStadium(app.stadium());
     savePrefs({
       rulesPreset: presetSel.value,
@@ -208,8 +214,9 @@ export function showQuickSetup(app: GameApp): void {
   panel.append(
     el("div", { class: "title", style: "font-size:22px" }, ZH.menu.quick),
     rulesPicker(app),
-    slotEditor(app, a, fmt(ZH.playerN, { n: 1 }), () => showQuickSetup(app)),
-    slotEditor(app, b, fmt(ZH.playerN, { n: 2 }), () => showQuickSetup(app)),
+    // single-player: P1 is the signed-in human, the opponent is a bot
+    slotEditor(app, a, fmt(ZH.playerN, { n: 1 }), () => showQuickSetup(app), "human"),
+    slotEditor(app, b, fmt(ZH.playerN, { n: 2 }), () => showQuickSetup(app), "bot"),
     button(ZH.start, () => {
       app.enableGyroByDefault(); // inside the click gesture for iOS permission
       savePrefs({
@@ -252,7 +259,13 @@ export function showTournamentSetup(app: GameApp): void {
     slots.length = n;
     slotsWrap.replaceChildren(
       ...slots.map((s, i) =>
-        slotEditor(app, s, fmt(ZH.playerN, { n: i + 1 }), () => showTournamentSetup(app)),
+        slotEditor(
+          app,
+          s,
+          fmt(ZH.playerN, { n: i + 1 }),
+          () => showTournamentSetup(app),
+          i === 0 ? "human" : "bot", // single-player: only P1 is human
+        ),
       ),
     );
   };

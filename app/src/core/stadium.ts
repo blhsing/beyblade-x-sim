@@ -54,6 +54,11 @@ export interface StadiumSpec {
   deckH: number; // outer body depth (m, render)
   bodyColor: number; // render hint
   shootAngles: number[]; // marked shoot positions (render)
+  /** angular windows where the transparent casing is OPEN — a bey flying
+   * over the wall here falls out of the stadium (over finish); everywhere
+   * else the casing knocks it back in. */
+  coverGaps: RailArc[];
+  coverHeight: number; // render: casing height above the rim (m)
 }
 
 /** BX-10 Xtreme Stadium — the official 1v1 tournament stadium. */
@@ -77,6 +82,9 @@ export const STADIUM_BX10: StadiumSpec = {
     { angleCenter: -1.5707963, halfWidth: 0.42, kind: "xtreme" },
     { angleCenter: -2.53, halfWidth: 0.24, kind: "over" },
     { angleCenter: -0.61, halfWidth: 0.24, kind: "over" },
+    // pockets continue around the back corners
+    { angleCenter: 2.53, halfWidth: 0.22, kind: "over" },
+    { angleCenter: 0.61, halfWidth: 0.22, kind: "over" },
   ],
   wallRestitution: 0.52,
   exitSpeed: 0.45,
@@ -84,6 +92,13 @@ export const STADIUM_BX10: StadiumSpec = {
   deckH: 0.44,
   bodyColor: 0x27335f,
   shootAngles: [2.3562, 0.7854],
+  // mostly-transparent casing: open across the exit side + two loose spots
+  coverGaps: [
+    { start: -2.85, end: -0.3 },
+    { start: 1.35, end: 1.62 },
+    { start: 2.72, end: 2.99 },
+  ],
+  coverHeight: 0.09,
 };
 
 /** BX-32 Wide Xtreme Stadium — 3-player official; ⚠ dimensions estimated. */
@@ -112,6 +127,9 @@ export const STADIUM_BX32: StadiumSpec = {
     { angleCenter: -2.53, halfWidth: 0.3, kind: "xtreme" },
     { angleCenter: -0.61, halfWidth: 0.3, kind: "xtreme" },
     { angleCenter: -1.5707963, halfWidth: 0.28, kind: "over" },
+    // pockets continue around the back
+    { angleCenter: 2.36, halfWidth: 0.24, kind: "over" },
+    { angleCenter: 0.79, halfWidth: 0.24, kind: "over" },
   ],
   wallRestitution: 0.52,
   exitSpeed: 0.45,
@@ -119,38 +137,18 @@ export const STADIUM_BX32: StadiumSpec = {
   deckH: 0.47,
   bodyColor: 0xdfe3ee,
   shootAngles: [2.618, 0.5236, 1.5708],
-};
-
-/** Legacy Burst-style stadium: no rail, no xtreme zone, round pockets. */
-export const STADIUM_BURST_STD: StadiumSpec = {
-  name: "burstStd",
-  labelZh: "標準戰鬥盤（無X衝擊線）",
-  rDish: 0.1,
-  dishDepth: 0.014,
-  rWall: 0.14,
-  rimRise: 0.016,
-  rimBaseSlope: 0.08,
-  rRail: 0,
-  railHalfWidth: 0,
-  railArcs: [],
-  railColor: 0x444444,
-  pockets: [
-    { angleCenter: -1.5707963, halfWidth: 0.3, kind: "over" },
-    { angleCenter: 0.5235988, halfWidth: 0.3, kind: "over" },
-    { angleCenter: 2.6179939, halfWidth: 0.3, kind: "over" },
+  coverGaps: [
+    { start: -2.95, end: -0.2 },
+    { start: 0.98, end: 1.24 },
+    { start: 1.98, end: 2.24 },
   ],
-  wallRestitution: 0.5,
-  exitSpeed: 0.3,
-  deckW: 0.4,
-  deckH: 0.4,
-  bodyColor: 0x333a55,
-  shootAngles: [2.3562, 0.7854],
+  coverHeight: 0.1,
 };
 
+/** Only the two official Xtreme stadiums are selectable. */
 export const STADIUMS: Record<string, StadiumSpec> = {
   bx10: STADIUM_BX10,
   wide: STADIUM_BX32,
-  burstStd: STADIUM_BURST_STD,
 };
 
 /** Surface height above center, z(r). Purely for rendering + energy. */

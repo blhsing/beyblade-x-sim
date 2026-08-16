@@ -14,6 +14,8 @@ import { showQuickSetup, showTournamentSetup } from "./setup";
 import { showOnline } from "./online";
 import { showGarage } from "./garage";
 import { showRecords } from "./records";
+import { showAuthGate, showProfile } from "./auth";
+import { getAuth, refreshMe } from "../game/auth";
 
 export interface CustomComboStore {
   list(): { name: string; combo: ComboSelection }[];
@@ -114,33 +116,33 @@ export class GameApp {
     if (node) document.body.append(node);
   }
 
+  /** Entry point: account gate → mode select. */
   showMenu(): void {
+    if (!getAuth()) {
+      void refreshMe(); // revalidate in the background
+      showAuthGate(this, () => this.showMenu());
+      return;
+    }
+    this.showModeSelect();
+  }
+
+  showModeSelect(): void {
     this.view.mode = "orbit";
     this.view.clearBeys();
     const o = overlay();
     const panel = el("div", { class: "panel" });
     panel.append(
       el("div", { class: "title" }, ZH.appTitle),
-      el(
-        "div",
-        { class: "subtitle" },
-        `${Object.values(this.db.parts).reduce((n, l) => n + l.length, 0)} 零件・${this.db.combos.length} 組官方配置`,
-      ),
-      button(ZH.menu.quick, () => {
+      el("div", { class: "subtitle" }, `${getAuth()?.nickname ?? ""}`),
+      button(ZH.mode.single, () => {
         sfx.unlock();
-        showQuickSetup(this);
+        this.showLocalMenu();
       }, "btn primary"),
-      button(ZH.menu.tournament, () => {
-        sfx.unlock();
-        showTournamentSetup(this);
-      }),
-      button(ZH.menu.online, () => {
+      button(ZH.mode.multi, () => {
         sfx.unlock();
         showOnline(this);
       }),
-      button(ZH.menu.garage, () => showGarage(this)),
-      button(ZH.menu.records, () => showRecords(this)),
-      button(ZH.menu.about, () => this.showAbout()),
+      button(ZH.auth.profile, () => showProfile(this)),
       (() => {
         const label = (): string => `${ZH.music}：${sfx.musicEnabled ? ZH.on : ZH.off}`;
         const b = button(label(), () => {
@@ -150,6 +152,30 @@ export class GameApp {
         }, "btn small");
         return b;
       })(),
+    );
+    o.append(panel);
+    this.setScreen(o);
+  }
+
+  /** Single-player hub (the player + bots; multiplayer lives online). */
+  showLocalMenu(): void {
+    this.view.mode = "orbit";
+    this.view.clearBeys();
+    const o = overlay();
+    const panel = el("div", { class: "panel" });
+    panel.append(
+      el("div", { class: "title", style: "font-size:24px" }, ZH.mode.single),
+      el(
+        "div",
+        { class: "subtitle" },
+        `${Object.values(this.db.parts).reduce((n, l) => n + l.length, 0)} 零件・${this.db.combos.length} 組官方配置`,
+      ),
+      button(ZH.menu.quick, () => showQuickSetup(this), "btn primary"),
+      button(ZH.menu.tournament, () => showTournamentSetup(this)),
+      button(ZH.menu.garage, () => showGarage(this)),
+      button(ZH.menu.records, () => showRecords(this)),
+      button(ZH.menu.about, () => this.showAbout()),
+      button(ZH.back, () => this.showModeSelect()),
     );
     o.append(panel);
     this.setScreen(o);

@@ -18,7 +18,7 @@ export interface RuleSet {
   reorderOnTie: boolean;
   mislaunchPenalty: boolean;
   relaunchesPerBattle: number;
-  stadium: "bx10" | "wide" | "burstStd";
+  stadium: "bx10" | "wide";
   xtremeDashEnabled: boolean;
   drawPolicy: "noPoints" | "suddenDeath";
   mnBitBanned: boolean;

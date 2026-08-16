@@ -41,7 +41,7 @@ import (
 var embeddedWebroot embed.FS
 
 const (
-	maxPlayers      = 2
+	maxPlayers      = 16 // online tournaments hold many humans per room
 	maxSpectators   = 8
 	maxMessageBytes = 64 * 1024
 	pingInterval    = 20 * time.Second
@@ -375,6 +375,10 @@ func main() {
 		rest := strings.TrimPrefix(req.URL.Path, "/game/")
 		if strings.HasPrefix(rest, "db/") {
 			store.ServeHTTP(w, req)
+			return
+		}
+		if strings.HasPrefix(rest, "auth/") {
+			store.ServeAuth(w, req)
 			return
 		}
 		parts := strings.Split(rest, "/")

@@ -26,7 +26,13 @@ export type GameMsg =
   | { t: "result"; winner: number | null; draw: boolean; tick: number }
   | { t: "score"; scores: [number, number]; battleIndex: number }
   | { t: "rematch" }
-  | { t: "leave" };
+  | { t: "leave" }
+  // rooms v2: password knock + host-config + online tournament coordination
+  | { t: "knock"; pass: string }
+  | { t: "accept"; to?: number; cfg: unknown }
+  | { t: "reject"; to?: number }
+  | { t: "tbegin"; slots: unknown[] }
+  | { t: "tres"; matchId: number; winner: number };
 
 /** Base URL of the game websocket for the current page origin/path. */
 export function defaultRelayWsBase(): string {
@@ -103,10 +109,16 @@ export class LockstepExchange {
   private remoteLaunch: LaunchParams | null = null;
   private resolvers: (() => void)[] = [];
 
-  constructor(private client: RelayClient) {
+  /** expectedFrom: relay slot whose messages this exchange listens to
+   * (rooms can hold many players — tournaments filter per opponent). */
+  constructor(
+    private client: RelayClient,
+    private expectedFrom: number,
+  ) {
     const prev = client.onMsg;
     client.onMsg = (from, msg) => {
       prev?.(from, msg);
+      if (from !== this.expectedFrom) return;
       if (msg.t === "seedq") this.seedqRemote = msg.q;
       else if (msg.t === "deck") this.remoteDeck = msg.combos;
       else if (msg.t === "launch") this.remoteLaunch = msg.launch;

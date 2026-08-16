@@ -2,7 +2,8 @@
 // visual battle playback of the deterministic sim, scoring per RuleSet,
 // mislaunch handling, hot-seat pass-the-phone, and bot fast-forward.
 
-import { deriveBeyParams, resolveCombo } from "../core/derive";
+import { deriveBeyParams, resolveCombo, type ResolvedCombo } from "../core/derive";
+import type { BeyParams } from "../core/types";
 import { DT, createWorld, simulateBattle, step } from "../core/sim";
 import type { LaunchParams, WorldConfig, WorldState } from "../core/types";
 import { MatchEngine, pointsForFinish, type PlayerSetup } from "../game/rules";
@@ -41,107 +42,21 @@ function scoreboard(app: GameApp, engine: MatchEngine, names: [string, string]):
   return bar;
 }
 
-/**
- * First-person launcher graphic: left hand holding a string launcher with
- * the bey seated, right hand on the winder grip; the grip + string follow
- * the drag. Inline SVG, stylized-realistic, no assets.
- */
-function launcherSvg(): {
-  root: HTMLElement;
-  setPull: (px: number) => void;
-  playLaunch: () => Promise<void>;
-} {
-  const wrap = el("div", {
-    style:
-      "width:min(88vw,420px); pointer-events:none; opacity:.85; transition: transform .85s cubic-bezier(.5,0,.9,.4), opacity .85s ease",
-  });
-  wrap.innerHTML = `
-<svg viewBox="0 0 420 300" xmlns="http://www.w3.org/2000/svg" style="width:100%">
-  <defs>
-    <linearGradient id="lb" x1="0" y1="0" x2="0" y2="1">
-      <stop offset="0" stop-color="#3b4db0"/><stop offset=".55" stop-color="#26307a"/><stop offset="1" stop-color="#161d4d"/>
-    </linearGradient>
-    <linearGradient id="skin" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#e8b48f"/><stop offset="1" stop-color="#c98f66"/>
-    </linearGradient>
-    <radialGradient id="beym" cx=".4" cy=".35" r=".8">
-      <stop offset="0" stop-color="#dfe6ff"/><stop offset=".5" stop-color="#7d8dd8"/><stop offset="1" stop-color="#2c3670"/>
-    </radialGradient>
-  </defs>
-  <!-- forearm + left hand gripping the launcher -->
-  <path d="M60 300 Q70 230 108 208 L150 236 Q120 262 112 300 Z" fill="url(#skin)"/>
-  <ellipse cx="128" cy="216" rx="34" ry="24" fill="url(#skin)"/>
-  <!-- launcher body -->
-  <g>
-    <rect x="96" y="150" rx="18" width="180" height="74" fill="url(#lb)" stroke="#0d1233" stroke-width="3"/>
-    <rect x="118" y="164" rx="6" width="70" height="18" fill="#5a6ad0" opacity=".8"/>
-    <circle cx="240" cy="187" r="20" fill="#141a45" stroke="#5a6ad0" stroke-width="3"/>
-    <!-- string exit + string -->
-    <rect x="270" y="178" width="14" height="18" rx="4" fill="#0d1233"/>
-    <line id="lstr" x1="284" y1="187" x2="336" y2="187" stroke="#e8ecff" stroke-width="4" stroke-linecap="round"/>
-    <!-- winder grip + right hand -->
-    <g id="lgrip">
-      <rect x="336" y="164" rx="10" width="26" height="46" fill="#c93b3b" stroke="#5d1414" stroke-width="3"/>
-      <ellipse cx="366" cy="196" rx="30" ry="22" fill="url(#skin)"/>
-      <path d="M352 214 Q372 236 366 300 L412 300 Q416 240 396 210 Z" fill="url(#skin)"/>
-    </g>
-    <!-- fingers over the body -->
-    <path d="M104 206 q22 -18 52 -10 q-20 26 -46 22 Z" fill="url(#skin)"/>
-  </g>
-  <!-- bey seated under the launcher -->
-  <g id="lbey" style="transform-box: fill-box; transform-origin: center">
-    <circle cx="186" cy="238" r="26" fill="url(#beym)" stroke="#10163d" stroke-width="3"/>
-    <circle cx="186" cy="238" r="9" fill="#1a2255"/>
-    <path d="M186 212 l7 12 h-14 Z" fill="#e8ecff" opacity=".85"/>
-  </g>
-  <!-- pull-direction indicator: chevrons streaming down from the winder grip -->
-  <g id="lhint" fill="none" stroke="#ffd766" stroke-width="6" stroke-linecap="round">
-    <path class="chev c1" d="M337 224 l12 12 12 -12"/>
-    <path class="chev c2" d="M337 244 l12 12 12 -12"/>
-    <path class="chev c3" d="M337 264 l12 12 12 -12"/>
-  </g>
-</svg>`;
-  const grip = wrap.querySelector<SVGGElement>("#lgrip")!;
-  const str = wrap.querySelector<SVGLineElement>("#lstr")!;
-  const hint = wrap.querySelector<SVGGElement>("#lhint")!;
-  const bey = wrap.querySelector<SVGGElement>("#lbey")!;
-  const setPull = (px: number): void => {
-    const d = Math.min(150, px * 0.32);
-    if (d > 4) hint.style.opacity = "0";
-    grip.setAttribute("transform", `translate(${d * 0.25} ${d})`);
-    str.setAttribute("x2", String(336 + d * 0.25));
-    str.setAttribute("y2", String(187 + d));
-  };
-  // the top rips off the launcher and flies toward the stadium while the
-  // launcher drops out of view, revealing the battle
-  const playLaunch = (): Promise<void> =>
-    new Promise((resolve) => {
-      const t0 = performance.now();
-      const spin = (): void => {
-        const t = Math.min(1, (performance.now() - t0) / 700);
-        bey.style.transform = `translateY(${-150 * t}px) scale(${1 - 0.55 * t}) rotate(${t * 2200}deg)`;
-        bey.style.opacity = String(1 - t * 0.9);
-        if (t < 1) requestAnimationFrame(spin);
-        else resolve();
-      };
-      requestAnimationFrame(spin);
-      setTimeout(() => {
-        wrap.style.transform = "translateY(70vh)";
-        wrap.style.opacity = "0";
-      }, 180);
-    });
-  return { root: wrap, setPull, playLaunch };
-}
-
-/** Human launch: countdown + drag gesture. Returns params or a mislaunch. */
+/** Human launch: countdown + full-screen drag gesture. The launcher, the
+ * player's actual bey, string and winder are a camera-attached 3D rig. */
 async function humanLaunch(
   app: GameApp,
   playerName: string,
   side: 0 | 1,
   launcher: LaunchParams["launcher"] = "string",
+  rc: ResolvedCombo | null = null,
+  beyParams: BeyParams | null = null,
 ): Promise<{ launch: LaunchParams | null; mislaunch: "early" | "late" | "weak" | null }> {
   app.view.mode = app.view.mode === "gyro" ? "gyro" : "launch";
   app.view.launchSide = side;
+  if (rc && beyParams) {
+    app.view.attachLauncher(rc, beyParams, side === 0 ? 0x3f7bff : 0xff5b4d);
+  }
 
   const zone = el("div", { class: "launchzone" });
   const hint = el("div", { class: "banner-big", style: "font-size:20px" }, `${playerName}｜${ZH.pullToLaunch}`);
@@ -149,8 +64,7 @@ async function humanLaunch(
   const count = el("div", { class: "countdown" }, "");
   const meter = el("div", { class: "spmeter" }, el("div", { class: "spfill" }));
   const fill = meter.firstElementChild as HTMLElement;
-  const rig = launcherSvg();
-  zone.append(count, hint, calHint, rig.root);
+  zone.append(count, hint, calHint);
   document.body.append(zone, meter);
 
   const shootAt = Date.now() + 2400;
@@ -172,16 +86,18 @@ async function humanLaunch(
     ...LAUNCH_WINDOWS,
     onProgress: (sp, pullPx) => {
       fill.style.width = `${Math.min(100, (sp / 11000) * 100)}%`;
-      rig.setPull(pullPx);
+      app.view.setLauncherPull(pullPx);
     },
   });
 
   if (result.mislaunch) {
+    app.view.removeLauncher();
     zone.remove();
     meter.remove();
     return { launch: null, mislaunch: result.mislaunch };
   }
-  await rig.playLaunch(); // show the top leaving the launcher
+  await app.view.releaseLauncher(); // bey rips off, launcher lifts away
+  app.view.removeLauncher();
   zone.remove();
   meter.remove();
   const aimDeg = Math.max(-12, Math.min(12, result.releaseOffsetMs / 50));
@@ -217,7 +133,7 @@ async function collectLaunches(
       }
       let launched: LaunchParams | null = null;
       while (!launched) {
-        const r = await humanLaunch(app, names[side], side, s.launcher);
+        const r = await humanLaunch(app, names[side], side, s.launcher, rc, deriveBeyParams(rc));
         if (r.launch) {
           const spinDir =
             rotation === "left" || rotation === "both-left-origin" ? -1 : 1;
@@ -292,7 +208,7 @@ export async function collectLocalLaunch(
   const rc = resolveCombo(app.index, combo);
   const rotation = rc.parts.blade?.rotation ?? rc.parts.lockChip?.rotation ?? "right";
   for (;;) {
-    const r = await humanLaunch(app, name, side, launcher);
+    const r = await humanLaunch(app, name, side, launcher, rc, deriveBeyParams(rc));
     if (r.launch) {
       const spinDir = rotation === "left" || rotation === "both-left-origin" ? -1 : 1;
       return { ...r.launch, spinDir };

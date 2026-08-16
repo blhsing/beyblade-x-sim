@@ -37,6 +37,7 @@ const main = await loadJson("main.json");
 const hardcoded = await loadJson("hardcoded.json");
 const weights = await loadJson("part_weights.json");
 const codeNames = await loadJson("part_code_names.json");
+const partColors = await loadJson("part_colors.json").catch(() => ({}));
 
 const dataOf = (o) => o.data ?? o;
 
@@ -171,6 +172,16 @@ for (const [category, map] of Object.entries(groups)) {
         }
       }
 
+      // official colorway name (e.g. "blue", "gold") from part_colors
+      let color = null;
+      for (const r of [rep, ...sigRecs]) {
+        const c = partColors[r.id];
+        if (Array.isArray(c) && c.length > 0) {
+          color = String(c[0]);
+          break;
+        }
+      }
+
       const key = idx === 0 ? groupKey : `${groupKey}#${idx + 1}`;
       for (const r of sigRecs) idToEntry.set(r.id, { category, key });
 
@@ -193,6 +204,7 @@ for (const [category, map] of Object.entries(groups)) {
         rotation: st.rotation ?? null,
         weightG,
         diameterMm,
+        color,
         line: lineOf(rep.tags),
         fixedBurst: rep.fixed_burst ?? false,
         releaseAt: firstRelease(sigRecs) === "9999" ? null : firstRelease(sigRecs),
