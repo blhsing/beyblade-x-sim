@@ -551,10 +551,10 @@ function collidePair(w: WorldState, cfg: WorldConfig, i: number, j: number): voi
   const imp1 = jn * T.burstNormalK + smash2 * T.burstSmashK;
   const imp2 = jn * T.burstNormalK + smash1 * T.burstSmashK;
   if (onJoint1 && imp1 > T.burstMinImpulse) {
-    applyBurst(w, b1, p1, i, (imp1 * T.burstScale) / p1.burstRes, cfg.clicksMax);
+    applyBurst(w, b1, p1, i, latchDamage(imp1, p1), cfg.clicksMax);
   }
   if (onJoint2 && imp2 > T.burstMinImpulse) {
-    applyBurst(w, b2, p2, j, (imp2 * T.burstScale) / p2.burstRes, cfg.clicksMax);
+    applyBurst(w, b2, p2, j, latchDamage(imp2, p2), cfg.clicksMax);
   }
 
   b1.contacted = true;
@@ -582,6 +582,28 @@ function applyBurst(
   if (b.burstDamage >= clicksMax) {
     b.alive = false; // burst finish — exited stays null
   }
+}
+
+/**
+ * Latch damage from one joint hit.
+ *
+ * Two things were wrong before. First, damage was proportional to the WHOLE
+ * impulse, so a hit that merely cleared burstMinImpulse already advanced the
+ * latch by ~1.4 of the 4 clicks — three qualifying hits cracked anything.
+ * Only the impulse ABOVE the threshold should move the latch: below it the
+ * teeth simply hold.
+ *
+ * Second, the ratchet's protrusion count did nothing. In the real toy the
+ * number is the whole point — a 9-60 locks far harder than a 3-60 because
+ * nine teeth share the load, so the torque needed to slip one grows with N.
+ * Damage now scales inversely with the tooth count, taking 3 teeth as the
+ * baseline (docs/MODELING.md §1.2).
+ */
+function latchDamage(impulse: number, p: BeyParams): number {
+  const excess = impulse - T.burstMinImpulse;
+  if (excess <= 0) return 0;
+  const teeth = Math.max(1, p.latchCount);
+  return (excess * T.burstScale) / (p.burstRes * (teeth / 3));
 }
 
 /** Free-for-all resolution: elimination order + last survivor. */

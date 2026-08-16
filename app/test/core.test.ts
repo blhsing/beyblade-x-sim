@@ -129,6 +129,32 @@ describe("battle outcomes", () => {
     expect(w.finish?.winner).toBe(0);
   });
 
+  it("a ratchet's tooth count is its burst resistance", () => {
+    // The ratchet code is the geometry: more protrusions share the latch
+    // load, so a 9-60 must survive far longer than a 3-60 under the same
+    // beating. This was inverted-by-omission before — the tooth count did
+    // nothing at all, and three qualifying hits cracked anything.
+    const smasher = baseParams({ attackFactor: 9, fixedBurst: true, grip: 0.9 });
+    const noExit: StadiumSpec = { ...STADIUM_BX10, exitSpeed: 99, pockets: [], coverGaps: [] };
+    const survivedTicks = (latchCount: number): number => {
+      const victim = baseParams({ burstRes: 60, defenseFactor: 1, latchCount });
+      const w = simulateBattle(cfg(smasher, victim, 3), noExit);
+      return w.finish?.type === "burst" ? w.tick : Number.POSITIVE_INFINITY;
+    };
+    expect(survivedTicks(9)).toBeGreaterThan(survivedTicks(3));
+  });
+
+  it("a hit at the burst threshold barely moves the latch", () => {
+    // damage comes from the impulse ABOVE the threshold, so a marginal
+    // joint hit must not advance the lock by a meaningful fraction of the
+    // 4 clicks that crack a bey
+    const glancer = baseParams({ attackFactor: 0.35, grip: 0.2 });
+    const victim = baseParams({ burstRes: 60, latchCount: 3 });
+    const noExit: StadiumSpec = { ...STADIUM_BX10, exitSpeed: 99, pockets: [], coverGaps: [] };
+    const w = simulateBattle(cfg(glancer, victim, 11), noExit);
+    expect(w.finish?.type).not.toBe("burst");
+  });
+
   it("bey shot into the central pocket = xtreme finish; untouched = own finish", () => {
     const c = cfg(baseParams(), baseParams());
     const w = createWorld(c);

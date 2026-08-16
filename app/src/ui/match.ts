@@ -35,7 +35,7 @@ export async function flashBanner(text: string, ms = 1400): Promise<void> {
  * bug report next to the rest of the UI, and blocks the render loop. */
 export function confirmModal(question: string, okLabel = ZH.giveUp): Promise<boolean> {
   return new Promise((resolve) => {
-    const o = overlay();
+    const o = overlay("modal");
     const done = (v: boolean): void => {
       o.remove();
       resolve(v);
@@ -119,12 +119,17 @@ export async function humanLaunch(
   zone.append(count, hint, calHint);
   document.body.append(zone, meter);
   activeLaunchTeardown = () => {
+    stopTimers();
     app.view.removeLauncher();
     app.view.removeOpponentLauncher();
     zone.remove();
     meter.remove();
   };
 
+  // countdown timers are tracked so an abort can cancel them — otherwise a
+  // match given up mid-countdown kept beeping and firing the opponent's
+  // launcher after the player was already back in the menu
+  const timers: number[] = [];
   const shootAt = Date.now() + 2400;
   const seq = [
     { at: 0, text: "3" },
@@ -133,17 +138,25 @@ export async function humanLaunch(
     { at: 2100, text: "GO SHOOT!!" },
   ];
   for (const s of seq) {
-    setTimeout(() => {
-      count.textContent = s.text;
-      sfx.beep(s.text.startsWith("GO"));
-    }, s.at + 300);
+    timers.push(
+      window.setTimeout(() => {
+        count.textContent = s.text;
+        sfx.beep(s.text.startsWith("GO"));
+      }, s.at + 300),
+    );
   }
   if (opp) {
-    setTimeout(() => {
-      sfx.launch(7500);
-      void app.view.playOpponentRelease(opp.side);
-    }, Math.max(0, shootAt - Date.now()));
+    timers.push(
+      window.setTimeout(() => {
+        sfx.launch(7500);
+        void app.view.playOpponentRelease(opp.side);
+      }, Math.max(0, shootAt - Date.now())),
+    );
   }
+  const stopTimers = (): void => {
+    for (const t of timers) window.clearTimeout(t);
+    timers.length = 0;
+  };
 
   const result = await captureLaunch(zone, {
     shootAtMs: shootAt,
@@ -157,6 +170,7 @@ export async function humanLaunch(
 
   if (result.aborted) {
     // gave up mid-gesture: tear the rig down and unwind, never launch
+    stopTimers();
     app.view.removeLauncher();
     app.view.removeOpponentLauncher();
     zone.remove();
@@ -166,6 +180,7 @@ export async function humanLaunch(
   }
 
   if (result.mislaunch) {
+    stopTimers();
     app.view.removeLauncher();
     app.view.removeOpponentLauncher(); // re-battle: everyone re-launches
     zone.remove();
@@ -174,6 +189,7 @@ export async function humanLaunch(
     return { launch: null, mislaunch: result.mislaunch };
   }
   await app.view.releaseLauncher(); // bey rips off, launcher lifts away
+  stopTimers();
   app.view.removeLauncher();
   app.view.removeOpponentLauncher();
   zone.remove();

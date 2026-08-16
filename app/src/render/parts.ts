@@ -555,10 +555,19 @@ export function buildBeyMesh(
   const { heightM } = ratchetSpec(rc?.parts.ratchet?.code);
   const ratchetTopZ = bitTop + heightM;
 
-  g.add(buildBit(rc?.parts.bit, 0));
-  g.add(buildRatchet(rc?.parts.ratchet, ratchetTopZ));
-  if (rc?.isCx) g.add(buildCxStack(rc, accent, R, ratchetTopZ));
-  else g.add(buildBlade(bladePart, accent, R, ratchetTopZ));
+  // named so a burst can detach each part and throw it (docs/RULES.md: a
+  // burst finish is the bey coming apart, so it should visibly come apart)
+  const bit = buildBit(rc?.parts.bit, 0);
+  bit.name = "part:bit";
+  g.add(bit);
+  const ratchet = buildRatchet(rc?.parts.ratchet, ratchetTopZ);
+  ratchet.name = "part:ratchet";
+  g.add(ratchet);
+  const upper = rc?.isCx
+    ? buildCxStack(rc, accent, R, ratchetTopZ)
+    : buildBlade(bladePart, accent, R, ratchetTopZ);
+  upper.name = "part:blade";
+  g.add(upper);
 
   // spin-blur shader ring: streaks that counter-rotate in the local frame,
   // which is what sells 1000+ rpm far better than geometry alone

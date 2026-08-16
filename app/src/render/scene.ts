@@ -77,6 +77,80 @@ export class BattleView {
   private orbitTarget = new THREE.Vector3(0, 0, 0.02);
   /** per-bey knock-out flights, so a KO'd bey lands and stays visible */
   private koFlights: ({ t: number; from: THREE.Vector3; to: THREE.Vector3; spin: number } | null)[] = [];
+  /** beys already blown apart, so a burst only detonates once */
+  private burstDone: boolean[] = [];
+  /** free-flying blade/ratchet/bit pieces from a burst */
+  private debris: { mesh: THREE.Object3D; vel: THREE.Vector3; spin: THREE.Vector3; rest: number }[] = [];
+
+  /**
+   * A burst finish is literally the bey coming apart, so show it: detach the
+   * blade, ratchet and bit, throw them off the tip's position and let them
+   * tumble, bounce and settle on the dish.
+   */
+  private explodeBey(i: number, at: THREE.Vector3): void {
+    const m = this.beyMeshes[i];
+    if (!m || this.burstDone[i]) return;
+    this.burstDone[i] = true;
+    sfx.burst();
+    const parts = m.children.filter((c) => c.name.startsWith("part:"));
+    parts.forEach((part, k) => {
+      const world = new THREE.Vector3();
+      part.getWorldPosition(world);
+      m.remove(part);
+      part.position.copy(world);
+      this.scene.add(part);
+      // the blade flies furthest, the bit mostly drops
+      const a = (k / Math.max(1, parts.length)) * Math.PI * 2 + Math.random() * 1.2;
+      const push = part.name === "part:blade" ? 0.62 : part.name === "part:ratchet" ? 0.42 : 0.24;
+      this.debris.push({
+        mesh: part,
+        vel: new THREE.Vector3(
+          Math.cos(a) * push,
+          Math.sin(a) * push,
+          0.55 + Math.random() * 0.5,
+        ),
+        spin: new THREE.Vector3(
+          (Math.random() - 0.5) * 26,
+          (Math.random() - 0.5) * 26,
+          (Math.random() - 0.5) * 40,
+        ),
+        rest: at.z,
+      });
+    });
+    m.visible = false;
+    // a burst throws sparks from the latch
+    this.spawnSparks(1.6, i);
+  }
+
+  private stepDebris(dt: number): void {
+    const s = this.stadium;
+    for (const d of this.debris) {
+      d.vel.z -= 9.81 * dt;
+      d.mesh.position.addScaledVector(d.vel, dt);
+      d.mesh.rotation.x += d.spin.x * dt;
+      d.mesh.rotation.y += d.spin.y * dt;
+      d.mesh.rotation.z += d.spin.z * dt;
+      const r = Math.hypot(d.mesh.position.x, d.mesh.position.y);
+      const floor = s ? surfaceZ(s, Math.min(r, s.rWall)) : 0;
+      if (d.mesh.position.z <= floor) {
+        d.mesh.position.z = floor;
+        if (Math.abs(d.vel.z) > 0.2) {
+          d.vel.z = -d.vel.z * 0.42; // bounce
+          d.vel.x *= 0.7;
+          d.vel.y *= 0.7;
+          d.spin.multiplyScalar(0.6);
+        } else {
+          d.vel.set(0, 0, 0); // settled — the pieces stay lying there
+          d.spin.multiplyScalar(0.82);
+        }
+      }
+    }
+  }
+
+  private clearDebris(): void {
+    for (const d of this.debris) this.scene.remove(d.mesh);
+    this.debris = [];
+  }
   launchSide: 0 | 1 = 0;
   /** silences hums/sfx/haptics (menu-background battles) */
   audioMuted = false;
@@ -695,6 +769,8 @@ export class BattleView {
     });
     this.beyParams = list.map((e) => e.params);
     this.koFlights = list.map(() => null);
+    this.burstDone = list.map(() => false);
+    this.clearDebris();
     while (this.lastBeyPos.length < list.length) {
       const a = (this.lastBeyPos.length / Math.max(2, list.length)) * Math.PI * 2;
       this.lastBeyPos.push(new THREE.Vector3(Math.cos(a) * 0.06, Math.sin(a) * 0.06, 0.02));
@@ -707,6 +783,8 @@ export class BattleView {
     for (const m of this.beyMeshes) if (m) this.scene.remove(m);
     this.beyMeshes = [];
     this.beyParams = [];
+    this.burstDone = [];
+    this.clearDebris();
     sfx.stopHums();
   }
 
@@ -829,7 +907,8 @@ export class BattleView {
           bm.uniforms.uIntensity!.value = Math.min(1, Math.max(0, (absOmega - 140) / 650)) * 0.5;
         }
         if (!b.alive) {
-          m.rotation.x = Math.min(1.35, m.rotation.x + dt * 6); // burst keel
+          // burst: the bey comes apart where it stood
+          this.explodeBey(i, m.position.clone());
         } else if (b.stoppedTick >= 0) {
           m.rotation.x = Math.min(1.4, m.rotation.x + dt * 3.2); // lie down
         } else if (absOmega < WOBBLE_OMEGA) {
@@ -850,6 +929,7 @@ export class BattleView {
         );
       }
     }
+    this.stepDebris(dt);
     for (let i = this.sparks.length - 1; i >= 0; i--) {
       const sp = this.sparks[i]!;
       sp.life -= dt;

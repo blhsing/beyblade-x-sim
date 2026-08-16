@@ -48,6 +48,11 @@ export const UI_CSS = `
   background: rgba(11,16,32,.22); overflow-y: auto; z-index: 10; }
 .overlay.transparent { background: transparent; pointer-events: none; }
 .overlay.transparent > * { pointer-events: auto; }
+/* Confirmations must sit above the launch gesture surface (z 12) and the
+   scoreboard (z 13). At the base overlay z-index the give-up dialog rendered
+   UNDER the full-screen launchzone: visible, but every tap went to the
+   launcher instead, so the match ran on with a dead-looking menu on top. */
+.overlay.modal { z-index: 40; background: rgba(11,16,32,.55); }
 .panel { background: rgba(20,27,58,.4); border: 1px solid rgba(74,93,168,.45);
   border-radius: 14px; backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
   padding: 16px; width: min(92vw, 420px); display: flex; flex-direction: column; gap: 10px;
