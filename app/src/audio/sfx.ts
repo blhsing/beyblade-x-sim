@@ -577,18 +577,24 @@ export class Sfx {
 
 export const sfx = new Sfx();
 
-// Browsers refuse to start audio without a user gesture, and unlock() was
-// only wired to a handful of buttons — so entering the game and going
-// straight to a menu left it silent. Arm a one-shot unlock on the very
-// first interaction anywhere, whatever it is.
+// Browsers do not allow ANY audio before the user's first interaction —
+// that is the autoplay policy, not something the page can opt out of, so a
+// game opened and left untouched is silent by rule. What we can do is make
+// the very first interaction of any kind start everything, and tell the UI
+// the moment it happens so it can stop advertising a tap.
 if (typeof document !== "undefined") {
+  const EVENTS = ["pointerdown", "touchend", "keydown", "click"];
   const kick = (): void => {
     sfx.unlock();
-    for (const ev of ["pointerdown", "touchend", "keydown", "click"]) {
-      document.removeEventListener(ev, kick, true);
-    }
+    audioUnlocked = true;
+    for (const ev of EVENTS) document.removeEventListener(ev, kick, true);
+    window.dispatchEvent(new CustomEvent("beyblade:audio"));
   };
-  for (const ev of ["pointerdown", "touchend", "keydown", "click"]) {
-    document.addEventListener(ev, kick, true);
-  }
+  for (const ev of EVENTS) document.addEventListener(ev, kick, true);
+}
+
+let audioUnlocked = false;
+/** True once a user gesture has let the audio context start. */
+export function isAudioUnlocked(): boolean {
+  return audioUnlocked;
 }
