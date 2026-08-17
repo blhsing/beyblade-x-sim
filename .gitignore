@@ -13,3 +13,5 @@ server/relay/webroot/*
 android/
 ios/
 .capacitor/
+# local operator notes — contains deployment secrets, never commit
+CLAUDE.md

@@ -18,7 +18,7 @@ export interface GalleryItem {
   bars?: { label: string; v: number; max: number; color: string }[];
   /** filter-chip tags, e.g. type/line/source */
   tags?: string[];
-  thumb: (() => string) | null;
+  thumb: (() => string | Promise<string>) | null;
 }
 
 export interface GalleryFilter {
@@ -75,8 +75,14 @@ export function openGallery(
         const it = items.find((x) => x.key === key);
         const img = card.querySelector("img");
         if (it?.thumb && img && !img.src) {
-          const url = it.thumb();
-          if (url) img.src = url;
+          const result = it.thumb();
+          if (typeof result === "string") {
+            if (result) img.src = result;
+          } else {
+            void result.then((url) => {
+              if (url && img.isConnected) img.src = url;
+            });
+          }
         }
       }
     },

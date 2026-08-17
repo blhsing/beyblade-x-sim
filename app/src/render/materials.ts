@@ -12,6 +12,7 @@
 import * as THREE from "three";
 
 const texCache = new Map<string, THREE.Texture>();
+const imageLoads = new Map<string, Promise<THREE.Texture>>();
 
 function cached(key: string, make: () => THREE.Texture): THREE.Texture {
   let t = texCache.get(key);
@@ -36,6 +37,46 @@ function texture(cv: HTMLCanvasElement, opts: { srgb?: boolean; repeat?: number 
   t.anisotropy = 8;
   if (opts.repeat) t.repeat.set(opts.repeat, opts.repeat);
   return t;
+}
+
+/**
+ * A catalog-sourced sticker image. TextureLoader returns its Texture
+ * immediately so live scenes can start rendering while the browser decodes
+ * it; `preloadStickerImage` exposes the same cached load to thumbnail code,
+ * which must wait before taking its one-frame canvas snapshot.
+ */
+export function stickerImageTexture(url: string): THREE.Texture {
+  const key = `sticker-image:${url}`;
+  let t = texCache.get(key);
+  if (!t) {
+    t = new THREE.Texture();
+    t.colorSpace = THREE.SRGBColorSpace;
+    t.wrapS = t.wrapT = THREE.ClampToEdgeWrapping;
+    t.anisotropy = 8;
+    texCache.set(key, t);
+    const target = t;
+    const pending = new Promise<THREE.Texture>((resolve, reject) => {
+      new THREE.ImageLoader().load(
+        url,
+        (image) => {
+          target.image = image;
+          target.needsUpdate = true;
+          resolve(target);
+        },
+        undefined,
+        reject,
+      );
+    });
+    imageLoads.set(url, pending);
+  }
+  return t;
+}
+
+/** Wait until an image-backed sticker is decoded and ready for a snapshot. */
+export function preloadStickerImage(url: string | null | undefined): Promise<THREE.Texture | null> {
+  if (!url) return Promise.resolve(null);
+  const t = stickerImageTexture(url);
+  return imageLoads.get(url) ?? Promise.resolve(t);
 }
 
 /** Height field → tangent-space normal map (Sobel), the honest way to get

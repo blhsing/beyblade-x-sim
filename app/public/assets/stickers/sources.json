@@ -1,0 +1,494 @@
+{
+  "blade-knightshield.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeKnightShield.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/9c/BladeKnightShield.png/revision/latest?cb=20250609060142"
+  },
+  "blade-dransword.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDranSword.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/5f/BladeDranSword.png/revision/latest?cb=20250814202546"
+  },
+  "blade-sharkedge.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSharkEdge.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2e/BladeSharkEdge.png/revision/latest?cb=20260802062042"
+  },
+  "blade-hellsscythe.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeHellsScythe.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/e4/BladeHellsScythe.png/revision/latest?cb=20250817035337"
+  },
+  "blade-wizardarrow.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWizardArrow.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/44/BladeWizardArrow.png/revision/latest?cb=20250626062049"
+  },
+  "blade-dranzerspiral.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDranzerSpiral.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/ce/BladeDranzerSpiral.png/revision/latest?cb=20230807194254"
+  },
+  "blade-cobaltdrake.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeCobaltDrake.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2f/BladeCobaltDrake.png/revision/latest?cb=20250528202030"
+  },
+  "blade-knightlance.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeKnightLance.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/cb/BladeKnightLance.png/revision/latest?cb=20260802061924"
+  },
+  "blade-vipertail.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeViperTail.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/9d/BladeViperTail.png/revision/latest?cb=20260803013908"
+  },
+  "blade-leonclaw.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeLeonClaw.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/93/BladeLeonClaw.png/revision/latest?cb=20260803013726"
+  },
+  "blade-drandagger.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDranDagger.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/c8/BladeDranDagger.png/revision/latest?cb=20260808045217"
+  },
+  "blade-rhinohorn.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeRhinoHorn.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/41/BladeRhinoHorn.png/revision/latest?cb=20260808045050"
+  },
+  "blade-hellschain.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeHellsChain.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/83/BladeHellsChain.png/revision/latest?cb=20260808045710"
+  },
+  "blade-phoenixfeather.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladePhoenixFeather.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/96/BladePhoenixFeather.png/revision/latest?cb=20231207074705"
+  },
+  "blade-phoenixwing.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladePhoenixWing.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2d/BladePhoenixWing.png/revision/latest?cb=20260809063447"
+  },
+  "blade-wyverngale.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWyvernGale.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3d/BladeWyvernGale.png/revision/latest?cb=20260809063621"
+  },
+  "blade-unicornsting.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeUnicornSting.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/15/BladeUnicornSting.png/revision/latest?cb=20260813014525"
+  },
+  "blade-sphinxcowl.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSphinxCowl.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/31/BladeSphinxCowl.png/revision/latest?cb=20260813014650"
+  },
+  "blade-wizardrod.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWizardRod.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/a3/BladeWizardRod.png/revision/latest?cb=20260815024049"
+  },
+  "blade-dranbuster.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDranBuster.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/db/BladeDranBuster.png/revision/latest?cb=20260815023129"
+  },
+  "blade-hellshammer.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeHellsHammer.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/67/BladeHellsHammer.png/revision/latest?cb=20260815023901"
+  },
+  "blade-tyrannobeat.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeTyrannoBeat.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/ff/BladeTyrannoBeat.png/revision/latest?cb=20240415173927"
+  },
+  "blade-drigerslash.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDrigerSlash.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/c5/BladeDrigerSlash.png/revision/latest?cb=20240322182711"
+  },
+  "blade-shinobishadow.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeShinobiShadow.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/48/BladeShinobiShadow.png/revision/latest?cb=20250528201917"
+  },
+  "blade-weisstiger.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWeissTiger.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/37/BladeWeissTiger.png/revision/latest?cb=20240515052303"
+  },
+  "blade-cobaltdragoon.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeCobaltDragoon.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/c2/BladeCobaltDragoon.png/revision/latest?cb=20250528202711"
+  },
+  "blade-blackshell.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeBlackShell.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3c/BladeBlackShell.png/revision/latest?cb=20250528201216"
+  },
+  "blade-aeropegasus.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeAeroPegasus.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/58/BladeAeroPegasus.png/revision/latest?cb=20250528202546"
+  },
+  "blade-phoenixrudder.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladePhoenixRudder.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/0/0f/BladePhoenixRudder.png/revision/latest?cb=20250528203411"
+  },
+  "blade-leoncrest.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeLeonCrest.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/c7/BladeLeonCrest.png/revision/latest?cb=20240712055426"
+  },
+  "blade-whalewave.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWhaleWave.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/89/BladeWhaleWave.png/revision/latest?cb=20240812022438"
+  },
+  "blade-lightningldragorapidhittype.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeLightningL-Drago%28Rapid-HitType%29.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/5b/BladeLightningL-Drago%28Rapid-HitType%29.png/revision/latest?cb=20240809163229"
+  },
+  "blade-lightningldragouppertype.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeLightningL-Drago%28UpperType%29.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d0/BladeLightningL-Drago%28UpperType%29.png/revision/latest?cb=20240809163223"
+  },
+  "blade-silverwolf.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSilverWolf.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/f1/BladeSilverWolf.png/revision/latest?cb=20240913034202"
+  },
+  "blade-samuraisaber.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSamuraiSaber.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/de/BladeSamuraiSaber.png/revision/latest?cb=20241015033005"
+  },
+  "blade-crimsongaruda.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeCrimsonGaruda.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/60/BladeCrimsonGaruda.png/revision/latest?cb=20241015052049"
+  },
+  "blade-knightmail.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeKnightMail.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/fc/BladeKnightMail.png/revision/latest?cb=20241015034144"
+  },
+  "blade-pteraswing.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladePteraSwing.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3a/BladePteraSwing.png/revision/latest?cb=20241227163416"
+  },
+  "blade-knifeshinobi.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeKnifeShinobi.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/25/BladeKnifeShinobi.png/revision/latest?cb=20250815182407"
+  },
+  "blade-impactdrake.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeImpactDrake.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b1/BladeImpactDrake.png/revision/latest?cb=20241115024018"
+  },
+  "blade-ghostcircle.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeGhostCircle.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/7a/BladeGhostCircle.png/revision/latest?cb=20241115025132"
+  },
+  "blade-dracielshield.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDracielShield.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/79/BladeDracielShield.png/revision/latest?cb=20241202045350"
+  },
+  "blade-crococrunch.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeCrocoCrunch.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/0/0d/BladeCrocoCrunch.png/revision/latest?cb=20260815182638"
+  },
+  "blade-golemrock.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeGolemRock.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/27/BladeGolemRock.png/revision/latest?cb=20250115052241"
+  },
+  "blade-shelterdrake.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeShelterDrake.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/89/BladeShelterDrake.png/revision/latest?cb=20250530222732"
+  },
+  "blade-stormpegasis.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeStormPegasis.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/43/BladeStormPegasis.png/revision/latest?cb=20260617033126"
+  },
+  "blade-dragoonstorm.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDragoonStorm.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/c4/BladeDragoonStorm.png/revision/latest?cb=20251114045923"
+  },
+  "blade-victoryvalkyrie260ra.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:VictoryValkyrie%202-60RA.jpeg",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/6b/VictoryValkyrie_2-60RA.jpeg/revision/latest?cb=20240717033721"
+  },
+  "blade-perseusdarkb.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladePerseusDarkB.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/64/BladePerseusDarkB.png/revision/latest?cb=20250305054642"
+  },
+  "blade-dranbraves.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDranBraveS.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/1a/BladeDranBraveS.png/revision/latest?cb=20250305054628"
+  },
+  "blade-wizardarcr.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWizardArcR.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/46/BladeWizardArcR.png/revision/latest?cb=20250305054635"
+  },
+  "blade-xenoxcalibur.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeXenoXcalibur.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/bb/BladeXenoXcalibur.png/revision/latest?cb=20250322231907"
+  },
+  "blade-scorpiospear.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeScorpioSpear.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/89/BladeScorpioSpear.png/revision/latest?cb=20250614081207"
+  },
+  "blade-hellsreapert.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeHellsReaperT.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/4a/BladeHellsReaperT.png/revision/latest?cb=20250314153042"
+  },
+  "blade-rhinoreaperc.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeRhinoReaperC.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/cd/BladeRhinoReaperC.png/revision/latest?cb=20260317051857"
+  },
+  "blade-ironman.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeIronMan.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/78/BladeIronMan.png/revision/latest?cb=20250321062619"
+  },
+  "blade-thanos.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeThanos.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/ef/BladeThanos.png/revision/latest?cb=20250321062645"
+  },
+  "blade-spiderman.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSpiderMan.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/a5/BladeSpiderMan.png/revision/latest?cb=20250321062709"
+  },
+  "blade-venom.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeVenom.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/ee/BladeVenom.png/revision/latest?cb=20250321062739"
+  },
+  "blade-lukeskywalker.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeLukeSkywalker.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/71/BladeLukeSkywalker.png/revision/latest?cb=20250321062806"
+  },
+  "blade-darthvader.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDarthVader.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/7e/BladeDarthVader.png/revision/latest?cb=20250321062834"
+  },
+  "blade-themandalorian.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeTheMandalorian.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2d/BladeTheMandalorian.png/revision/latest?cb=20250321062856"
+  },
+  "blade-moffgideon.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeMoffGideon.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b6/BladeMoffGideon.png/revision/latest?cb=20250321062919"
+  },
+  "blade-steelsamurai.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSteelSamurai.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2c/BladeSteelSamurai.png/revision/latest?cb=20250503034245"
+  },
+  "blade-foxbrushj.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeFoxBrushJ.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3b/BladeFoxBrushJ.png/revision/latest?cb=20250416134856"
+  },
+  "blade-optimusprime.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeOptimusPrime.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/8e/BladeOptimusPrime.png/revision/latest?cb=20250321062945"
+  },
+  "blade-megatron.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeMegatron.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b0/BladeMegatron.png/revision/latest?cb=20250321063015"
+  },
+  "blade-starscream.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeStarscream.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/83/BladeStarscream.png/revision/latest?cb=20250321063101"
+  },
+  "blade-tricerapress.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeTriceraPress.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/48/BladeTriceraPress.png/revision/latest?cb=20250515033251"
+  },
+  "blade-pegasusblasta.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladePegasusBlastA.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/1f/BladePegasusBlastA.png/revision/latest?cb=20250613084219"
+  },
+  "blade-cerberusflamew.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeCerberusFlameW.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/cf/BladeCerberusFlameW.png/revision/latest?cb=20250613084226"
+  },
+  "blade-rockleone.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeRockLeone.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/a2/BladeRockLeone.png/revision/latest?cb=20250719051128"
+  },
+  "blade-samuraicalibur.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSamuraiCalibur.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/ab/BladeSamuraiCalibur.png/revision/latest?cb=20250715051328"
+  },
+  "blade-sharkscale.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSharkScale.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/e0/BladeSharkScale.png/revision/latest?cb=20250715051433"
+  },
+  "blade-tyrannoroar.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeTyrannoRoar.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/6d/BladeTyrannoRoar.png/revision/latest?cb=20250727003819"
+  },
+  "blade-soleclipsed.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Blade_SolEclipse_D_%28Double_Smash_Mode%29.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/5f/Blade_SolEclipse_D_%28Double_Smash_Mode%29.png/revision/latest?cb=20250812044929"
+  },
+  "blade-clockmirage.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeClockMirage.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/7c/BladeClockMirage.png/revision/latest?cb=20250912034434"
+  },
+  "blade-goattackle.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeGoatTackle.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/1f/BladeGoatTackle.png/revision/latest?cb=20250828045656"
+  },
+  "blade-wyvernhover.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWyvernHover.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b2/BladeWyvernHover.png/revision/latest?cb=20260715031743"
+  },
+  "blade-wolfhuntf.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWolfHuntF.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/20/BladeWolfHuntF.png/revision/latest?cb=20251026010234"
+  },
+  "blade-emperormighth.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeEmperorMightH_%28Metal_Coat_Black%29.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b8/BladeEmperorMightH_%28Metal_Coat_Black%29.png/revision/latest?cb=20251026010259"
+  },
+  "blade-sharkgill.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSharkGill.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/7c/BladeSharkGill.png/revision/latest?cb=20251015212355"
+  },
+  "blade-orochicluster.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeOrochiCluster.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d0/BladeOrochiCluster.png/revision/latest?cb=20260121134642"
+  },
+  "blade-mummycurse.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeMummyCurse.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/ab/BladeMummyCurse.png/revision/latest?cb=20251114034130"
+  },
+  "blade-meteordragoon.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeMeteorDragoon.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b7/BladeMeteorDragoon.png/revision/latest?cb=20260810211243"
+  },
+  "blade-ragnaragefe.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeRagnaRageFE.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b8/BladeRagnaRageFE.png/revision/latest?cb=20260214060755"
+  },
+  "blade-bahamutblitzbk.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeBahamutBlitzBK.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3e/BladeBahamutBlitzBK.png/revision/latest?cb=20260214060758"
+  },
+  "blade-knightfortressgv.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeKnightFortressGV.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/48/BladeKnightFortressGV.png/revision/latest?cb=20260214060758"
+  },
+  "blade-stormspriggan.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeStormSpriggan.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/64/BladeStormSpriggan.png/revision/latest?cb=20260322045727"
+  },
+  "blade-unicorndeltapo.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeUnicornDelta_PO.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/6b/BladeUnicornDelta_PO.png/revision/latest?cb=20260415041225"
+  },
+  "blade-ratchetbladebulletgriffon.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:RatchetBladeBulletGriffon.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d2/RatchetBladeBulletGriffon.png/revision/latest?cb=20260313031310"
+  },
+  "blade-dranstrike.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDranStrike.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/67/BladeDranStrike.png/revision/latest?cb=20260313031347"
+  },
+  "blade-drakebraveg.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Blade_DrakeBrave_G.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3e/Blade_DrakeBrave_G.png/revision/latest?cb=20260615040940"
+  },
+  "blade-heavensring.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeHeavensRing.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/41/BladeHeavensRing.png/revision/latest?cb=20260615070349"
+  },
+  "blade-ratchetbladegloryvalkyrie.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:RatchetBladeGloryValkyrie.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b6/RatchetBladeGloryValkyrie.png/revision/latest?cb=20260616045056"
+  },
+  "blade-ratchetbladehellsnether.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:RatchetBladeHellsNether.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/43/RatchetBladeHellsNether_%28Low_Mode%29.png/revision/latest?cb=20260715045608"
+  },
+  "chip-perseus.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipPerseus.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/6a/LockChipPerseus.png/revision/latest?cb=20250215050629"
+  },
+  "chip-dran.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipDran.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/6c/LockChipDran.png/revision/latest?cb=20250215050437"
+  },
+  "chip-wizard.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipWizard.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/43/LockChipWizard.png/revision/latest?cb=20250215050531"
+  },
+  "chip-hells.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipHells.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/7a/LockChipHells.png/revision/latest?cb=20250314041513"
+  },
+  "chip-rhino.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipRhino.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d7/LockChipRhino.png/revision/latest?cb=20250404235409"
+  },
+  "chip-fox.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipFox.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/65/LockChipFox.png/revision/latest?cb=20250415032832"
+  },
+  "chip-valkyrie.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipValkyrie.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b4/LockChipValkyrie.png/revision/latest?cb=20250715032014"
+  },
+  "chip-cerberus.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipCerberus.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/bd/LockChipCerberus.png/revision/latest?cb=20250613042044"
+  },
+  "chip-pegasus.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipPegasus.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/86/LockChipPegasus.png/revision/latest?cb=20250613042010"
+  },
+  "chip-whale.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipWhale.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/75/LockChipWhale.png/revision/latest?cb=20250613042706"
+  },
+  "chip-sol.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipSol.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/6e/LockChipSol.png/revision/latest?cb=20250812023449"
+  },
+  "chip-wolf.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipWolf.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/6a/LockChipWolf.png/revision/latest?cb=20251015204952"
+  },
+  "chip-emperor.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipEmperor.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2b/LockChipEmperor.png/revision/latest?cb=20251015205115"
+  },
+  "chip-leon.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipLeon.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/1a/LockChipLeon.png/revision/latest?cb=20250515031153"
+  },
+  "chip-phoenix.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipPhoenix.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/7a/LockChipPhoenix.png/revision/latest?cb=20260115042959"
+  },
+  "chip-ragna.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipRagna.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/9b/LockChipRagna.png/revision/latest?cb=20260214043116"
+  },
+  "chip-bahamut.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipBahamut.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/e4/LockChipBahamut.png/revision/latest?cb=20260214040353"
+  },
+  "chip-knight.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipKnight.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/c2/LockChipKnight.png/revision/latest?cb=20260214040509"
+  },
+  "chip-unicorn.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipUnicorn.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/4e/LockChipUnicorn.png/revision/latest?cb=20260415025415"
+  },
+  "chip-brachio.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipBrachio.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/6d/LockChipBrachio.png/revision/latest?cb=20260517042128"
+  },
+  "chip-hornet.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipHornet.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/88/LockChipHornet.png/revision/latest?cb=20250820214840"
+  },
+  "chip-kraken.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipKraken.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d4/LockChipKraken.png/revision/latest?cb=20250820214847"
+  },
+  "chip-stag.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipStag.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d9/LockChipStag.png/revision/latest?cb=20250820214853"
+  },
+  "chip-drake.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipDrake.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/71/LockChipDrake.png/revision/latest?cb=20260617032949"
+  },
+  "chip-evaunit01.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipEvaUnit-01.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/c7/LockChipEvaUnit-01.png/revision/latest?cb=20260321053608"
+  },
+  "chip-tiga.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipTiga_%28Red%29.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/99/LockChipTiga_%28Red%29.png/revision/latest?cb=20260712025704"
+  },
+  "chip-croco.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:LockChipCroco.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/f9/LockChipCroco.png/revision/latest?cb=20260812030128"
+  }
+}

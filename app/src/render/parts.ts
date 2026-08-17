@@ -14,6 +14,7 @@ import * as THREE from "three";
 
 import type { ResolvedCombo } from "../core/derive";
 import type { BeyParams, PartEntry } from "../core/types";
+import stickerManifest from "./sticker-manifest.json";
 import {
   absPlastic,
   diecastMetal,
@@ -21,8 +22,20 @@ import {
   pomTranslucent,
   rubberMat,
   stickerMaterial,
+  stickerImageTexture,
   stickerTexture,
 } from "./materials";
+
+const BLADE_STICKERS = stickerManifest.blades as Record<string, string>;
+const LOCK_CHIP_STICKERS = stickerManifest.lockChips as Record<string, string>;
+
+export function bladeStickerUrl(part: PartEntry | null | undefined): string | null {
+  return part ? (BLADE_STICKERS[part.key] ?? null) : null;
+}
+
+export function lockChipStickerUrl(part: PartEntry | null | undefined): string | null {
+  return part ? (LOCK_CHIP_STICKERS[part.key] ?? null) : null;
+}
 
 /** Official colourway names (phstudy `part_colors`) → linear render colours. */
 export const COLOR_NAMES: Record<string, number> = {
@@ -32,6 +45,7 @@ export const COLOR_NAMES: Record<string, number> = {
   grey: 0x8a8a94, silver: 0xc8ccd8, gold: 0xcfae4a, bronze: 0xb08048,
   brown: 0x7a5636, clear: 0xd8e0f0, lime: 0x9ed82e, magenta: 0xc22ea3,
   turquoise: 0x2ec2a3, violet: 0x8a4ad8,
+  "yellow-green": 0xa8cf38,
 };
 
 export const TYPE_COLORS: Record<string, number> = {
@@ -204,6 +218,7 @@ export function buildBlade(
   accent: number,
   R: number,
   baseZ = 0,
+  withSticker = true,
 ): THREE.Group {
   const g = new THREE.Group();
   const type = part?.type ?? null;
@@ -258,32 +273,35 @@ export function buildBlade(
   ringMesh.castShadow = true;
   g.add(ringMesh);
 
-  // 3. the sticker: a glossy die-cut laminate disc on the crown, slightly
-  // domed so its highlight sweeps as the bey spins
-  const stickerR = R * 0.52;
-  const stickerGeo = new THREE.CircleGeometry(stickerR, DETAIL.radial);
-  const sticker = new THREE.Mesh(
-    stickerGeo,
-    stickerMaterial(
-      stickerTexture({
-        key: part?.key ?? "?",
-        label: part?.code ?? part?.name.en ?? "BEY",
-        base: color,
-        accent: new THREE.Color(color).offsetHSL(0.5, 0.1, 0.12).getHex(),
-        seed,
-      }),
-    ),
-  );
-  sticker.position.z = top + 0.0002;
-  g.add(sticker);
+  if (withSticker) {
+    // 3. the sticker: the exact center graphic extracted from the Wiki's
+    // top-down Blade artwork. The procedural badge remains only as a fallback
+    // for unpublished/future parts. 43% matches the real sticker-to-Blade
+    // diameter measured from those source images.
+    const stickerR = R * 0.43;
+    const stickerGeo = new THREE.CircleGeometry(stickerR, DETAIL.radial);
+    const sourceUrl = bladeStickerUrl(part);
+    const stickerMap = sourceUrl
+      ? stickerImageTexture(sourceUrl)
+      : stickerTexture({
+          key: part?.key ?? "?",
+          label: part?.code ?? part?.name.en ?? "BEY",
+          base: color,
+          accent: new THREE.Color(color).offsetHSL(0.5, 0.1, 0.12).getHex(),
+          seed,
+        });
+    const sticker = new THREE.Mesh(stickerGeo, stickerMaterial(stickerMap));
+    sticker.position.z = top + 0.0002;
+    g.add(sticker);
 
-  // moulded lip that the sticker sits inside
-  const lip = new THREE.Mesh(
-    new THREE.TorusGeometry(stickerR * 1.06, R * 0.02, 16, DETAIL.radial),
-    absPlastic(new THREE.Color(color).multiplyScalar(0.45).getHex(), { rough: 0.4 }),
-  );
-  lip.position.z = top;
-  g.add(lip);
+    // moulded lip that the sticker sits inside
+    const lip = new THREE.Mesh(
+      new THREE.TorusGeometry(stickerR * 1.06, R * 0.02, 16, DETAIL.radial),
+      absPlastic(new THREE.Color(color).multiplyScalar(0.45).getHex(), { rough: 0.4 }),
+    );
+    lip.position.z = top;
+    g.add(lip);
+  }
   return g;
 }
 
@@ -300,7 +318,9 @@ export function buildCxStack(
   const mainR = partRadiusM(main, R);
   // assist blade height (real, from the 0.1 mm-unit stat) lifts the main blade
   const assistH = assist ? Math.max(0.004, (assist.stats.height || 55) / 10000) : 0;
-  g.add(buildBlade(main, accent, mainR, baseZ + assistH));
+  // CX uses its Lock Chip as the visible top emblem; unlike BX/UX it does not
+  // carry a second traditional Blade sticker underneath.
+  g.add(buildBlade(main, accent, mainR, baseZ + assistH, false));
 
   if (assist) {
     const h = assistH;
@@ -325,10 +345,24 @@ export function buildCxStack(
     g.add(m);
   }
   if (rc.parts.lockChip) {
-    // lock chip: the small emblem disc that locks the CX stack together
+    // Lock Chip: catalog artwork on the top cap, official mould colour on
+    // the sides. CylinderGeometry assigns [side, top, bottom] materials.
+    const lockChip = rc.parts.lockChip;
+    const chipColor = COLOR_NAMES[lockChip.color?.toLowerCase() ?? ""] ?? 0xcfae4a;
+    const sideMat = absPlastic(chipColor, { rough: 0.3, coat: 0.9 });
+    const sourceUrl = lockChipStickerUrl(lockChip);
+    const topMap = sourceUrl
+      ? stickerImageTexture(sourceUrl)
+      : stickerTexture({
+          key: lockChip.key,
+          label: lockChip.code,
+          base: chipColor,
+          accent: new THREE.Color(chipColor).offsetHSL(0.5, 0.1, 0.12).getHex(),
+          seed: partSeed(lockChip.key),
+        });
     const chip = new THREE.Mesh(
       new THREE.CylinderGeometry(mainR * 0.26, mainR * 0.29, 0.0042, DETAIL.radial),
-      paintedMetal(COLOR_NAMES[rc.parts.lockChip.color?.toLowerCase() ?? ""] ?? 0xcfae4a, 0.3),
+      [sideMat, stickerMaterial(topMap), sideMat],
     );
     chip.rotation.x = Math.PI / 2;
     chip.position.z = baseZ + assistH + 0.0142;
