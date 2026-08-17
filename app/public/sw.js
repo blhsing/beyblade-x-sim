@@ -1,6 +1,6 @@
 // Minimal PWA service worker: cache-first for hashed assets, network-first
 // for the shell + data so redeploys show up on next launch.
-const VERSION = "beyx-v2-models";
+const VERSION = "beyx-v3-burst-stadium-pockets";
 const CORE = ["./", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (e) => {

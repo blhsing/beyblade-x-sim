@@ -4,6 +4,7 @@
 // then both devices run the identical deterministic sim.
 
 import type { ComboSelection, LaunchParams } from "../core/types";
+import { PHYSICS_VERSION } from "../core/sim";
 import type { RuleSet } from "../game/rules";
 
 export interface RelayEnvelope {
@@ -19,9 +20,9 @@ export interface RelayEnvelope {
 export type GameMsg =
   | { t: "hello"; name: string; ver: string }
   | { t: "rules"; rules: RuleSet }
-  | { t: "deck"; combos: ComboSelection[]; r?: number }
-  | { t: "seedq"; q: number; r?: number }
-  | { t: "launch"; launch: LaunchParams; r?: number }
+  | { t: "deck"; combos: ComboSelection[]; r?: number; pv?: number }
+  | { t: "seedq"; q: number; r?: number; pv?: number }
+  | { t: "launch"; launch: LaunchParams; r?: number; pv?: number }
   | { t: "hash"; tick: number; h: string }
   | { t: "result"; winner: number | null; draw: boolean; tick: number }
   | { t: "score"; scores: [number, number]; battleIndex: number }
@@ -113,6 +114,7 @@ export class LockstepExchange {
   private seedqRemote: number | null = null;
   private remoteDeck: ComboSelection[] | null = null;
   private remoteLaunch: LaunchParams | null = null;
+  private physicsVersionMismatch = false;
   private resolvers: (() => void)[] = [];
 
   /** expectedFrom: relay slot whose messages this exchange listens to
@@ -125,6 +127,15 @@ export class LockstepExchange {
     client.onMsg = (from, msg) => {
       prev?.(from, msg);
       if (from !== this.expectedFrom) return;
+      if (msg.t === "seedq" || msg.t === "deck" || msg.t === "launch") {
+        // Missing is also incompatible: older clients must never silently
+        // lockstep against a different deterministic physics revision.
+        if (msg.pv !== PHYSICS_VERSION) {
+          this.physicsVersionMismatch = true;
+          this.poke();
+          return;
+        }
+      }
       if (msg.t === "seedq") this.seedqRemote = msg.q;
       else if (msg.t === "deck") this.remoteDeck = msg.combos;
       else if (msg.t === "launch") this.remoteLaunch = msg.launch;
@@ -142,7 +153,8 @@ export class LockstepExchange {
     return new Promise((resolve, reject) => {
       const t0 = Date.now();
       const check = (): void => {
-        if (pred()) resolve();
+        if (this.physicsVersionMismatch) reject(new Error("physics-version-mismatch"));
+        else if (pred()) resolve();
         else if (Date.now() - t0 > timeoutMs) reject(new Error("lockstep-timeout"));
         else this.resolvers.push(check);
       };
@@ -151,13 +163,13 @@ export class LockstepExchange {
   }
 
   async exchangeDeck(local: ComboSelection[]): Promise<ComboSelection[]> {
-    this.client.send({ t: "deck", combos: local });
+    this.client.send({ t: "deck", combos: local, pv: PHYSICS_VERSION });
     await this.waitFor(() => this.remoteDeck !== null);
     return this.remoteDeck!;
   }
 
   async exchangeSeed(): Promise<number> {
-    this.client.send({ t: "seedq", q: this.seedqLocal });
+    this.client.send({ t: "seedq", q: this.seedqLocal, pv: PHYSICS_VERSION });
     await this.waitFor(() => this.seedqRemote !== null);
     const seed = (this.seedqLocal ^ this.seedqRemote!) >>> 0;
     this.seedqLocal = (Math.random() * 0xffffffff) >>> 0; // fresh for next battle
@@ -166,7 +178,7 @@ export class LockstepExchange {
   }
 
   async exchangeLaunch(local: LaunchParams): Promise<LaunchParams> {
-    this.client.send({ t: "launch", launch: local });
+    this.client.send({ t: "launch", launch: local, pv: PHYSICS_VERSION });
     await this.waitFor(() => this.remoteLaunch !== null);
     const remote = this.remoteLaunch!;
     this.remoteLaunch = null;
@@ -188,6 +200,7 @@ export class FfaExchange {
   private slots: number[] = [];
   private round = -1;
   private left = false;
+  private physicsVersionMismatch = false;
 
   constructor(private client: RelayClient) {
     const prev = client.onMsg;
@@ -195,6 +208,11 @@ export class FfaExchange {
       prev?.(from, msg);
       if (!this.slots.includes(from)) return;
       if ((msg.t === "deck" || msg.t === "seedq" || msg.t === "launch") && msg.r !== this.round) return;
+      if ((msg.t === "deck" || msg.t === "seedq" || msg.t === "launch") && msg.pv !== PHYSICS_VERSION) {
+        this.physicsVersionMismatch = true;
+        this.poke();
+        return;
+      }
       if (msg.t === "deck") this.decks.set(from, msg.combos[0]!);
       else if (msg.t === "seedq") this.seeds.set(from, msg.q);
       else if (msg.t === "launch") this.launches.set(from, msg.launch);
@@ -218,6 +236,7 @@ export class FfaExchange {
     this.seeds.clear();
     this.launches.clear();
     this.left = false;
+    this.physicsVersionMismatch = false;
   }
 
   private poke(): void {
@@ -230,7 +249,8 @@ export class FfaExchange {
     return new Promise((resolve, reject) => {
       const t0 = Date.now();
       const check = (): void => {
-        if (this.left) reject(new Error("player-left"));
+        if (this.physicsVersionMismatch) reject(new Error("physics-version-mismatch"));
+        else if (this.left) reject(new Error("player-left"));
         else if (size() >= this.slots.length) resolve();
         else if (Date.now() - t0 > timeoutMs) reject(new Error("lockstep-timeout"));
         else this.resolvers.push(check);
@@ -241,7 +261,7 @@ export class FfaExchange {
 
   async exchangeDecks(local: ComboSelection): Promise<Map<number, ComboSelection>> {
     this.decks.set(this.client.slot, local);
-    this.client.send({ t: "deck", combos: [local], r: this.round });
+    this.client.send({ t: "deck", combos: [local], r: this.round, pv: PHYSICS_VERSION });
     await this.waitAll(() => this.decks.size);
     return this.decks;
   }
@@ -250,7 +270,7 @@ export class FfaExchange {
   async exchangeSeed(): Promise<number> {
     const q = (Math.random() * 0xffffffff) >>> 0;
     this.seeds.set(this.client.slot, q);
-    this.client.send({ t: "seedq", q, r: this.round });
+    this.client.send({ t: "seedq", q, r: this.round, pv: PHYSICS_VERSION });
     await this.waitAll(() => this.seeds.size);
     let seed = 0;
     for (const v of this.seeds.values()) seed = (seed ^ v) >>> 0;
@@ -259,7 +279,7 @@ export class FfaExchange {
 
   async exchangeLaunches(local: LaunchParams): Promise<Map<number, LaunchParams>> {
     this.launches.set(this.client.slot, local);
-    this.client.send({ t: "launch", launch: local, r: this.round });
+    this.client.send({ t: "launch", launch: local, r: this.round, pv: PHYSICS_VERSION });
     await this.waitAll(() => this.launches.size);
     return this.launches;
   }

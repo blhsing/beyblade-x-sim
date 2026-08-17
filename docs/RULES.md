@@ -10,8 +10,8 @@ list at bottom. Items marked ⚠ need re-verification against the official PDFs
 
 | Finish | zh-TW (official rules v12) | 點數 | Condition |
 |---|---|---|---|
-| Spin Finish | 迴轉勝利 | **1** | Opponent stops rotating (in its original spin direction) first, inside 戰鬥區域 |
-| Burst Finish | 爆裂勝利 | **2** | Opponent's bey bursts (parts separate) first |
+| Spin Finish | 迴轉勝利 | **1** | Opponent fully stops and settles first, inside 戰鬥區域 |
+| Burst Finish | 爆裂勝利 | **2** | Opponent's latch releases and its reassemblable parts separate first |
 | Over Finish | 擊飛勝利 | **2** | Opponent's bey ends up *entirely* in the 擊飛區域 (Over Zone) and cannot return |
 | Xtreme Finish | 極限勝利 | **3** | Opponent's bey ends up *entirely* in the 極限區域 (Xtreme Zone) and cannot return |
 | Own Finish 自滅 | 自滅 | **1 to opponent** | Your bey exits into a zone *without ever contacting* the opponent's bey → opponent gets 1 pt only (not 2/3) |
@@ -72,11 +72,16 @@ list at bottom. Items marked ⚠ need re-verification against the official PDFs
 - **Xtreme Line (X 衝擊線):** gear rack molded into the stadium floor near the
   edge; meshes with gear teeth on the bey's **bit**, triggering **Xtreme
   Dash** — sudden tangential acceleration slinging the bey across the field.
-- **Exits:** Over Zones = corner pockets (2 pts); Xtreme Zone = wider central
-  exit at the end of an Xtreme Line (3 pts). ⚠ Exact pocket count/layout
-  unresolved (sources say "3 exits on one side" vs "4 pockets"); game models
-  geometry as data (default: 2 over pockets flanking 1 xtreme zone on the
-  attack side) — refine from product photos.
+- **BX-10 exits:** the official top-view diagram shows exactly three front
+  openings: two side Over Zones (2 pts) flanking one wider center Xtreme Zone
+  (3 pts). There are no rear pockets. The game uses those exact roles and
+  product-facing positions rather than generic angular gaps.
+- **BX-32 exits:** two narrow rounded, tangential rear Xtreme openings and one
+  broad front-center trapezoidal Over opening, as shown in its official
+  diagram. Entering either product's catch tray is reversible. The official
+  rule is retained/cannot-return; the game intentionally applies the user's
+  stricter visual gate and announces the zone finish only after the complete
+  Bey is retained there and literally stops.
 - Other stadiums: Wide Xtreme (BX-32, 3-player), Double Xtreme (BX-37),
   legacy Burst stadium (no rail → xtreme finish impossible).
 - **Launchers:** Winder Launcher (baseline), String Launcher (BX-17, UX-02…),

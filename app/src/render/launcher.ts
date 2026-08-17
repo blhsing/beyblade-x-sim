@@ -7,12 +7,36 @@
 
 import * as THREE from "three";
 
+import type { StadiumSpec } from "../core/stadium";
 import type { LauncherKind, SpinDir } from "../core/types";
 import { absPlastic, paintedMetal } from "./materials";
 import { buildHand, type HandSide } from "./hand-model";
 import { DETAIL } from "./parts";
 
 export type LauncherMechanism = "entry-winder" | "winder" | "long-winder" | "hold-winder" | "string";
+
+export interface LaunchCameraFrame {
+  position: THREE.Vector3;
+  target: THREE.Vector3;
+}
+
+/** Product-aware world framing for the camera-attached launcher preview.
+ * Moving the camera does not move the hands on screen; it only determines how
+ * much of the true-scale stadium remains visible behind them. */
+export function launchCameraFrame(stadium: StadiumSpec | null, side: 0 | 1): LaunchCameraFrame {
+  const sideSign = side === 0 ? 1 : -1;
+  if (stadium?.name === "wide") {
+    return {
+      position: new THREE.Vector3(-0.18 * sideSign, -0.52, 0.38),
+      target: new THREE.Vector3(0, 0.03, 0.02),
+    };
+  }
+  // Preserve the established BX-10 composition byte-for-byte.
+  return {
+    position: new THREE.Vector3(-0.16 * sideSign, -0.4, 0.3),
+    target: new THREE.Vector3(0, 0.03, 0.02),
+  };
+}
 
 export interface LauncherModelSpec {
   kind: LauncherKind;

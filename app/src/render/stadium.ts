@@ -2,26 +2,75 @@
 //
 // The deterministic simulation continues to own the battle surface, rail and
 // pocket coordinates in core/stadium.ts.  This module turns those same specs
-// into the visible injection-moulded product: opaque ABS dish/base, a toothed
-// Xtreme Line, recessed catch trays and a thickness-bearing clear-PC cover.
+// into the visible injection-moulded product: a pale battle tray, toothed
+// Xtreme Line, three real apertures and a thickness-bearing clear cover.
 
 import * as THREE from "three";
 
 import {
+  pocketFloorTopZ as corePocketFloorTopZ,
+  pocketAtPoint,
+  pocketCatchPolygon,
+  pocketPath,
+  pocketPolygon,
+  pointInConvexPolygon,
+  pocketSurfaceZ as corePocketSurfaceZ,
   railPointAt,
   railTangentAt,
+  stadiumBoundaryPointAt,
+  stadiumBoundaryRadiusAt,
+  stadiumBoundaryNormalAt,
+  stadiumBoundarySignedDistance,
+  stadiumBodyRadiusAt,
+  STADIUM_GEOMETRY,
+  surfaceZAt,
   surfaceZ,
   type RailArc,
   type StadiumSpec,
 } from "../core/stadium";
-import { absPlastic, clearPanel } from "./materials";
+import { absPlastic } from "./materials";
 import { markReflective } from "./rt";
 
 const TAU = Math.PI * 2;
 
+interface CompiledPocketFootprint {
+  polygon: readonly { x: number; y: number }[];
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+function compilePocketFootprints(s: StadiumSpec): CompiledPocketFootprint[] {
+  const polygons = s.pockets.flatMap((pocket) => {
+    const throat = pocketPolygon(s, pocket);
+    if (pocket.throat.catchHalfWidth === undefined || pocket.throat.catchDepth === undefined) return [throat];
+    return [throat, pocketCatchPolygon(s, pocket)];
+  });
+  return polygons.map((polygon) => ({
+    polygon,
+    minX: Math.min(...polygon.map((point) => point.x)),
+    maxX: Math.max(...polygon.map((point) => point.x)),
+    minY: Math.min(...polygon.map((point) => point.y)),
+    maxY: Math.max(...polygon.map((point) => point.y)),
+  }));
+}
+
+function pointInCompiledFootprints(
+  footprints: readonly CompiledPocketFootprint[],
+  x: number,
+  y: number,
+): boolean {
+  for (const footprint of footprints) {
+    if (x < footprint.minX || x > footprint.maxX || y < footprint.minY || y > footprint.maxY) continue;
+    if (pointInConvexPolygon(footprint.polygon, x, y)) return true;
+  }
+  return false;
+}
+
 /** Keep pure geometry/material audits runnable in Node; the browser path adds
  * the procedural injection-mold normal map from materials.ts. */
-function stadiumAbsPlastic(
+function stadiumMoldedPlastic(
   color: number,
   options: { rough?: number; coat?: number } = {},
 ): THREE.MeshPhysicalMaterial {
@@ -36,91 +85,38 @@ function stadiumAbsPlastic(
   });
 }
 
+function stadiumClearPlastic(s: StadiumSpec, role: "cover" | "body"): THREE.MeshPhysicalMaterial {
+  const bx10 = s.name === "bx10";
+  return new THREE.MeshPhysicalMaterial({
+    color: role === "cover" ? 0xf7fbff : 0xf1f5f7,
+    metalness: 0,
+    roughness: role === "cover" ? 0.055 : 0.1,
+    transmission: role === "cover" ? 0.94 : 0.76,
+    thickness: role === "cover" ? STADIUM_GEOMETRY.casingThicknessM : 0.004,
+    attenuationDistance: role === "cover" ? 0.65 : 0.18,
+    attenuationColor: new THREE.Color(role === "cover" ? 0xeaf4f8 : 0xe5ecef),
+    // BX-10 packaging identifies PVC. BX-32 resin is intentionally left
+    // neutral because Takara Tomy's public page does not publish it.
+    ior: bx10 ? 1.54 : 1.5,
+    clearcoat: 1,
+    clearcoatRoughness: role === "cover" ? 0.05 : 0.11,
+    transparent: true,
+    opacity: 1,
+    side: THREE.DoubleSide,
+    depthWrite: true,
+  });
+}
+
 /** Product geometry constants in metres, declared for tests and model audit. */
-export const STADIUM_MODEL_DIMENSIONS = Object.freeze({
-  railToothPitchM: 0.005,
-  railToothHeightM: 0.0038,
-  railToothBottomWidthM: 0.0044,
-  railToothTopWidthM: 0.0025,
-  railToothDepthM: 0.0062,
-  railChannelThicknessM: 0.0012,
-  casingThicknessM: 0.002,
-  pocketFloorThicknessM: 0.0035,
-  pocketRecessM: 0.028,
-});
+export const STADIUM_MODEL_DIMENSIONS = STADIUM_GEOMETRY;
 
 function productCode(s: StadiumSpec): string {
   return s.name === "wide" ? "BX-32" : "BX-10";
 }
 
-function positiveAngle(a: number): number {
-  const n = a % TAU;
-  return n < 0 ? n + TAU : n;
-}
-
-interface AngleSpan {
-  start: number;
-  end: number;
-}
-
-/** Normalize possibly-wrapped arcs into merged [0, 2π] intervals. */
-function normalizedSpans(arcs: RailArc[]): AngleSpan[] {
-  const split: AngleSpan[] = [];
-  for (const arc of arcs) {
-    if (arc.end - arc.start >= TAU - 1e-6) return [{ start: 0, end: TAU }];
-    const start = positiveAngle(arc.start);
-    const end = positiveAngle(arc.end);
-    if (Math.abs(start - end) < 1e-8) continue;
-    if (start < end) split.push({ start, end });
-    else {
-      split.push({ start, end: TAU });
-      split.push({ start: 0, end });
-    }
-  }
-  split.sort((a, b) => a.start - b.start);
-  const merged: AngleSpan[] = [];
-  for (const span of split) {
-    const previous = merged[merged.length - 1];
-    if (previous && span.start <= previous.end + 1e-8) previous.end = Math.max(previous.end, span.end);
-    else merged.push({ ...span });
-  }
-  return merged;
-}
-
-function complementSpans(arcs: RailArc[]): AngleSpan[] {
-  const occupied = normalizedSpans(arcs);
-  if (occupied.length === 0) return [{ start: 0, end: TAU }];
-  if (occupied.length === 1 && occupied[0]!.end - occupied[0]!.start >= TAU - 1e-6) return [];
-  const result: AngleSpan[] = [];
-  let cursor = 0;
-  for (const span of occupied) {
-    if (span.start > cursor + 1e-8) result.push({ start: cursor, end: span.start });
-    cursor = Math.max(cursor, span.end);
-  }
-  if (cursor < TAU - 1e-8) result.push({ start: cursor, end: TAU });
-  return result;
-}
-
-function spanLength(spans: AngleSpan[]): number {
-  return spans.reduce((sum, span) => sum + span.end - span.start, 0);
-}
-
 /** Superellipse boundary: square/faceted BX-10, long rounded BX-32. */
 function bodyEdgeRadius(s: StadiumSpec, theta: number): number {
-  const a = s.deckW / 2;
-  const b = s.deckH / 2;
-  const exponent = s.name === "wide" ? 7 : 5.5;
-  const x = Math.abs(Math.cos(theta)) / a;
-  const y = Math.abs(Math.sin(theta)) / b;
-  return Math.pow(Math.pow(x, exponent) + Math.pow(y, exponent), -1 / exponent);
-}
-
-function ringSegmentShape(rIn: number, rOut: number, a0: number, a1: number): THREE.Shape {
-  const shape = new THREE.Shape();
-  shape.absarc(0, 0, rOut, a0, a1, false);
-  shape.absarc(0, 0, rIn, a1, a0, true);
-  shape.closePath();
-  return shape;
+  return stadiumBodyRadiusAt(s, theta);
 }
 
 function setMeshName(mesh: THREE.Object3D, name: string, data: Record<string, unknown> = {}): void {
@@ -134,19 +130,63 @@ function configureMesh(mesh: THREE.Mesh, cast = true, receive = true): THREE.Mes
   return mesh;
 }
 
-function createDish(s: StadiumSpec, bodyMat: THREE.Material): THREE.Mesh {
-  const profile: THREE.Vector2[] = [];
-  for (let i = 0; i <= 192; i++) {
-    const r = (s.rWall * i) / 192;
-    profile.push(new THREE.Vector2(Math.max(1e-5, r), surfaceZ(s, r)));
+function radialSurfaceGeometry(s: StadiumSpec, radialSegments: number, angularSegments: number): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const pocketFootprints = compilePocketFootprints(s);
+  for (let ring = 0; ring <= radialSegments; ring++) {
+    const u = ring / radialSegments;
+    for (let segment = 0; segment <= angularSegments; segment++) {
+      const theta = (segment / angularSegments) * TAU;
+      const radius = stadiumBoundaryRadiusAt(s, theta) * u;
+      const x = Math.cos(theta) * radius;
+      const y = Math.sin(theta) * radius;
+      positions.push(x, y, surfaceZAt(s, x, y));
+    }
   }
-  const dish = configureMesh(new THREE.Mesh(new THREE.LatheGeometry(profile, 512), bodyMat), false, true);
-  dish.rotateX(Math.PI / 2);
-  // Flip the lathe's radial local Z for upward-facing normals. Its local Y,
-  // which carries the physics height profile, remains the world Z axis.
-  dish.scale.z = -1;
+  const row = angularSegments + 1;
+  let omittedApertureTriangles = 0;
+  const addTriangle = (a: number, b: number, c: number): void => {
+    const cx = (positions[a * 3]! + positions[b * 3]! + positions[c * 3]!) / 3;
+    const cy = (positions[a * 3 + 1]! + positions[b * 3 + 1]! + positions[c * 3 + 1]!) / 3;
+    if (pointInCompiledFootprints(pocketFootprints, cx, cy)) {
+      omittedApertureTriangles++;
+      return;
+    }
+    indices.push(a, b, c);
+  };
+  for (let ring = 0; ring < radialSegments; ring++) {
+    for (let segment = 0; segment < angularSegments; segment++) {
+      const a = ring * row + segment;
+      const b = a + 1;
+      const c = a + row;
+      const d = c + 1;
+      // The pale tray ends at the same exact pocket union used by core
+      // terrain. Leaving the old full dish here visibly roofed each ramp.
+      addTriangle(a, c, b);
+      addTriangle(b, c, d);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.userData = {
+    shape: s.wallShape?.kind === "obround" ? "obround-heightfield" : "circular-heightfield",
+    radialSegments,
+    angularSegments,
+    apertureSource: "core:pocketAtPoint",
+    apertureCount: s.pockets.length,
+    omittedApertureTriangles,
+  };
+  return geometry;
+}
+
+function createDish(s: StadiumSpec, bodyMat: THREE.Material): THREE.Mesh {
+  const dish = configureMesh(new THREE.Mesh(radialSurfaceGeometry(s, 192, 512), bodyMat), false, true);
   setMeshName(dish, "stadium:dish", {
-    radialSegments: 512,
+    shape: s.wallShape?.kind === "obround" ? "obround" : "circle",
+    angularSegments: 512,
     profileSegments: 192,
     physicsSurface: true,
   });
@@ -154,53 +194,78 @@ function createDish(s: StadiumSpec, bodyMat: THREE.Material): THREE.Mesh {
   return dish;
 }
 
-function pocketMouthArcs(s: StadiumSpec): RailArc[] {
-  return s.pockets.map((pocket) => ({
-    start: pocket.angleCenter - pocket.halfWidth,
-    end: pocket.angleCenter + pocket.halfWidth,
-  }));
-}
-
 function createDeck(s: StadiumSpec, rimZ: number, bodyMat: THREE.Material): THREE.Group {
   const group = new THREE.Group();
-  setMeshName(group, "stadium:opaque-deck", { material: "ABS", transparent: false });
-  const inner = s.rWall * 1.004;
-  const spans = complementSpans(pocketMouthArcs(s));
-  for (let spanIndex = 0; spanIndex < spans.length; spanIndex++) {
-    const span = spans[spanIndex]!;
-    const steps = Math.max(48, Math.ceil((span.end - span.start) / 0.012));
-    const shape = new THREE.Shape();
-    for (let i = 0; i <= steps; i++) {
-      const theta = span.start + ((span.end - span.start) * i) / steps;
-      const r = bodyEdgeRadius(s, theta);
-      const x = Math.cos(theta) * r;
-      const y = Math.sin(theta) * r;
-      if (i === 0) shape.moveTo(x, y);
-      else shape.lineTo(x, y);
+  setMeshName(group, "stadium:outer-deck", {
+    material: s.name === "bx10" ? "PVC" : "product-plastic-unspecified",
+    transparent: true,
+    transmission: 0.76,
+    apertureSource: "core:pocketAtPoint",
+  });
+  // Dense polar tessellation subtracts the actual 2-D pocket polygons. This
+  // avoids the old broad sector cut-outs, especially around BX-32's skewed
+  // rounded slots, while retaining a thickness-bearing molded deck.
+  const angularSegments = 1024;
+  const radialSegments = 18;
+  const topZ = rimZ + 0.0005;
+  const bottomZ = rimZ - 0.014;
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const pocketFootprints = compilePocketFootprints(s);
+  let solidCells = 0;
+  for (let angular = 0; angular < angularSegments; angular++) {
+    const a0 = (angular / angularSegments) * TAU;
+    const a1 = ((angular + 1) / angularSegments) * TAU;
+    const am = (a0 + a1) / 2;
+    for (let radial = 0; radial < radialSegments; radial++) {
+      const u0 = radial / radialSegments;
+      const u1 = (radial + 1) / radialSegments;
+      const um = (u0 + u1) / 2;
+      const innerMid = stadiumBoundaryRadiusAt(s, am) * 1.004;
+      const outerMid = bodyEdgeRadius(s, am) - 0.002;
+      const midRadius = THREE.MathUtils.lerp(innerMid, outerMid, um);
+      const mx = Math.cos(am) * midRadius;
+      const my = Math.sin(am) * midRadius;
+      if (pointInCompiledFootprints(pocketFootprints, mx, my)) continue;
+      const corners = [[a0, u0], [a1, u0], [a1, u1], [a0, u1]] as const;
+      const points = corners.map(([angle, u]) => {
+        const inner = stadiumBoundaryRadiusAt(s, angle) * 1.004;
+        const outer = bodyEdgeRadius(s, angle) - 0.002;
+        const radius = THREE.MathUtils.lerp(inner, outer, u);
+        return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+      });
+      const base = positions.length / 3;
+      for (const z of [bottomZ, topZ]) {
+        for (const point of points) positions.push(point.x, point.y, z);
+      }
+      indices.push(
+        base + 4, base + 5, base + 6, base + 4, base + 6, base + 7,
+        base, base + 2, base + 1, base, base + 3, base + 2,
+        base, base + 1, base + 4, base + 1, base + 5, base + 4,
+        base + 1, base + 2, base + 5, base + 2, base + 6, base + 5,
+        base + 2, base + 3, base + 6, base + 3, base + 7, base + 6,
+        base + 3, base, base + 7, base, base + 4, base + 7,
+      );
+      solidCells++;
     }
-    for (let i = steps; i >= 0; i--) {
-      const theta = span.start + ((span.end - span.start) * i) / steps;
-      shape.lineTo(Math.cos(theta) * inner, Math.sin(theta) * inner);
-    }
-    shape.closePath();
-    const mesh = configureMesh(
-      new THREE.Mesh(
-        new THREE.ExtrudeGeometry(shape, {
-          depth: 0.015,
-          steps: 2,
-          bevelEnabled: true,
-          bevelSize: 0.0012,
-          bevelThickness: 0.001,
-          bevelSegments: 4,
-          curveSegments: 48,
-        }),
-        bodyMat,
-      ),
-    );
-    mesh.position.z = rimZ - 0.015;
-    setMeshName(mesh, `stadium:deck-sector:${spanIndex}`, { opaqueSupport: true });
-    group.add(mesh);
   }
+  const deckGeometry = new THREE.BufferGeometry();
+  deckGeometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  deckGeometry.setIndex(indices);
+  deckGeometry.computeVertexNormals();
+  deckGeometry.userData = {
+    shape: "polygon-subtracted-product-deck",
+    source: "core:pocketAtPoint",
+    angularSegments,
+    radialSegments,
+    solidCells,
+  };
+  const deck = configureMesh(new THREE.Mesh(deckGeometry, bodyMat));
+  setMeshName(deck, "stadium:deck-sector:0", {
+    source: "core:pocketAtPoint",
+    apertureCount: s.pockets.length,
+  });
+  group.add(deck);
 
   // Molded lower skirt: a multi-level superellipse, matching the product's
   // broad base flange and chamfered corners rather than a thin flat plate.
@@ -211,13 +276,13 @@ function createDeck(s: StadiumSpec, rimZ: number, bodyMat: THREE.Material): THRE
     { inset: 0, z: rimZ - 0.006 },
     { inset: 0.0025, z: rimZ + 0.001 },
   ];
-  const positions: number[] = [];
-  const indices: number[] = [];
+  const skirtPositions: number[] = [];
+  const skirtIndices: number[] = [];
   for (const ring of rings) {
     for (let i = 0; i <= segments; i++) {
       const theta = (i / segments) * TAU;
       const r = bodyEdgeRadius(s, theta) - ring.inset;
-      positions.push(Math.cos(theta) * r, Math.sin(theta) * r, ring.z);
+      skirtPositions.push(Math.cos(theta) * r, Math.sin(theta) * r, ring.z);
     }
   }
   for (let ring = 0; ring < rings.length - 1; ring++) {
@@ -226,37 +291,47 @@ function createDeck(s: StadiumSpec, rimZ: number, bodyMat: THREE.Material): THRE
       const b = a + 1;
       const c = a + segments + 1;
       const d = c + 1;
-      indices.push(a, c, b, b, c, d);
+      skirtIndices.push(a, c, b, b, c, d);
     }
   }
   const skirtGeometry = new THREE.BufferGeometry();
-  skirtGeometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
-  skirtGeometry.setIndex(indices);
+  skirtGeometry.setAttribute("position", new THREE.Float32BufferAttribute(skirtPositions, 3));
+  skirtGeometry.setIndex(skirtIndices);
   skirtGeometry.computeVertexNormals();
   const skirt = configureMesh(new THREE.Mesh(skirtGeometry, bodyMat));
-  setMeshName(skirt, "stadium:base-skirt", { opaqueSupport: true, contourSegments: segments });
+  setMeshName(skirt, "stadium:base-skirt", {
+    translucentSupport: true,
+    contourSegments: segments,
+    material: s.name === "bx10" ? "PVC" : "product-plastic-unspecified",
+  });
   group.add(skirt);
   return group;
 }
 
 function createTornadoRidge(s: StadiumSpec, bodyMat: THREE.Material): THREE.Mesh {
-  const profile: THREE.Vector2[] = [];
-  for (let i = 0; i <= 32; i++) {
-    const t = i / 32;
-    const angle = Math.PI * t;
-    profile.push(
-      new THREE.Vector2(
-        s.rDish + Math.cos(angle) * 0.0055,
-        surfaceZ(s, s.rDish) + Math.sin(angle) * 0.0021,
+  const scale = s.rDish / s.rWall;
+  const ridge = configureMesh(
+    new THREE.Mesh(
+      new THREE.TubeGeometry(
+        contourCurve(
+          (theta) => stadiumBoundaryRadiusAt(s, theta) * scale,
+          surfaceZ(s, s.rDish) + 0.0018,
+          768,
+        ),
+        1024,
+        0.0021,
+        24,
+        true,
       ),
-    );
-  }
-  const ridge = configureMesh(new THREE.Mesh(new THREE.LatheGeometry(profile, 512), bodyMat), false, true);
-  ridge.rotateX(Math.PI / 2);
-  ridge.scale.z = -1;
+      bodyMat,
+    ),
+    false,
+    true,
+  );
   setMeshName(ridge, "stadium:tornado-ridge", {
     diameterM: s.rDish * 2,
-    radialSegments: 512,
+    shape: s.wallShape?.kind === "obround" ? "obround" : "circle",
+    tubularSegments: 1024,
   });
   return ridge;
 }
@@ -313,7 +388,9 @@ function createRailRibbon(
   s: StadiumSpec,
   points: { p: { x: number; y: number }; tangent: { x: number; y: number }; z: number }[],
 ): THREE.BufferGeometry {
-  const halfWidth = Math.min(0.0041, s.railHalfWidth * 0.38);
+  // `railHalfWidth` is the Bit capture tolerance in the sim, not solid mold
+  // width. The visible rack stays the narrow product-scaled band.
+  const halfWidth = STADIUM_MODEL_DIMENSIONS.railPhysicalHalfWidthM;
   const zTop = STADIUM_MODEL_DIMENSIONS.railChannelThicknessM;
   const positions: number[] = [];
   const indices: number[] = [];
@@ -354,9 +431,14 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
     toothPitchM: STADIUM_MODEL_DIMENSIONS.railToothPitchM,
     toothHeightM: STADIUM_MODEL_DIMENSIONS.railToothHeightM,
     channelThicknessM: STADIUM_MODEL_DIMENSIONS.railChannelThicknessM,
+    centerlineSource: "core:railTrace",
+    releaseArcs: s.railReleaseArcs?.length ?? 0,
+    resin: s.name === "bx10" ? "PA" : "product-plastic-unspecified",
   });
-  const railMat = stadiumAbsPlastic(s.railColor, { rough: 0.34, coat: 0.58 });
-  railMat.name = "stadium:material:xtreme-line-abs";
+  const railMat = stadiumMoldedPlastic(s.railColor, { rough: 0.34, coat: 0.58 });
+  railMat.name = s.name === "bx10"
+    ? "stadium:material:xtreme-line-pa"
+    : "stadium:material:xtreme-line-product-plastic";
   const toothGeometry = createRailToothGeometry();
   const placements: { point: THREE.Vector3; angle: number }[] = [];
 
@@ -371,7 +453,7 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
       const theta = arc.start + (span * i) / steps;
       const p = railPointAt(s, theta);
       const tangent = railTangentAt(s, theta);
-      const z = surfaceZ(s, Math.hypot(p.x, p.y)) + 0.00045;
+      const z = surfaceZAt(s, p.x, p.y) + 0.0002;
       ribbonPoints.push({ p, tangent, z });
       if (i > 0) distanceSinceTooth += Math.hypot(p.x - previous.x, p.y - previous.y);
       if (distanceSinceTooth >= STADIUM_MODEL_DIMENSIONS.railToothPitchM) {
@@ -418,52 +500,43 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
   return group;
 }
 
-/** Pocket tray length, clamped inside the physical product's outer body. */
-export function pocketDepth(s: StadiumSpec): number {
-  const margin = Math.min(s.deckW, s.deckH) / 2 - s.rWall - 0.004;
-  return Math.max(0.012, Math.min(0.04, margin));
+function polygonShape(points: readonly { x: number; y: number }[]): THREE.Shape {
+  const shape = new THREE.Shape();
+  points.forEach((point, index) => {
+    if (index === 0) shape.moveTo(point.x, point.y);
+    else shape.lineTo(point.x, point.y);
+  });
+  shape.closePath();
+  return shape;
 }
 
 /**
- * Steep, open entry ramp from the bowl lip to a catch tray. Unlike a capped
- * ExtrudeGeometry sector, this cannot place a horizontal face over the mouth
- * and hide the recessed pocket floor.
+ * Thickness-bearing sloped quadrilateral generated from the same exact
+ * top-view pocket polygon used by the deterministic wall test.
  */
 function pocketThroatGeometry(
-  rInner: number,
-  rOuter: number,
-  a0: number,
-  a1: number,
-  zInner: number,
-  zOuter: number,
+  points: readonly { x: number; y: number }[],
+  topHeights: readonly number[],
 ): THREE.BufferGeometry {
-  const segments = Math.max(32, Math.ceil((a1 - a0) / 0.008));
   const thickness = 0.0012;
   const positions: number[] = [];
   const indices: number[] = [];
-  for (let i = 0; i <= segments; i++) {
-    const theta = a0 + ((a1 - a0) * i) / segments;
-    const c = Math.cos(theta);
-    const sn = Math.sin(theta);
-    positions.push(c * rInner, sn * rInner, zInner);
-    positions.push(c * rOuter, sn * rOuter, zOuter);
-    positions.push(c * rInner, sn * rInner, zInner - thickness);
-    positions.push(c * rOuter, sn * rOuter, zOuter - thickness);
+  const count = points.length;
+  for (let layer = 0; layer < 2; layer++) {
+    for (let i = 0; i < count; i++) {
+      const point = points[i]!;
+      positions.push(point.x, point.y, topHeights[i]! - layer * thickness);
+    }
   }
-  for (let i = 0; i < segments; i++) {
-    const a = i * 4;
-    const b = a + 4;
-    // Sloped visible ramp and underside.
-    indices.push(a, b, a + 1, a + 1, b, b + 1);
-    indices.push(a + 2, a + 3, b + 2, a + 3, b + 3, b + 2);
-    // Thin inner/outer edges provide actual molded thickness.
-    indices.push(a, a + 2, b, a + 2, b + 2, b);
-    indices.push(a + 1, b + 1, a + 3, a + 3, b + 1, b + 3);
+  // All product throats are convex and clockwise, including sampled rounded
+  // BX-32 slots, so a fan is stable and preserves per-vertex ramp heights.
+  for (let i = 1; i < count - 1; i++) {
+    indices.push(0, i + 1, i);
+    indices.push(count, count + i, count + i + 1);
   }
-  // Close only the two narrow angular ends; there is deliberately no cap
-  // across the pocket opening.
-  for (const offset of [0, segments * 4]) {
-    indices.push(offset, offset + 1, offset + 2, offset + 1, offset + 3, offset + 2);
+  for (let i = 0; i < count; i++) {
+    const next = (i + 1) % count;
+    indices.push(i, next, i + count, next, next + count, i + count);
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
@@ -473,44 +546,117 @@ function pocketThroatGeometry(
     shape: "open-sloped-pocket-throat",
     bridgeFree: true,
     thicknessM: thickness,
-    segments,
+    outlinePoints: count,
+    source: "core:pocketPolygon+pocketSurfaceZ",
   };
   return geometry;
+}
+
+function edgeWall(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  width: number,
+  height: number,
+  z: number,
+  material: THREE.Material,
+): THREE.Mesh {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const length = Math.hypot(dx, dy);
+  const wall = configureMesh(
+    new THREE.Mesh(new THREE.BoxGeometry(length, width, height, 12, 4, 6), material),
+  );
+  wall.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, z + height / 2);
+  wall.rotation.z = Math.atan2(dy, dx);
+  return wall;
+}
+
+interface PocketWallSegment {
+  a: { x: number; y: number };
+  b: { x: number; y: number };
+}
+
+/** External outline of throat ∪ catch, clipped to the outside of the bowl.
+ * Subdivision is required because the wider BX-32 catch overlaps only part
+ * of each long throat/cheek edge. */
+function externalPocketWallSegments(s: StadiumSpec, pocket: StadiumSpec["pockets"][number]): PocketWallSegment[] {
+  const throat = pocketPolygon(s, pocket);
+  const catchTray = pocketCatchPolygon(s, pocket);
+  const footprints = pocket.throat.catchHalfWidth === undefined || pocket.throat.catchDepth === undefined
+    ? [throat]
+    : [throat, catchTray];
+  const segments: PocketWallSegment[] = [];
+  for (const polygon of footprints) {
+    const divisions = polygon.length <= 4 ? 16 : 1;
+    for (let edgeIndex = 0; edgeIndex < polygon.length; edgeIndex++) {
+      const start = polygon[edgeIndex]!;
+      const end = polygon[(edgeIndex + 1) % polygon.length]!;
+      for (let division = 0; division < divisions; division++) {
+        const u0 = division / divisions;
+        const u1 = (division + 1) / divisions;
+        const a = {
+          x: start.x + (end.x - start.x) * u0,
+          y: start.y + (end.y - start.y) * u0,
+        };
+        const b = {
+          x: start.x + (end.x - start.x) * u1,
+          y: start.y + (end.y - start.y) * u1,
+        };
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        const length = Math.hypot(dx, dy);
+        if (length <= 1e-9) continue;
+        const mx = (a.x + b.x) / 2;
+        const my = (a.y + b.y) / 2;
+        // Anything still within the battle bowl is the deliberately open
+        // mouth, not a tray cheek.
+        if (stadiumBoundarySignedDistance(s, mx, my) < -0.0005) continue;
+        // Clockwise outlines have their exterior on the left. If a small
+        // exterior probe remains in the union, this segment is an internal
+        // throat/catch overlap seam and must not become a visible wall.
+        const probeX = mx - (dy / length) * 0.0004;
+        const probeY = my + (dx / length) * 0.0004;
+        if (pocketAtPoint(s, probeX, probeY) === pocket) continue;
+        segments.push({ a, b });
+      }
+    }
+  }
+  return segments;
 }
 
 function createPockets(s: StadiumSpec, rimZ: number, bodyMat: THREE.Material): THREE.Group {
   const pockets = new THREE.Group();
   setMeshName(pockets, "stadium:pockets", { count: s.pockets.length });
-  const depth = pocketDepth(s);
   const floorZ = rimZ - STADIUM_MODEL_DIMENSIONS.pocketRecessM;
-  const pocketMat = stadiumAbsPlastic(0x343943, { rough: 0.62, coat: 0.12 });
-  pocketMat.name = "stadium:material:pocket-tray-abs";
+  const floorTopZ = corePocketFloorTopZ(s);
 
   s.pockets.forEach((pocket, index) => {
     const group = new THREE.Group();
-    const a0 = pocket.angleCenter - pocket.halfWidth;
-    const a1 = pocket.angleCenter + pocket.halfWidth;
-    const rOut = s.rWall + depth;
+    const polygon = pocketPolygon(s, pocket);
+    const catchPolygon = pocketCatchPolygon(s, pocket);
     setMeshName(group, `stadium:pocket:${index}`, {
+      id: pocket.id,
       kind: pocket.kind,
       centerAngle: pocket.angleCenter,
       halfWidth: pocket.halfWidth,
-      depthM: depth,
+      throatShape: pocket.throat.shape,
+      depthM: pocket.throat.outwardDepth,
       recessM: STADIUM_MODEL_DIMENSIONS.pocketRecessM,
+      source: "core:pocketPolygon",
     });
 
     const floor = configureMesh(
       new THREE.Mesh(
-        new THREE.ExtrudeGeometry(ringSegmentShape(s.rWall - 0.005, rOut, a0, a1), {
+        new THREE.ExtrudeGeometry(polygonShape(catchPolygon), {
           depth: STADIUM_MODEL_DIMENSIONS.pocketFloorThicknessM,
           steps: 2,
           bevelEnabled: true,
           bevelSegments: 3,
           bevelSize: 0.0007,
           bevelThickness: 0.0005,
-          curveSegments: 96,
+          curveSegments: 64,
         }),
-        pocketMat,
+        bodyMat,
       ),
       false,
       true,
@@ -520,22 +666,16 @@ function createPockets(s: StadiumSpec, rimZ: number, bodyMat: THREE.Material): T
       recessed: true,
       floorZ,
       thicknessM: STADIUM_MODEL_DIMENSIONS.pocketFloorThicknessM,
+      source: "core:pocketCatchPolygon",
+      outlinePoints: catchPolygon.length,
     });
     group.add(floor);
 
-    // Throat is the short drop immediately behind the bowl wall. It makes a
-    // real opening rather than painting a dark sector onto the deck.
+    const heights = polygon.map((point) => corePocketSurfaceZ(s, pocket, point.x, point.y));
     const throat = configureMesh(
       new THREE.Mesh(
-        pocketThroatGeometry(
-          s.rWall - 0.006,
-          s.rWall + 0.003,
-          a0,
-          a1,
-          rimZ - 0.006,
-          floorZ + STADIUM_MODEL_DIMENSIONS.pocketFloorThicknessM,
-        ),
-        pocketMat,
+        pocketThroatGeometry(polygon, heights),
+        bodyMat,
       ),
       false,
       true,
@@ -544,75 +684,113 @@ function createPockets(s: StadiumSpec, rimZ: number, bodyMat: THREE.Material): T
       opening: true,
       bridgeFree: true,
       shape: "open-sloped-pocket-throat",
+      throatShape: pocket.throat.shape,
+      source: "core:pocketPolygon+pocketSurfaceZ",
     });
     group.add(throat);
 
-    const stopHeight = rimZ - 0.005 - floorZ;
-    const backstop = configureMesh(
-      new THREE.Mesh(
-        new THREE.ExtrudeGeometry(ringSegmentShape(rOut, rOut + 0.006, a0, a1), {
-          depth: stopHeight,
-          steps: 2,
-          bevelEnabled: true,
-          bevelSegments: 3,
-          bevelSize: 0.0008,
-          bevelThickness: 0.0007,
-          curveSegments: 96,
-        }),
-        bodyMat,
-      ),
-    );
-    backstop.position.z = floorZ;
-    setMeshName(backstop, `stadium:pocket-backstop:${index}`, { heightM: stopHeight });
-    group.add(backstop);
-
-    for (const [side, angle] of [a0, a1].entries()) {
-      const cheek = configureMesh(
-        new THREE.Mesh(
-          new THREE.ExtrudeGeometry(ringSegmentShape(s.rWall - 0.005, rOut, angle - 0.018, angle + 0.018), {
-            depth: stopHeight,
-            steps: 2,
-            bevelEnabled: true,
-            bevelSegments: 3,
-            bevelSize: 0.0007,
-            bevelThickness: 0.0006,
-            curveSegments: 32,
-          }),
-          bodyMat,
-        ),
-      );
-      cheek.position.z = floorZ;
-      setMeshName(cheek, `stadium:pocket-cheek:${index}:${side}`, { side });
-      group.add(cheek);
+    const stopHeight = rimZ - 0.005 - floorTopZ;
+    const path = pocketPath(s, pocket);
+    const backstop = new THREE.Group();
+    const cheeks = [new THREE.Group(), new THREE.Group()];
+    setMeshName(backstop, `stadium:pocket-backstop:${index}`, { heightM: stopHeight, curved: true });
+    cheeks.forEach((cheek, side) => setMeshName(cheek, `stadium:pocket-cheek:${index}:${side}`, { side }));
+    const catchDepth = pocket.throat.catchDepth ?? pocket.throat.outwardDepth;
+    const externalWalls = externalPocketWallSegments(s, pocket);
+    group.userData.wallSource = "core:pocketPolygon+pocketCatchPolygon union";
+    group.userData.internalSeamsRemoved = true;
+    group.userData.wallSegmentCount = externalWalls.length;
+    for (let edgeIndex = 0; edgeIndex < externalWalls.length; edgeIndex++) {
+      const { a, b } = externalWalls[edgeIndex]!;
+      const mx = (a.x + b.x) / 2 - path.boundary.x;
+      const my = (a.y + b.y) / 2 - path.boundary.y;
+      const along = mx * path.axis.x + my * path.axis.y;
+      const across = mx * path.across.x + my * path.across.y;
+      const wall = edgeWall(a, b, 0.0045, stopHeight, floorTopZ, bodyMat);
+      setMeshName(wall, `stadium:pocket-wall:${index}:${edgeIndex}`, {
+        alongM: along,
+        midpointX: (a.x + b.x) / 2,
+        midpointY: (a.y + b.y) / 2,
+        externalUnionBoundary: true,
+      });
+      if (along > catchDepth * 0.55) backstop.add(wall);
+      else cheeks[across >= 0 ? 0 : 1]!.add(wall);
     }
+    group.add(backstop, ...cheeks);
     pockets.add(group);
   });
   return pockets;
 }
 
+function boundaryWallGeometry(
+  s: StadiumSpec,
+  bottomZ: number,
+  topZ: number,
+  innerOffset: number,
+  outerOffset: number,
+  segments = 2048,
+): THREE.BufferGeometry {
+  const positions: number[] = [];
+  const indices: number[] = [];
+  const pocketFootprints = compilePocketFootprints(s);
+  let cellCount = 0;
+  for (let segment = 0; segment < segments; segment++) {
+    const a0 = (segment / segments) * TAU;
+    const a1 = ((segment + 1) / segments) * TAU;
+    const mid = stadiumBoundaryPointAt(s, (a0 + a1) / 2);
+    if (pointInCompiledFootprints(pocketFootprints, mid.x, mid.y)) continue;
+    const endpoints = [a0, a1].map((angle) => {
+      const point = stadiumBoundaryPointAt(s, angle);
+      const normal = stadiumBoundaryNormalAt(s, point.x, point.y);
+      return {
+        inner: { x: point.x + normal.x * innerOffset, y: point.y + normal.y * innerOffset },
+        outer: { x: point.x + normal.x * outerOffset, y: point.y + normal.y * outerOffset },
+      };
+    });
+    const base = positions.length / 3;
+    for (const z of [bottomZ, topZ]) {
+      for (const endpoint of endpoints) {
+        positions.push(endpoint.inner.x, endpoint.inner.y, z);
+        positions.push(endpoint.outer.x, endpoint.outer.y, z);
+      }
+    }
+    // bottom/top, inner/outer faces; adjacent cells meet without phantom caps.
+    indices.push(
+      base, base + 1, base + 2, base + 1, base + 3, base + 2,
+      base + 4, base + 6, base + 5, base + 5, base + 6, base + 7,
+      base, base + 4, base + 2, base + 2, base + 4, base + 6,
+      base + 1, base + 3, base + 5, base + 3, base + 7, base + 5,
+    );
+    cellCount++;
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.userData = {
+    shape: s.wallShape?.kind === "obround" ? "obround-aperture-wall" : "circular-aperture-wall",
+    source: "core:pocketAtPoint",
+    sampleSegments: segments,
+    solidCells: cellCount,
+  };
+  return geometry;
+}
+
 function createLowWall(s: StadiumSpec, rimZ: number, bodyMat: THREE.Material): THREE.Group {
   const walls = new THREE.Group();
-  setMeshName(walls, "stadium:low-bowl-wall", { material: "ABS", heightM: 0.014 });
-  const spans = complementSpans(pocketMouthArcs(s));
-  spans.forEach((span, index) => {
-    const wall = configureMesh(
-      new THREE.Mesh(
-        new THREE.ExtrudeGeometry(ringSegmentShape(s.rWall - 0.002, s.rWall + 0.006, span.start, span.end), {
-          depth: 0.014,
-          steps: 2,
-          bevelEnabled: true,
-          bevelSize: 0.0007,
-          bevelThickness: 0.0007,
-          bevelSegments: 3,
-          curveSegments: 96,
-        }),
-        bodyMat,
-      ),
-    );
-    wall.position.z = rimZ - 0.004;
-    setMeshName(wall, `stadium:low-bowl-wall:${index}`, { opaqueSupport: true });
-    walls.add(wall);
+  setMeshName(walls, "stadium:low-bowl-wall", {
+    material: s.name === "bx10" ? "PVC" : "product-plastic-unspecified",
+    heightM: 0.014,
+    apertureSource: "core:pocketAtPoint",
   });
+  const wall = configureMesh(
+    new THREE.Mesh(
+      boundaryWallGeometry(s, rimZ - 0.004, rimZ + 0.01, -0.002, 0.006),
+      bodyMat,
+    ),
+  );
+  setMeshName(wall, "stadium:low-bowl-wall:0", { opaqueSupport: true });
+  walls.add(wall);
   return walls;
 }
 
@@ -700,45 +878,72 @@ function contourCurve(
   return new THREE.CatmullRomCurve3(points, true, "centripetal");
 }
 
+function launchApertureRadiusAt(s: StadiumSpec, theta: number): number {
+  const scale = s.name === "wide" ? 0.7 : 0.69;
+  return stadiumBoundaryRadiusAt(s, theta) * scale;
+}
+
 function createCasing(s: StadiumSpec, rimZ: number): THREE.Group {
   const casing = new THREE.Group();
-  const wallSpans = complementSpans(s.coverGaps);
   const code = productCode(s);
+  const resin = s.name === "bx10" ? "PVC" : "product-plastic-unspecified";
+  const ior = s.name === "bx10" ? 1.54 : 1.5;
+  const transmission = 0.94;
+  const wallGeometry = boundaryWallGeometry(
+    s,
+    rimZ + 0.006,
+    rimZ + s.coverHeight * 0.32,
+    0.0055,
+    0.0075,
+  );
+  const solidCells = Number(wallGeometry.userData.solidCells ?? 0);
+  const sampleSegments = Number(wallGeometry.userData.sampleSegments ?? 1);
+  const wallCoverageRadians = TAU * solidCells / sampleSegments;
   setMeshName(casing, "stadium:casing", {
     productCode: code,
-    material: "polycarbonate",
-    ior: 1.585,
-    transmission: 0.96,
+    material: resin,
+    ior,
+    transmission,
     thicknessM: STADIUM_MODEL_DIMENSIONS.casingThicknessM,
     coverHeightM: s.coverHeight,
     canopyCoverageRadians: TAU,
-    wallCoverageRadians: spanLength(wallSpans),
-    gapCoverageRadians: spanLength(normalizedSpans(s.coverGaps)),
-    gapAffects: "inner-barrier-only",
+    wallCoverageRadians,
+    gapCoverageRadians: TAU - wallCoverageRadians,
+    apertureCount: s.pockets.length,
+    apertureSource: "core:pocketAtPoint",
+    gapAffects: "product-pocket-throats-only",
   });
-  const material = clearPanel();
-  material.name = "stadium:material:clear-polycarbonate";
+  const material = stadiumClearPlastic(s, "cover");
+  material.name = s.name === "bx10"
+    ? "stadium:material:cover-pvc"
+    : "stadium:material:clear-product-plastic";
   const topZ = rimZ + s.coverHeight;
   const thickness = STADIUM_MODEL_DIMENSIONS.casingThicknessM;
   const rings: CanopyRing[] = [
     { radius: (theta) => bodyEdgeRadius(s, theta) - 0.006, z: rimZ + 0.012 },
     {
-      radius: (theta) => s.rWall + (bodyEdgeRadius(s, theta) - s.rWall) * 0.66,
+      radius: (theta) => {
+        const wall = stadiumBoundaryRadiusAt(s, theta);
+        return wall + (bodyEdgeRadius(s, theta) - wall) * 0.58;
+      },
       z: rimZ + s.coverHeight * 0.3,
     },
     {
-      radius: (theta) => s.rWall + (bodyEdgeRadius(s, theta) - s.rWall) * 0.24,
+      radius: (theta) => {
+        const aperture = launchApertureRadiusAt(s, theta);
+        const wall = stadiumBoundaryRadiusAt(s, theta);
+        return aperture + (wall - aperture) * 0.38;
+      },
       z: rimZ + s.coverHeight * 0.72,
     },
-    { radius: () => s.rWall + 0.009, z: topZ },
+    { radius: (theta) => launchApertureRadiusAt(s, theta), z: topZ },
   ];
   const panelCount = s.name === "wide" ? 12 : 8;
   for (let panelIndex = 0; panelIndex < panelCount; panelIndex++) {
-    // A hairline gap gives the broad clear cover the same molded/faceted read
-    // as the official single-piece part without making it visually opaque.
-    const gap = 0.003;
-    const start = (panelIndex / panelCount) * TAU + gap;
-    const end = ((panelIndex + 1) / panelCount) * TAU - gap;
+    // These are tessellation panels of one continuous molded cover. Shared
+    // edges preserve the facets without inventing air slits in the casing.
+    const start = (panelIndex / panelCount) * TAU;
+    const end = ((panelIndex + 1) / panelCount) * TAU;
     const panel = configureMesh(
       new THREE.Mesh(canopyPanelGeometry(rings, start, end, 112, thickness), material),
       true,
@@ -750,55 +955,45 @@ function createCasing(s: StadiumSpec, rimZ: number): THREE.Group {
       startAngle: start,
       endAngle: end,
       thicknessM: thickness,
-      transparentPolycarbonate: true,
+      transparentProductPlastic: true,
+      resin,
+      continuousMoldedShell: true,
     });
     casing.add(panel);
   }
 
-  // Inner collision wall follows coverGaps exactly, so presentation and sim
-  // agree on where a bey may clear the casing for an over-the-top replay.
-  wallSpans.forEach((span, index) => {
-    const wall = configureMesh(
-      new THREE.Mesh(
-        new THREE.ExtrudeGeometry(
-          ringSegmentShape(s.rWall + 0.006, s.rWall + 0.006 + thickness, span.start, span.end),
-          {
-            depth: s.coverHeight - 0.006,
-            steps: 4,
-            bevelEnabled: true,
-            bevelSegments: 4,
-            bevelSize: 0.00035,
-            bevelThickness: 0.00035,
-            curveSegments: 128,
-          },
-        ),
-        material,
-      ),
-      true,
-      false,
-    );
-    wall.position.z = rimZ + 0.006;
-    setMeshName(wall, `stadium:casing-inner-wall:${index}`, {
-      startAngle: span.start,
-      endAngle: span.end,
-      coverageRadians: span.end - span.start,
-      thicknessM: thickness,
-      heightM: s.coverHeight - 0.006,
-    });
-    casing.add(wall);
+  // The lower clear barrier uses the same obround/circular boundary and exact
+  // polygon throat exclusions as the low tray wall and deterministic sim.
+  const wall = configureMesh(new THREE.Mesh(wallGeometry, material), true, false);
+  setMeshName(wall, "stadium:casing-inner-wall:0", {
+    coverageRadians: wallCoverageRadians,
+    thicknessM: thickness,
+    heightM: s.coverHeight * 0.32 - 0.006,
+    apertureSource: "core:pocketAtPoint",
   });
+  casing.add(wall);
 
   // Thick rolled lips around the launch opening and the product's outer
   // flange catch specular highlights visible in the official photographs.
   const innerLip = configureMesh(
     new THREE.Mesh(
-      new THREE.TubeGeometry(contourCurve(() => s.rWall + 0.009, topZ, 512), 768, 0.0032, 20, true),
+      new THREE.TubeGeometry(
+        contourCurve((theta) => launchApertureRadiusAt(s, theta), topZ, 512),
+        768,
+        0.0032,
+        20,
+        true,
+      ),
       material,
     ),
     true,
     false,
   );
-  setMeshName(innerLip, "stadium:casing-inner-lip", { radiusM: s.rWall + 0.009, tubularSegments: 768 });
+  setMeshName(innerLip, "stadium:casing-inner-lip", {
+    shape: s.wallShape?.kind === "obround" ? "obround" : "circle",
+    scaleFromBowl: s.name === "wide" ? 0.7 : 0.69,
+    tubularSegments: 768,
+  });
   casing.add(innerLip);
 
   const outerLip = configureMesh(
@@ -819,26 +1014,28 @@ function createCasing(s: StadiumSpec, rimZ: number): THREE.Group {
   casing.add(outerLip);
 
   // Mold-flow ribs divide the transparent canopy into its recognizable
-  // facets. They are clear PC too, not opaque decorative bars.
+  // facets. They use the same clear product resin, not opaque decoration.
   const ribCount = s.name === "wide" ? 12 : 8;
   for (let i = 0; i < ribCount; i++) {
     const theta = (i / ribCount) * TAU;
     const outer = bodyEdgeRadius(s, theta) - 0.007;
+    const wallRadius = stadiumBoundaryRadiusAt(s, theta);
+    const aperture = launchApertureRadiusAt(s, theta);
     const path = new THREE.CatmullRomCurve3([
       new THREE.Vector3(Math.cos(theta) * outer, Math.sin(theta) * outer, rimZ + 0.013),
       new THREE.Vector3(
-        Math.cos(theta) * (s.rWall + (outer - s.rWall) * 0.58),
-        Math.sin(theta) * (s.rWall + (outer - s.rWall) * 0.58),
+        Math.cos(theta) * (wallRadius + (outer - wallRadius) * 0.58),
+        Math.sin(theta) * (wallRadius + (outer - wallRadius) * 0.58),
         rimZ + s.coverHeight * 0.38,
       ),
-      new THREE.Vector3(Math.cos(theta) * (s.rWall + 0.01), Math.sin(theta) * (s.rWall + 0.01), topZ),
+      new THREE.Vector3(Math.cos(theta) * aperture, Math.sin(theta) * aperture, topZ),
     ]);
     const rib = configureMesh(
       new THREE.Mesh(new THREE.TubeGeometry(path, 72, 0.00125, 10, false), material),
       true,
       false,
     );
-    setMeshName(rib, `stadium:casing-rib:${i}`, { transparentPolycarbonate: true });
+    setMeshName(rib, `stadium:casing-rib:${i}`, { transparentProductPlastic: true, resin });
     casing.add(rib);
   }
   return casing;
@@ -877,28 +1074,59 @@ function triangleMarkerGeometry(): THREE.ExtrudeGeometry {
   });
 }
 
-function addProductDetails(root: THREE.Group, s: StadiumSpec, rimZ: number): void {
-  const markerMat = stadiumAbsPlastic(0xd13c3b, { rough: 0.38, coat: 0.52 });
-  markerMat.name = "stadium:material:shoot-marker-abs";
-  const markerGeometry = triangleMarkerGeometry();
-  s.shootAngles.forEach((angle, index) => {
-    const marker = configureMesh(new THREE.Mesh(markerGeometry, markerMat), false, true);
-    marker.position.set(
-      Math.cos(angle) * (s.rWall + 0.034),
-      Math.sin(angle) * (s.rWall + 0.034),
-      rimZ + 0.003,
-    );
-    marker.rotation.z = angle - Math.PI / 2;
-    setMeshName(marker, `stadium:shoot-marker:${index}`, { shape: "red-triangle", angle });
-    root.add(marker);
+function chevronMarkerGeometry(): THREE.ExtrudeGeometry {
+  const shape = new THREE.Shape();
+  const points = [
+    [-0.013, 0.002], [0, 0.012], [0.013, 0.002],
+    [0.009, -0.002], [0, 0.005], [-0.009, -0.002],
+  ] as const;
+  points.forEach(([x, y], index) => index === 0 ? shape.moveTo(x, y) : shape.lineTo(x, y));
+  shape.closePath();
+  return new THREE.ExtrudeGeometry(shape, {
+    depth: 0.0008,
+    steps: 2,
+    bevelEnabled: true,
+    bevelSegments: 3,
+    bevelSize: 0.00035,
+    bevelThickness: 0.0003,
   });
+}
+
+function addProductDetails(root: THREE.Group, s: StadiumSpec, rimZ: number): void {
+  if (s.shootAngles.length > 0) {
+    const markerMat = stadiumMoldedPlastic(0xd13c3b, { rough: 0.38, coat: 0.52 });
+    markerMat.name = "stadium:material:shoot-marker-product-plastic";
+    const chevronMat = stadiumMoldedPlastic(0xc9cdd2, { rough: 0.34, coat: 0.42 });
+    chevronMat.name = "stadium:material:molded-shoot-chevron";
+    const markerGeometry = triangleMarkerGeometry();
+    const chevronGeometry = chevronMarkerGeometry();
+    s.shootAngles.forEach((angle, index) => {
+      const style = s.shootMarkerStyles?.[index] ?? "red-triangle";
+      const marker = configureMesh(
+        new THREE.Mesh(style === "molded-chevron" ? chevronGeometry : markerGeometry, style === "molded-chevron" ? chevronMat : markerMat),
+        false,
+        true,
+      );
+      const markerRadius = stadiumBoundaryRadiusAt(s, angle) + 0.034;
+      marker.position.set(
+        Math.cos(angle) * markerRadius,
+        Math.sin(angle) * markerRadius,
+        rimZ + 0.003,
+      );
+      marker.rotation.z = angle - Math.PI / 2;
+      setMeshName(marker, `stadium:shoot-marker:${index}`, { shape: style, angle });
+      root.add(marker);
+    });
+  }
 
   // Four snap catches are explicit in Takara Tomy's BX-10 assembly sheet.
   // BX-32 uses the same corner-fastened cover construction.
-  const snapMat = stadiumAbsPlastic(0x262a30, { rough: 0.5, coat: 0.18 });
-  snapMat.name = "stadium:material:snap-latch";
+  const snapMat = stadiumMoldedPlastic(0x262a30, { rough: 0.5, coat: 0.18 });
+  snapMat.name = s.name === "bx10"
+    ? "stadium:material:fastener-pp"
+    : "stadium:material:fastener-product-plastic";
   const snapGeometry = new THREE.BoxGeometry(0.018, 0.011, 0.006, 8, 6, 4);
-  const latchAngles = [0, Math.PI / 2, Math.PI, (Math.PI * 3) / 2];
+  const latchAngles = [0.42, -0.42, Math.PI - 0.42, -Math.PI + 0.42];
   latchAngles.forEach((angle, index) => {
     const radius = bodyEdgeRadius(s, angle) - 0.013;
     const latch = configureMesh(new THREE.Mesh(snapGeometry, snapMat), true, true);
@@ -910,8 +1138,10 @@ function addProductDetails(root: THREE.Group, s: StadiumSpec, rimZ: number): voi
 
   // A small raised X mark captures the molded BEYBLADE X branding visible on
   // the front clear panel without loading a font or flattening it to a decal.
-  const logoMat = clearPanel();
-  logoMat.name = "stadium:material:embossed-logo-polycarbonate";
+  const logoMat = stadiumClearPlastic(s, "cover");
+  logoMat.name = s.name === "bx10"
+    ? "stadium:material:embossed-logo-pvc"
+    : "stadium:material:embossed-logo-product-plastic";
   const logo = new THREE.Group();
   setMeshName(logo, "stadium:embossed-x-logo", { embossed: true });
   for (const rotation of [Math.PI / 4, -Math.PI / 4]) {
@@ -952,14 +1182,21 @@ export function buildStadiumModel(s: StadiumSpec): THREE.Group {
     deckDepthM: s.deckH,
     source: "Takara Tomy official product photography and assembly instructions",
   });
-  const bodyMat = stadiumAbsPlastic(s.bodyColor, { rough: 0.46, coat: 0.3 });
-  bodyMat.name = "stadium:material:opaque-body-abs";
+  const bodyMat = stadiumMoldedPlastic(s.bodyColor, { rough: 0.46, coat: 0.3 });
+  bodyMat.name = s.name === "bx10"
+    ? "stadium:material:pale-tray-pvc"
+    : "stadium:material:pale-tray-product-plastic";
   bodyMat.side = THREE.DoubleSide;
   bodyMat.envMapIntensity = 0.7;
+  bodyMat.ior = s.name === "bx10" ? 1.54 : 1.5;
+  const outerBodyMat = stadiumClearPlastic(s, "body");
+  outerBodyMat.name = s.name === "bx10"
+    ? "stadium:material:body-pvc"
+    : "stadium:material:clear-body-product-plastic";
   const rimZ = surfaceZ(s, s.rWall);
 
   root.add(createDish(s, bodyMat));
-  root.add(createDeck(s, rimZ, bodyMat));
+  root.add(createDeck(s, rimZ, outerBodyMat));
   root.add(createTornadoRidge(s, bodyMat));
   root.add(createXtremeLine(s));
   root.add(createLowWall(s, rimZ, bodyMat));

@@ -59,6 +59,8 @@ export interface PartEntry {
   /** short zh-TW flavor/performance description */
   desc?: string | null;
   line: "BX" | "UX" | "CX" | null;
+  /** The Ratchet supplies a fixed numeric Burst-resistance stat instead of
+   * inheriting the selected Bit's value. This never means Burst immunity. */
   fixedBurst: boolean;
   releaseAt: string | null;
   /** Source row chosen as the default appearance for this mechanical entry. */
@@ -117,14 +119,14 @@ export interface BeyParams {
   attackFactor: number; // tangential impulse scale on contact
   attackVariance: number; // 0..1 randomness of attack impulses
   defenseFactor: number; // reduces received knockback
-  burstRes: number; // resistance to burst damage
+  burstRes: number; // Bit-led yield resistance of the Ratchet latch
   dashFactor: number; // xtreme rail acceleration multiplier
   grip: number; // tip traction → traversal drive
   muSpin: number; // spin decay rate (1/s at full contact)
   muMove: number; // translational damping (1/s)
   spinDir: SpinDir;
-  fixedBurst: boolean; // cannot burst (integrated/locked ratchet)
-  /** ratchet protrusion count — its burst-latch joints (N-fold symmetric) */
+  /** outer Ratchet perimeter protrusion metadata; NOT internal Bit Gear
+   * Structure latch teeth and never a Burst-immunity/strength multiplier */
   latchCount: number;
   staminaFactor: number; // scales effective spin energy
 }
@@ -190,6 +192,26 @@ export interface SimEvent {
   magnitude: number;
 }
 
+/** Deterministic terminal Ratchet-release snapshot for presentation. */
+export interface BurstReleaseState {
+  tick: number;
+  /** world-space outward contact normal angle, radians */
+  contactAngle: number;
+  normalImpulse: number;
+  /** signed: positive unlock torque, negative seating torque */
+  tangentialImpulse: number;
+  preVx: number;
+  preVy: number;
+  postVx: number;
+  postVy: number;
+  omega: number;
+  phase: number;
+  /** same normalized terminal overload as BeyState.burstOverload */
+  severity: number;
+  /** stable uint32; presentation must not call Math.random() */
+  seed: number;
+}
+
 export interface BeyState {
   x: number;
   y: number;
@@ -203,12 +225,23 @@ export interface BeyState {
   /** ticks still to wait before this bey is released into the stadium */
   pendingTicks: number;
   omega: number; // signed rad/s (sign = spin direction)
-  burstDamage: number; // accumulated clicks (bursts at clicksMax)
+  /** discrete Ratchet latch slips; bursts when this reaches clicksMax */
+  burstDamage: number;
+  /** 0..1 normalized overload of the terminal Burst impact. Render uses it
+   * to distinguish ordinary Blade release from exceptional Bit ejection. */
+  burstOverload: number;
+  /** exact terminal release impulse/motion; null until a Ratchet Burst */
+  burstRelease: BurstReleaseState | null;
+  /** tick of the last physically distinct latch-loading collision */
+  lastLatchImpactTick: number;
   alive: boolean;
   exited: "over" | "xtreme" | "top" | "launchMiss" | null;
-  stoppedTick: number; // tick when spin finished (-1 = spinning)
-  /** consecutive ticks under OMEGA_STOP — the spin finish needs a dwell so
-   * the result is announced only once the bey has really wound down */
+  /** Index of the live catch zone currently occupied; -1 while in the bowl. */
+  pocketIndex: number;
+  /** Consecutive fully-stopped ticks securely inside the same catch zone. */
+  pocketDwell: number;
+  stoppedTick: number; // tick when fully settled (-1 = still in play)
+  /** consecutive ticks with zero spin AND settled linear motion */
   stopDwell: number;
   contacted: boolean; // has touched the opponent at least once
   railTicks: number; // remaining xtreme dash ticks (0 = not dashing)

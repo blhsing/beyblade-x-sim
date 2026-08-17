@@ -1,11 +1,18 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as THREE from "three";
 
-import { STADIUM_BX10, STADIUM_BX32, type StadiumSpec } from "../src/core/stadium";
+import {
+  pocketCatchPolygon,
+  pocketPolygon,
+  pointInConvexPolygon,
+  stadiumBoundarySignedDistance,
+  STADIUM_BX10,
+  STADIUM_BX32,
+  type StadiumSpec,
+} from "../src/core/stadium";
 import {
   buildStadiumModel,
   disposeStadiumModel,
-  pocketDepth,
   STADIUM_MODEL_DIMENSIONS,
   stadiumTriangleCount,
 } from "../src/render/stadium";
@@ -25,8 +32,22 @@ function materialOf(target: THREE.Mesh): THREE.MeshPhysicalMaterial {
   return target.material as THREE.MeshPhysicalMaterial;
 }
 
-function expectedCoveredArc(s: StadiumSpec): number {
-  return Math.PI * 2 - s.coverGaps.reduce((sum, gap) => sum + (gap.end - gap.start), 0);
+function strictlyInsideConvex(
+  polygon: readonly { x: number; y: number }[],
+  x: number,
+  y: number,
+): boolean {
+  let sign = 0;
+  for (let index = 0; index < polygon.length; index++) {
+    const a = polygon[index]!;
+    const b = polygon[(index + 1) % polygon.length]!;
+    const cross = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+    if (Math.abs(cross) <= 1e-8) return false;
+    const current = cross > 0 ? 1 : -1;
+    if (sign && sign !== current) return false;
+    sign = current;
+  }
+  return sign !== 0;
 }
 
 describe("reference-driven stadium models", () => {
@@ -59,7 +80,12 @@ describe("reference-driven stadium models", () => {
       deckDepthM: spec.deckH,
     });
     expect(object(model, "stadium:dish").userData.physicsSurface).toBe(true);
-    expect(object(model, "stadium:opaque-deck").userData.transparent).toBe(false);
+    const deck = object(model, "stadium:outer-deck");
+    expect(deck.userData).toMatchObject({
+      transparent: true,
+      apertureSource: "core:pocketAtPoint",
+    });
+    expect(materialOf(mesh(model, "stadium:deck-sector:0")).transparent).toBe(true);
     expect(model.userData.triangleCount).toBe(stadiumTriangleCount(model));
     expect(model.userData.triangleCount).toBeGreaterThan(200_000);
     for (let i = 0; i < panelCount; i++) object(model, `stadium:casing-panel:${i}`);
@@ -79,11 +105,11 @@ describe("reference-driven stadium models", () => {
     expect(teeth.count).toBeGreaterThan(150);
     expect(teeth.userData).toMatchObject({
       shape: "trapezoidal-rack-prism",
-      pitchM: 0.005,
-      heightM: 0.0038,
-      bottomWidthM: 0.0044,
-      topWidthM: 0.0025,
-      depthM: 0.0062,
+      pitchM: STADIUM_MODEL_DIMENSIONS.railToothPitchM,
+      heightM: STADIUM_MODEL_DIMENSIONS.railToothHeightM,
+      bottomWidthM: STADIUM_MODEL_DIMENSIONS.railToothBottomWidthM,
+      topWidthM: STADIUM_MODEL_DIMENSIONS.railToothTopWidthM,
+      depthM: STADIUM_MODEL_DIMENSIONS.railToothDepthM,
     });
     expect(teeth.userData.bottomWidthM).toBeGreaterThan(teeth.userData.topWidthM);
     teeth.geometry.computeBoundingBox();
@@ -95,19 +121,28 @@ describe("reference-driven stadium models", () => {
       shape: "thickness-bearing-rack-channel",
       thicknessM: STADIUM_MODEL_DIMENSIONS.railChannelThicknessM,
     });
-    expect(materialOf(channel).name).toBe("stadium:material:xtreme-line-abs");
+    expect(materialOf(channel).name).toBe(
+      spec.name === "bx10"
+        ? "stadium:material:xtreme-line-pa"
+        : "stadium:material:xtreme-line-product-plastic",
+    );
+    expect(line.userData).toMatchObject({
+      centerlineSource: "core:railTrace",
+      resin: spec.name === "bx10" ? "PA" : "product-plastic-unspecified",
+    });
   });
 
   it.each([STADIUM_BX10, STADIUM_BX32])("models open, recessed catch trays on %s", (spec) => {
     const model = modelFor(spec);
-    const rimZ = model.getObjectByName("stadium:low-bowl-wall") ? spec.dishDepth + spec.rimRise + spec.rimBaseSlope * (spec.rWall - spec.rDish) : 0;
+    const rimZ = spec.dishDepth + spec.rimRise + spec.rimBaseSlope * (spec.rWall - spec.rDish);
     expect(object(model, "stadium:pockets").userData.count).toBe(spec.pockets.length);
     spec.pockets.forEach((pocket, index) => {
       const group = object(model, `stadium:pocket:${index}`);
       expect(group.userData).toMatchObject({
         kind: pocket.kind,
-        depthM: pocketDepth(spec),
+        depthM: pocket.throat.outwardDepth,
         recessM: STADIUM_MODEL_DIMENSIONS.pocketRecessM,
+        source: "core:pocketPolygon",
       });
       const floor = mesh(model, `stadium:pocket-floor:${index}`);
       const throat = mesh(model, `stadium:pocket-throat:${index}`);
@@ -116,57 +151,173 @@ describe("reference-driven stadium models", () => {
       object(model, `stadium:pocket-cheek:${index}:1`);
       expect(floor.userData.recessed).toBe(true);
       expect(floor.userData.floorZ).toBeCloseTo(rimZ - STADIUM_MODEL_DIMENSIONS.pocketRecessM, 6);
+      expect(floor.userData).toMatchObject({
+        source: "core:pocketCatchPolygon",
+        outlinePoints: pocketCatchPolygon(spec, pocket).length,
+      });
       expect(throat.userData).toMatchObject({
         opening: true,
         bridgeFree: true,
         shape: "open-sloped-pocket-throat",
+        throatShape: pocket.throat.shape,
+        source: "core:pocketPolygon+pocketSurfaceZ",
       });
-      expect(throat.geometry.userData.bridgeFree).toBe(true);
+      expect(throat.geometry.userData).toMatchObject({
+        bridgeFree: true,
+        outlinePoints: pocketPolygon(spec, pocket).length,
+        source: "core:pocketPolygon+pocketSurfaceZ",
+      });
+      if (pocket.throat.shape === "tangential-slot") {
+        expect(throat.geometry.userData.outlinePoints).toBeGreaterThan(4);
+      } else {
+        expect(throat.geometry.userData.outlinePoints).toBe(4);
+      }
       expect(backstop.userData.heightM).toBeGreaterThan(0.015);
+      expect(group.userData).toMatchObject({
+        wallSource: "core:pocketPolygon+pocketCatchPolygon union",
+        internalSeamsRemoved: true,
+      });
+      expect(group.userData.wallSegmentCount).toBeGreaterThan(0);
+      const throatPolygon = pocketPolygon(spec, pocket);
+      const catchPolygon = pocketCatchPolygon(spec, pocket);
+      group.traverse((entry) => {
+        if (!entry.name.startsWith(`stadium:pocket-wall:${index}:`)) return;
+        expect(entry.userData.externalUnionBoundary).toBe(true);
+        const x = Number(entry.userData.midpointX);
+        const y = Number(entry.userData.midpointY);
+        expect(strictlyInsideConvex(throatPolygon, x, y)).toBe(false);
+        expect(strictlyInsideConvex(catchPolygon, x, y)).toBe(false);
+        expect(stadiumBoundarySignedDistance(spec, x, y)).toBeGreaterThanOrEqual(-0.00051);
+      });
     });
   });
 
+  it.each([STADIUM_BX10, STADIUM_BX32])("cuts every real pocket aperture out of the visible dish on %s", (spec) => {
+    const dish = mesh(modelFor(spec), "stadium:dish");
+    expect(dish.geometry.userData).toMatchObject({
+      apertureSource: "core:pocketAtPoint",
+      apertureCount: 3,
+    });
+    expect(dish.geometry.userData.omittedApertureTriangles).toBeGreaterThan(0);
+    const position = dish.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const index = dish.geometry.index!;
+    const footprints = spec.pockets.flatMap((pocket) => {
+      const throat = pocketPolygon(spec, pocket);
+      if (pocket.throat.catchHalfWidth === undefined || pocket.throat.catchDepth === undefined) return [throat];
+      return [throat, pocketCatchPolygon(spec, pocket)];
+    });
+    for (let triangle = 0; triangle < index.count; triangle += 3) {
+      const a = index.getX(triangle);
+      const b = index.getX(triangle + 1);
+      const c = index.getX(triangle + 2);
+      const x = (position.getX(a) + position.getX(b) + position.getX(c)) / 3;
+      const y = (position.getY(a) + position.getY(b) + position.getY(c)) / 3;
+      expect(footprints.some((polygon) => pointInConvexPolygon(polygon, x, y))).toBe(false);
+    }
+  }, 60_000);
+
   it.each([
-    [STADIUM_BX10, 8],
-    [STADIUM_BX32, 12],
-  ] as const)("uses a solid clear-polycarbonate canopy on %s", (spec, panelCount) => {
+    [STADIUM_BX10, 8, "PVC", 1.54, "stadium:material:cover-pvc"],
+    [STADIUM_BX32, 12, "product-plastic-unspecified", 1.5, "stadium:material:clear-product-plastic"],
+  ] as const)("uses a product-specific transparent canopy on %s", (spec, panelCount, resin, ior, materialName) => {
     const model = modelFor(spec);
     const casing = object(model, "stadium:casing");
     expect(casing.userData).toMatchObject({
-      material: "polycarbonate",
-      ior: 1.585,
-      transmission: 0.96,
+      material: resin,
+      ior,
+      transmission: 0.94,
       thicknessM: STADIUM_MODEL_DIMENSIONS.casingThicknessM,
       coverHeightM: spec.coverHeight,
       canopyCoverageRadians: Math.PI * 2,
-      gapAffects: "inner-barrier-only",
+      apertureCount: 3,
+      apertureSource: "core:pocketAtPoint",
+      gapAffects: "product-pocket-throats-only",
     });
-    expect(casing.userData.wallCoverageRadians).toBeCloseTo(expectedCoveredArc(spec), 6);
-    expect(casing.userData.wallCoverageRadians).toBeGreaterThan(2.8);
+    expect(casing.userData.wallCoverageRadians).toBeGreaterThan(4);
+    expect(casing.userData.wallCoverageRadians).toBeLessThan(Math.PI * 2);
+    expect(casing.userData.gapCoverageRadians).toBeGreaterThan(0);
     const panel = mesh(model, "stadium:casing-panel:0");
     expect(panel.geometry.userData).toMatchObject({
       thicknessM: STADIUM_MODEL_DIMENSIONS.casingThicknessM,
       closedSolid: true,
       panelSegments: 112,
     });
+    expect(panel.userData).toMatchObject({ transparentProductPlastic: true, resin });
     const material = materialOf(panel);
-    expect(material.name).toBe("stadium:material:clear-polycarbonate");
+    expect(material.name).toBe(materialName);
     expect(material.transparent).toBe(true);
-    expect(material.transmission).toBeCloseTo(0.96, 6);
+    expect(material.transmission).toBeCloseTo(0.94, 6);
     expect(material.opacity).toBe(1);
-    expect(material.ior).toBeCloseTo(1.585, 6);
+    expect(material.ior).toBeCloseTo(ior, 6);
     expect(material.thickness).toBeCloseTo(0.002, 6);
-    expect(material.roughness).toBeLessThan(0.06);
+    expect(material.roughness).toBeLessThan(0.07);
     expect(material.depthWrite).toBe(true);
-    expect(object(model, "stadium:casing-inner-lip")).toBeTruthy();
+    const innerWall = mesh(model, "stadium:casing-inner-wall:0");
+    expect(innerWall.geometry.userData).toMatchObject({
+      shape: spec.name === "wide" ? "obround-aperture-wall" : "circular-aperture-wall",
+      source: "core:pocketAtPoint",
+    });
+    const innerLip = object(model, "stadium:casing-inner-lip");
+    expect(innerLip.userData).toMatchObject({
+      shape: spec.name === "wide" ? "obround" : "circle",
+      scaleFromBowl: spec.name === "wide" ? 0.7 : 0.69,
+    });
     expect(object(model, "stadium:casing-outer-flange")).toBeTruthy();
     for (let index = 0; index < panelCount; index++) {
-      expect(mesh(model, `stadium:casing-panel:${index}`).material).toBe(panel.material);
+      const current = mesh(model, `stadium:casing-panel:${index}`);
+      expect(current.material).toBe(panel.material);
+      expect(current.userData).toMatchObject({
+        continuousMoldedShell: true,
+        startAngle: (index / panelCount) * Math.PI * 2,
+        endAngle: ((index + 1) / panelCount) * Math.PI * 2,
+      });
+      if (index > 0) {
+        const previous = mesh(model, `stadium:casing-panel:${index - 1}`);
+        expect(current.userData.startAngle).toBeCloseTo(previous.userData.endAngle, 12);
+      }
     }
-    const deckMaterial = materialOf(mesh(model, "stadium:dish"));
-    expect(deckMaterial.name).toBe("stadium:material:opaque-body-abs");
-    expect(deckMaterial.transparent).toBe(false);
-    expect(deckMaterial.transmission).toBe(0);
+    const trayMaterial = materialOf(mesh(model, "stadium:dish"));
+    expect(trayMaterial.name).toBe(
+      spec.name === "bx10"
+        ? "stadium:material:pale-tray-pvc"
+        : "stadium:material:pale-tray-product-plastic",
+    );
+    expect(trayMaterial.transparent).toBe(false);
+    expect(trayMaterial.transmission).toBe(0);
+    const outerMaterial = materialOf(mesh(model, "stadium:deck-sector:0"));
+    expect(outerMaterial.name).toBe(
+      spec.name === "bx10"
+        ? "stadium:material:body-pvc"
+        : "stadium:material:clear-body-product-plastic",
+    );
+    expect(outerMaterial.transparent).toBe(true);
+  });
+
+  it("uses only the verified BX-10 PVC / PA / PP material assignments", () => {
+    expect(materialOf(mesh(bx10Model, "stadium:dish")).name).toBe("stadium:material:pale-tray-pvc");
+    expect(materialOf(mesh(bx10Model, "stadium:deck-sector:0")).name).toBe("stadium:material:body-pvc");
+    expect(materialOf(mesh(bx10Model, "stadium:xtreme-line-channel:0")).name).toBe("stadium:material:xtreme-line-pa");
+    expect(materialOf(mesh(bx10Model, "stadium:casing-snap:0")).name).toBe("stadium:material:fastener-pp");
+    const names = new Set<string>();
+    bx10Model.traverse((entry) => {
+      const target = entry as THREE.Mesh;
+      if (Array.isArray(target.material)) target.material.forEach((material) => names.add(material.name));
+      else if (target.material) names.add(target.material.name);
+    });
+    expect([...names].some((name) => /abs|polycarbonate/i.test(name))).toBe(false);
+  });
+
+  it("renders exactly the official openings and shoot-position markers", () => {
+    for (const [model, spec] of [[bx10Model, STADIUM_BX10], [bx32Model, STADIUM_BX32]] as const) {
+      expect(object(model, "stadium:pockets").children).toHaveLength(3);
+      expect(model.getObjectByName("stadium:pocket:3")).toBeUndefined();
+      expect(spec.coverGaps).toEqual([]);
+    }
+    expect(bx10Model.getObjectByName("stadium:shoot-marker:0")).toBeUndefined();
+    expect(object(bx32Model, "stadium:shoot-marker:0").userData.shape).toBe("red-triangle");
+    expect(object(bx32Model, "stadium:shoot-marker:1").userData.shape).toBe("red-triangle");
+    expect(object(bx32Model, "stadium:shoot-marker:2").userData.shape).toBe("molded-chevron");
+    expect(bx32Model.getObjectByName("stadium:shoot-marker:3")).toBeUndefined();
   });
 
   it("releases every unique GPU geometry and material when a stadium is replaced", () => {

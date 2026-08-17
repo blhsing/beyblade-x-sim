@@ -1,7 +1,10 @@
-import { defineConfig } from "vite";
+import { defineConfig } from "vitest/config";
 
 export default defineConfig({
   base: "./",
+  test: {
+    fileParallelism: false,
+  },
   build: {
     target: "es2022",
     sourcemap: true,

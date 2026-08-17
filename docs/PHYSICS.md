@@ -6,6 +6,10 @@ part stats, and *bit-exact determinism* across devices.
 
 ## Determinism contract
 
+Current deterministic replay/lockstep version: **2**. Version 2 introduces
+distinct-impact, signed discrete Ratchet detent slip; peers or archived
+replays produced by another physics version must not be hash-compared.
+
 - Fixed timestep **1/240 s**; sim never reads wall-clock time.
 - Only IEEE-deterministic ops in the sim path (`+ − × ÷ sqrt abs floor`).
   `Math.sin/cos/atan2` are forbidden — `fxmath.ts` provides polynomial
@@ -19,14 +23,17 @@ part stats, and *bit-exact determinism* across devices.
 ## State per bey
 
 `x y vx vy` (m, m/s in the stadium plane), signed spin `ω` (rad/s, sign =
-spin direction), accumulated `burstDamage` (clicks), rail state, contact flag
-(for the own-finish rule), visual phase.
+spin direction), discrete `burstDamage` detents, last distinct latch-impact
+tick, deterministic terminal `burstRelease` snapshot, rail state, live-pocket
+identity and settle dwell, contact flag (for the own-finish rule), visual
+phase.
 
 ## Forces & behaviours per tick
 
-1. **Bowl gravity**: surface is an analytic profile `z(r)` (parabolic dish to
-   the tornado ridge, steeper rim band to the wall). Acceleration
-   `−g·dz/dr` pulls toward center.
+1. **Bowl gravity**: surface is an analytic profile mapped over the product
+   boundary (circular BX-10; homothetic obround BX-32), from parabolic dish
+   through tornado ridge to the steeper wall band. Its 2-D gradient pulls
+   downhill rather than assuming every stadium is circular.
 2. **Tornado drift**: tip traction converts spin into tangential travel
    (`grip × min(1, ω/600) × (1 − v/v_sat)`), signed by spin direction —
    attack types with grippy flat/rubber tips orbit hard; needle tips barely
@@ -35,30 +42,65 @@ spin direction), accumulated `burstDamage` (clicks), rail state, contact flag
    stumble term when `ω < 120 rad/s`.
 4. **Spin decay**: `muSpin × (base + k·speed)` — travelling costs spin.
    Solo endurance lands in the real 60–180 s band depending on tip.
-5. **Xtreme Line (gear rack)**: arcs at radius `rRail`. A bey crossing the
-   band with enough speed engages: ~0.15 s of strong tangential acceleration
-   (× bit `dash` factor) with a radial spring holding it on the rack, then a
-   fling with an inward radial boost — the Xtreme Dash. Cooldown prevents
-   immediate re-engage.
+5. **Xtreme Line (gear rack)**: each product owns a traced 2-D centerline used
+   by physics and rendering. A dash-capable Bit can mesh, accelerate along the
+   actual curve tangent and leave only on a traced inward ramp. Release keeps
+   the dogleg's inward tangent—there is no opponent-seeking or generic radial
+   sling. The low modeled rack profile can deflect a slow crossing without
+   acting as an invisible wall.
 6. **Wall & pockets**: wall bounce (restitution + spin-driven tangential
-   kick). Pocket arcs: radial exit speed above threshold ⇒ `over` / `xtreme`
-   exit. Extreme speed outside a pocket ⇒ `top` (over-the-top: replay).
+   kick). Each product opening is an explicit 2-D throat/catch union shared
+   with rendering and debris. A Bey must cross the clearance-adjusted wall
+   outward through the real throat with sufficient speed to enter the live,
+   recessed tray. It can collide there, rebound from cheeks/backstop and
+   return through the throat; entry alone is not a finish. Official stadiums
+   have no invented angular side gaps.
 7. **Collisions** (circle-circle): normal impulse (restitution 0.25,
    mass-weighted) + two directed "smash" impulses derived from **rim slip**
    `|ω₁r₁ + ω₂r₂|/2` — same-direction spins collide hardest, opposite-spin
    pairs grind (signed ω makes this emerge naturally). Attack stat scales
    smash and its variance (PRNG); defense divides received impulse; both
    sides lose spin ∝ received impulse.
-8. **Burst**: each hit adds `impulse × k / burstRes` clicks; integer click
-   crossings emit haptic/audio events; `burstDamage ≥ clicksMax(4)` ⇒ burst
-   (parts scatter). `fixedBurst` ratchets (and CX locked configs) are immune.
+8. **Burst**: one physically distinct closing impact can transmit signed
+   tangential torque through the Blade. Torque in the unlock direction must
+   exceed the active joint-resistance yield before it slips one or two discrete
+   detents; reverse torque can re-seat one partial detent. Sustained overlap
+   cannot generate extra clicks. `burstDamage ≥ clicksMax(4)` releases the
+   Ratchet latch: this is a **Burst**, not a crack or material-fracture model.
+   A normal release keeps the Ratchet and Bit coupled while the complete upper
+   assembly separates; only an exceptional terminal overload ejects the Bit.
+   No catalog Ratchet is treated as automatically Burst-immune. The source
+   field `fixedBurst` means that Ratchet supplies a constant resistance stat
+   instead of inheriting the selected Bit's stat; it does not disable release.
 
-## Finishes (official mapping)
+The presentation receives the terminal position, linear velocity, spin axis,
+contact impulse and a deterministic seed from the core. Released bodies use
+catalog-derived masses, geometry-derived support points/inertia and fixed
+1/240 s rigid-body steps against one another and the same stadium terrain used
+by play. It does not add random explosion energy, sparks, cosmetic cracks or
+frame-rate-dependent scatter.
 
-`spin` |ω| < 30 rad/s first · `over` pocket exit (2 pts) · `xtreme` central
-zone exit (3 pts) · `burst` (2 pts) · own-finish flag when a bey exits
+## Finishes (official scoring, stricter simulation authorization)
+
+Takara Tomy's retained-zone standard is that the complete Bey remains in the
+Over/Xtreme Zone and cannot return. At the user's direction, this simulation
+applies a deliberately stricter presentation gate: it waits for a literal
+zero-spin, physically settled confirmation in the tray before announcing the
+same official Over/Xtreme score. This is a simulation policy, not a claim that
+the printed tournament rule itself requires zero spin.
+
+`spin` requires ω = 0 (the decay integrator clamps exactly) **and** speed
+< 0.005 m/s continuously for 0.6 s; static friction sleeps that zero-spin,
+low-speed contact so the qualifying dwell cannot visibly slide · `over` (2
+pts) / `xtreme` (3 pts) require the complete Bey footprint to be securely
+inside the same catch tray, ω = 0, negligible linear/vertical motion, and 24
+post-collision ticks of uninterrupted confirmation; motion, impact, leaving
+or changing a pocket resets that dwell ·
+`burst` (2 pts) · own-finish flag when a bey exits
 without ever touching the opponent (1 pt to opponent). Simultaneous terminal
 events in one tick ⇒ draw (no points, re-battle). Over-the-top ⇒ replay.
+The simulation safety/time cap never compares two still-rotating Beys and
+calls that a Spin Finish; if neither has fully settled, the battle is a draw.
 
 ## Stats → parameters (`derive.ts`)
 
@@ -66,12 +108,14 @@ events in one tick ⇒ draw (no points, re-battle). Over-the-top ⇒ replay.
   category); **radius** from blade diameter; **inertia** `= (0.5+0.3·stamina̅)·m·r²`
   (stamina designs are rim-weighted).
 - **attackFactor/variance** from summed attack; **defenseFactor** from
-  defense; **burstRes** from bit burst stat + defense; **dashFactor** from
+  defense; **burstRes** from the Bit burst stat + upper-stack defense, except a catalog
+  `fixedBurst` Ratchet uses its own fixed burst stat regardless of Bit;
+  **dashFactor** from
   bit dash; **grip/muSpin/muMove** from bit code archetype (flat/rubber/
   needle/ball/point) blended with bit stats; **spin direction** from
   blade/lock-chip rotation (dual-spin blades choose at launch).
 - Ratchet height code (`N-HH`, HH in 0.1 mm) sets center-of-gravity height;
-  `fixedBurst` ratchets lock the burst mechanism.
+  `fixedBurst` describes a fixed numeric resistance source, never immunity.
 
 ## Launch mapping
 

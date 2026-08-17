@@ -1,7 +1,7 @@
 // 對戰紀錄: player profiles (W/L) + recent match records, backed by the
 // synced tier DB (pull refresh) with localStorage as the offline cache.
 
-import { localMatches, localProfiles, pull } from "../game/persist";
+import { localMatches, localProfiles, pull, replayPhysicsCompatible } from "../game/persist";
 import { ZH } from "../i18n/zh";
 import { button, el, overlay } from "./dom";
 import { playReplay } from "./replay";
@@ -33,10 +33,12 @@ export function showRecords(app: GameApp): void {
       const d = new Date(m.ts);
       const when = `${d.getMonth() + 1}/${d.getDate()} ${d.getHours()}:${String(d.getMinutes()).padStart(2, "0")}`;
       const actions = el("div", { class: "row" });
-      if (m.replay && m.replay.battles.length > 0) {
+      if (m.replay && m.replay.battles.length > 0 && replayPhysicsCompatible(m.replay)) {
         actions.append(
           button(ZH.replay, () => void playReplay(app, m, () => showRecords(app)), "btn small"),
         );
+      } else if (m.replay && m.replay.battles.length > 0) {
+        actions.append(el("span", { class: "label" }, "舊版物理紀錄（無法精確重播）"));
       }
       if (m.id) {
         actions.append(

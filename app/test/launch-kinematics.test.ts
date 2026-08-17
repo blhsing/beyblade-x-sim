@@ -19,7 +19,6 @@ const bey = (spinDir: 1 | -1 = 1): BeyParams => ({
   muSpin: 0.05,
   muMove: 0.9,
   spinDir,
-  fixedBurst: false,
   latchCount: 4,
   staminaFactor: 1,
 });

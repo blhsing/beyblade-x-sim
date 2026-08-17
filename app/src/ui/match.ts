@@ -5,7 +5,7 @@
 import { deriveBeyParams, resolveCombo, type ResolvedCombo } from "../core/derive";
 import { normalizeLauncherForSpin } from "../core/launcher";
 import type { BeyParams } from "../core/types";
-import { DT, createWorld, simulateBattle, step } from "../core/sim";
+import { DT, PHYSICS_VERSION, createWorld, simulateBattle, step } from "../core/sim";
 import type { LauncherKind, LaunchParams, WorldConfig, WorldState } from "../core/types";
 import { MatchEngine, pointsForFinish, type PlayerSetup } from "../game/rules";
 import { botChooseLaunch, botChooseLaunchAdaptive } from "../game/bots";
@@ -105,6 +105,7 @@ export async function humanLaunch(
 }> {
   app.view.mode = app.view.mode === "gyro" ? "gyro" : "launch";
   app.view.launchSide = side;
+  app.view.synchronizeWideLaunchCamera();
   sfx.setScore("launch"); // tense hold through the countdown
   const physicalLauncher = normalizeLauncherForSpin(launcher, beyParams?.spinDir ?? 1);
   const pullInstruction = LAUNCHER_MODELS[physicalLauncher].mechanism === "string"
@@ -328,6 +329,7 @@ export function playBattle(
 ): Promise<WorldState> {
   return new Promise((resolve) => {
     const stadium = app.stadium();
+    app.view.setBurstClickThreshold(cfg.clicksMax);
     const world = createWorld(cfg);
     app.view.primeStagedLaunches(world);
     const stepWithLauncherHandoff = (): boolean => {
@@ -542,7 +544,6 @@ export async function runMatch(
 
     if (world.finish) {
       const f = world.finish;
-      if (f.type === "burst") sfx.burst();
       const pts = pointsForFinish(app.rules, f);
       engine.applyBattle(f, false);
       await flashBanner(
@@ -583,6 +584,7 @@ export async function runMatch(
       .filter((h) => h.finish)
       .map((h) => `${h.finish!.type}:${names[h.finish!.winner]}`),
     replay: {
+      physicsVersion: PHYSICS_VERSION,
       rules: { ...app.rules },
       stadiumKey: app.rules.stadium,
       battles: replayBattles,

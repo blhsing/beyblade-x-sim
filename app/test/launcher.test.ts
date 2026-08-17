@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import * as THREE from "three";
 
 import { launcherDirection, normalizeLauncherForSpin } from "../src/core/launcher";
+import { STADIUM_BX10, STADIUM_BX32 } from "../src/core/stadium";
 import { LAUNCHER_KINDS, type LauncherKind } from "../src/core/types";
 import {
   alignLauncherMountToWorld,
@@ -12,6 +13,7 @@ import {
   LAUNCHER_MODELS,
   launcherShellGeometry,
   launcherAimTiltFromGesture,
+  launchCameraFrame,
   launcherExitOrientation,
   orientWorldLauncher,
   setLauncherPull,
@@ -415,4 +417,34 @@ describe("Takara Tomy launcher catalog", () => {
       }
     }
   }, 15_000);
+
+  it("preserves BX-10 framing and fits the full BX-32 shell at 1280x720", () => {
+    expect(launchCameraFrame(STADIUM_BX10, 0).position.toArray()).toEqual([-0.16, -0.4, 0.3]);
+    expect(launchCameraFrame(STADIUM_BX10, 1).position.toArray()).toEqual([0.16, -0.4, 0.3]);
+
+    for (const side of [0, 1] as const) {
+      const frame = launchCameraFrame(STADIUM_BX32, side);
+      const camera = new THREE.PerspectiveCamera(55, 1280 / 720, 0.005, 20);
+      camera.up.set(0, 0, 1);
+      camera.position.copy(frame.position);
+      camera.lookAt(frame.target);
+      camera.updateMatrixWorld(true);
+      let maxX = 0;
+      let maxY = 0;
+      const topZ = STADIUM_BX32.dishDepth + STADIUM_BX32.rimRise +
+        STADIUM_BX32.rimBaseSlope * (STADIUM_BX32.rWall - STADIUM_BX32.rDish) +
+        STADIUM_BX32.coverHeight;
+      for (const x of [-STADIUM_BX32.deckW / 2, STADIUM_BX32.deckW / 2]) {
+        for (const y of [-STADIUM_BX32.deckH / 2, STADIUM_BX32.deckH / 2]) {
+          for (const z of [0, topZ]) {
+            const projected = new THREE.Vector3(x, y, z).project(camera);
+            maxX = Math.max(maxX, Math.abs(projected.x));
+            maxY = Math.max(maxY, Math.abs(projected.y));
+          }
+        }
+      }
+      expect(maxX, `BX-32 side ${side} horizontal`).toBeLessThan(0.98);
+      expect(maxY, `BX-32 side ${side} vertical`).toBeLessThan(0.98);
+    }
+  });
 });

@@ -123,9 +123,19 @@ export function deriveBeyParams(
 
   const attack = sumStat(rc, "attack");
   const defense = sumStat(rc, "defense");
+  // Shock spreading comes from the upper stack. A Bit already contributes
+  // through its dedicated Burst stat; counting its Defense here would make a
+  // catalog fixed-resistance Ratchet vary when the Bit changes.
+  const burstDefense = defense - (p.bit?.stats.defense ?? 0);
   const stamina = sumStat(rc, "stamina");
   const dash = p.bit?.stats.dash ?? 0;
-  const burst = p.bit?.stats.burst ?? 40;
+  // `fixed_burst` in the catalog means the Ratchet supplies a constant
+  // Burst-resistance value regardless of the selected Bit. It does NOT make
+  // the assembly unburstable. Ordinary Ratchets continue to inherit the
+  // Bit's Gear Structure stat.
+  const burst = p.ratchet?.fixedBurst
+    ? p.ratchet.stats.burst
+    : (p.bit?.stats.burst ?? 40);
 
   // rim-weighted discs (stamina designs) carry more inertia per gram
   const inertiaCoef = 0.5 + 0.3 * Math.min(1, stamina / 137);
@@ -194,15 +204,17 @@ export function deriveBeyParams(
     attackFactor: 0.5 + attack / 90,
     attackVariance: 0.25 + Math.min(0.35, attack / 400),
     defenseFactor: 1 / (1 + defense / 130),
-    burstRes: 30 + burst + defense * 0.25,
+    // Official Burst resistance is primarily a Bit Gear Structure property.
+    // Upper-part defense has only a small secondary shock-spreading effect.
+    burstRes: 30 + burst + burstDefense * 0.08,
     dashFactor: 0.6 + dash / 40,
     grip,
     muSpin,
     muMove,
     spinDir: rotation,
-    fixedBurst: p.ratchet?.fixedBurst ?? false,
-    // the ratchet's protrusion count = its latch joints ("3-60" → 3):
-    // bursts only advance when a hit lands on one of these joints
+    // First Ratchet digit = OUTER attack protrusions ("3-60" → 3). The sim
+    // uses their periodicity for exposed impact geometry, never as a count
+    // of internal Bit latch teeth or a direct Burst-resistance multiplier.
     latchCount: ratchetLatchCount(p.ratchet),
     staminaFactor: 0.8 + stamina / 250,
   };

@@ -6,6 +6,7 @@
 
 import { getToken, isGuest } from "./auth";
 import { LAUNCHER_KINDS, type LauncherKind } from "../core/types";
+import { PHYSICS_VERSION } from "../core/sim";
 
 export interface ReplayBattle {
   seed: number;
@@ -15,9 +16,19 @@ export interface ReplayBattle {
 }
 
 export interface ReplayData {
+  /** Deterministic core revision used to record this replay. Missing means
+   * legacy/unknown and must not be silently re-simulated with new physics. */
+  physicsVersion?: number;
   rules: unknown; // full RuleSet snapshot
   stadiumKey: string;
   battles: ReplayBattle[];
+}
+
+/** Replays are input logs, not state snapshots. A different deterministic
+ * core would produce a different battle, so legacy/unknown revisions are
+ * deliberately view-only records instead of misleading re-simulations. */
+export function replayPhysicsCompatible(replay: ReplayData | null | undefined): boolean {
+  return replay?.physicsVersion === PHYSICS_VERSION;
 }
 
 export interface MatchRecord {

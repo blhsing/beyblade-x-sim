@@ -19,10 +19,14 @@ import {
   sweepSolid,
 } from "../src/render/parts";
 import { fingertipOffset } from "../src/render/hand";
-import { pocketDepth } from "../src/render/scene";
 import { sfx } from "../src/audio/sfx";
 import { beastOf } from "../src/render/materials";
-import { STADIUM_BX10, STADIUM_BX32 } from "../src/core/stadium";
+import {
+  pocketCatchPolygon,
+  stadiumBodyRadiusAt,
+  STADIUM_BX10,
+  STADIUM_BX32,
+} from "../src/core/stadium";
 import type { PartsDb } from "../src/core/types";
 
 const db: PartsDb = JSON.parse(
@@ -239,8 +243,8 @@ describe("hand rig", () => {
 
 describe("stadium bodies match the published dimensions", () => {
   it("BX-10 is the 440 × 455 mm body with a ⌀210 mm tornado ridge", () => {
-    expect(STADIUM_BX10.deckW).toBeCloseTo(0.455, 3);
-    expect(STADIUM_BX10.deckH).toBeCloseTo(0.44, 3);
+    expect(STADIUM_BX10.deckW).toBeCloseTo(0.44, 3);
+    expect(STADIUM_BX10.deckH).toBeCloseTo(0.455, 3);
     expect(STADIUM_BX10.rDish * 2).toBeCloseTo(0.21, 3);
   });
 
@@ -255,10 +259,14 @@ describe("stadium bodies match the published dimensions", () => {
     // edge the hole would hang off the body and render as broken geometry
     // instead of a pocket.
     for (const s of [STADIUM_BX10, STADIUM_BX32]) {
-      const out = pocketDepth(s);
-      expect(out).toBeGreaterThanOrEqual(0.012); // deep enough to read as a tray
-      expect(s.rWall + out).toBeLessThan(Math.min(s.deckW, s.deckH) / 2);
       expect(s.pockets.length).toBeGreaterThan(0);
+      for (const pocket of s.pockets) {
+        expect(pocket.throat.outwardDepth).toBeGreaterThanOrEqual(0.012);
+        for (const vertex of pocketCatchPolygon(s, pocket)) {
+          const angle = Math.atan2(vertex.y, vertex.x);
+          expect(Math.hypot(vertex.x, vertex.y)).toBeLessThanOrEqual(stadiumBodyRadiusAt(s, angle) + 1e-8);
+        }
+      }
     }
   });
 

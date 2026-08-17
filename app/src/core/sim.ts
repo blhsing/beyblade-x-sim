@@ -5,11 +5,27 @@
 
 import { clamp, datan2, dsin, dcos, hashFloats, rngNext, wrapAngle, PI } from "./fxmath";
 import { normalizeLauncherForSpin } from "./launcher";
-import type { StadiumSpec } from "./stadium";
-import { inArc, pocketAt, railRadiusAt, railTangentAt, surfaceSlope, surfaceZ } from "./stadium";
+import type { PocketSpec, Point2, StadiumSpec } from "./stadium";
+import {
+  inArc,
+  pocketAtPoint,
+  pocketCatchPolygon,
+  pocketPath,
+  pocketPolygon,
+  pocketSecureAtPoint,
+  pocketThroatAtPoint,
+  railClosestPoint,
+  railReleaseDirectionAt,
+  stadiumBoundaryNormalAt,
+  stadiumBoundarySignedDistance,
+  stadiumTerrainAt,
+  surfaceGradientAt,
+  surfaceZAt,
+} from "./stadium";
 import type {
   BeyParams,
   BeyState,
+  BurstReleaseState,
   LaunchParams,
   WorldConfig,
   WorldState,
@@ -17,15 +33,18 @@ import type {
 
 export const DT = 1 / 240;
 export const TICKS_PER_SECOND = 240;
+/** Increment whenever deterministic state evolution changes incompatibly. */
+export const PHYSICS_VERSION = 2;
 
 const G = 9.81;
-// A top at 30 rad/s (~290 rpm) is still visibly spinning, so calling the
-// spin finish there announced the result while the bey was clearly alive.
-// Stop means stopped: ~95 rpm, held for a moment so the bey has actually
-// wound down and keeled over before the banner appears.
-export const OMEGA_STOP = 10; // rad/s below which a bey has "stopped"
-/** |ω| must stay under OMEGA_STOP this long before the finish is called */
-export const STOP_DWELL_TICKS = 72; // 0.3 s at 240 Hz
+// Stop means visually and mechanically settled, not merely crossing a low-
+// spin threshold while the top is still skating/wobbling around the dish.
+export const OMEGA_STOP = 2; // low-spin regime; finish still requires exactly 0
+export const STOP_LINEAR_SPEED = 0.005; // m/s: ≤3 mm over the full dwell
+/** all stop conditions must remain true this long before a Spin Finish */
+export const STOP_DWELL_TICKS = 144; // 0.6 s at 240 Hz
+/** Zone loss needs a short confirmation after a literal full stop. */
+export const POCKET_DWELL_TICKS = 24; // 0.1 s, evaluated after collisions
 
 const T = {
   // launch — bowl escape speed is ~0.77 m/s, so entries stay below it and
@@ -65,34 +84,35 @@ const T = {
   railFlingRadial: 0.4,
   dipSlingSpeed: 1.3, // riding a dip faster than this slings the bey inward
   dipSlingBoost: 0.55,
-  dipRadiusFrac: 0.94, // "inside a dip" = rail radius below rRail×this
-  railTripSpeed: 0.55, // radial slam speed that trips instead of meshing
+  railTripSpeed: 0.24, // modeled 2.9 mm rack: low-energy tooth clash band
   tripSpinKeep: 0.82,
-  tripClicks: 0.5, // a trip shocks the latch, but less than a joint hit
   gearEventEvery: 10,
-  // the rack is a raised ridge: it physically holds beys in unless they
-  // arrive hard enough to hop over it
-  // Tuned on the balance batch WITH continuous containment (scratchpad
-  // rail-sweep): 1.15→95% KO in 4 s (rack does nothing), 2.0→30% KO but a
-  // near-wall. 1.8 is a slightly lower ridge than 1.9 — the rack still holds
-  // ordinary drift, but a solid hit tips a bey over it a bit more readily.
-  railBreakSpeed: 1.8, // only real smashes clear the ridge
+  // The physical envelope is 0.7 + 2.2 mm. Its ideal gravity-equivalent
+  // crossing speed is sqrt(2gh)≈0.24 m/s; 0.38 includes tooth/Bit losses
+  // without turning this low rack into an invisible stadium wall.
+  railBreakSpeed: 0.38,
   railBumpRestitution: 0.42,
   railBarrierInner: 0.75, // barrier sits at railR - halfWidth×this
+  pocketEntrySpeed: 0.45, // committed outward crossing, above a slow wall graze
   // collisions (rim slip ≈ 16 m/s at full spin → smash impulse ~0.01–0.02
   // kg·m/s → Δv ~0.3–0.5 m/s and spin loss ~15–40 rad/s per solid hit)
   restitution: 0.28,
   smashScale: 0.0013,
   recoilShare: 0.45,
   spinLossK: 0.5,
-  burstNormalK: 2.2,
   burstSmashK: 9,
-  burstScale: 850,
-  // bursts are JOINT hits: the impact must land on one of the ratchet's N
-  // latch points (in the bey's rotating frame) and exceed a real impulse —
-  // grazes and off-joint hits never advance the latch
-  burstMinImpulse: 0.12,
-  jointWindow: 0.9, // |wrap(contactAngle×N)| below this = on a joint (~29%)
+  // Ratchet Burst is a DISCRETE latch slip, not material damage. A collision
+  // must be a new closing impact, hit an opening flank of a latch joint and
+  // exceed the Ratchet's yield load. Sustained overlap cannot count as a
+  // stream of impacts, and even an exceptional hit slips at most two teeth.
+  latchYieldLoad: 0.12,
+  latchResistanceRef: 60,
+  latchImpactMinNormal: 0.0015,
+  latchImpactGapTicks: 6,
+  latchMaxSlipPerImpact: 2,
+  latchExtraSlipRatio: 1.5,
+  latchSeatYieldRatio: 0.55,
+  latchMaxSeatPerImpact: 1,
   hitEventGapTicks: 6,
   /** below this combined impulse a contact is resting/settling, not a clash */
   hitEventMinImpulse: 0.0025,
@@ -111,6 +131,96 @@ const LAUNCHER: Record<LaunchParams["launcher"], { v: number; w: number }> = {
   winderL: { v: 0.9, w: 1.0 },
   stringL: { v: 1.05, w: 1.0 },
 };
+
+export interface LatchImpact {
+  /** closing normal impulse J (kg·m/s); zero for resting overlap */
+  normalImpulse: number;
+  /** tangential impulse delivered by the attacking blade */
+  incomingSmash: number;
+  attackerSpinDir: 1 | -1;
+  /** current discrete distance from the fully seated detent */
+  currentClicks: number;
+}
+
+export interface LatchImpactResponse {
+  /** smoothly weighted opening load at the joint */
+  openingLoad: number;
+  /** Ratchet-specific load at which the tooth begins to slip */
+  yieldLoad: number;
+  /** 0..1 Blade-flank efficiency transmitting rim impulse as torque */
+  torqueCoupling: number;
+  /** signed whole-detent change: positive unlocks, negative re-seats */
+  detentDelta: number;
+  /** 0..1 excess unlock load available to separate the assembly */
+  overloadSeverity: number;
+}
+
+function latchYieldLoad(p: BeyParams): number {
+  const resistance = Math.sqrt(Math.max(0.1, p.burstRes) / T.latchResistanceRef);
+  // Burst resistance belongs primarily to the Bit's Gear Structure. The
+  // first Ratchet digit describes OUTER perimeter protrusions, not nine
+  // internal lock teeth, so it must not multiply the latch's yield strength.
+  return T.latchYieldLoad * resistance;
+}
+
+function latchClicksForLoad(openingLoad: number, yieldLoad: number): number {
+  if (openingLoad <= yieldLoad || yieldLoad <= 0) return 0;
+  const excessRatio = (openingLoad - yieldLoad) / yieldLoad;
+  return Math.min(
+    T.latchMaxSlipPerImpact,
+    1 + Math.floor(excessRatio / T.latchExtraSlipRatio),
+  );
+}
+
+/** Pure deterministic Ratchet load model used by collisions and tests. */
+export function latchImpactResponse(
+  p: BeyParams,
+  impact: LatchImpact,
+): LatchImpactResponse {
+  const yieldLoad = latchYieldLoad(p);
+  if (impact.normalImpulse < T.latchImpactMinNormal) {
+    return {
+      openingLoad: 0,
+      yieldLoad,
+      torqueCoupling: 0,
+      detentDelta: 0,
+      overloadSeverity: 0,
+    };
+  }
+
+  // collidePair resolves contact at the full Blade radius. Its radial normal
+  // impulse therefore has no torque arm in this circular approximation; only
+  // the tangential smash load can turn Blade against the Ratchet/Bit lock.
+  // attackVariance is the available proxy for how strongly the victim's
+  // non-circular Blade flanks couple that rim load into the central stack.
+  const torqueCoupling = clamp(0.25 + p.attackVariance * 0.65, 0.25, 0.72);
+  const transmittedLoad = impact.incomingSmash * T.burstSmashK * torqueCoupling;
+  const unlocking = impact.attackerSpinDir === p.spinDir;
+  const openingLoad = unlocking ? transmittedLoad : -transmittedLoad;
+  let detentDelta = 0;
+  if (unlocking) {
+    detentDelta = latchClicksForLoad(transmittedLoad, yieldLoad);
+  } else if (
+    impact.currentClicks > 0 &&
+    transmittedLoad > yieldLoad * T.latchSeatYieldRatio
+  ) {
+    // Reverse torque drives a partially-open latch back toward its seated
+    // stop. It never leaks positive damage; alternating impacts therefore
+    // do not monotonically accumulate forever.
+    detentDelta = -Math.min(T.latchMaxSeatPerImpact, impact.currentClicks);
+  }
+  return {
+    openingLoad,
+    yieldLoad,
+    torqueCoupling,
+    detentDelta,
+    // 0 at first yield, 1 at ≥4× yield. This value is presentation metadata
+    // only; it never changes finish scoring or the number of latch clicks.
+    overloadSeverity: unlocking
+      ? clamp((transmittedLoad / Math.max(1e-9, yieldLoad) - 1) / 3, 0, 1)
+      : 0,
+  };
+}
 
 /**
  * The complete deterministic ballistic hand-off shared by simulation and
@@ -236,8 +346,13 @@ function makeBey(
     airborne: true,
     omega: kinematics.omega,
     burstDamage: 0,
+    burstOverload: 0,
+    burstRelease: null,
+    lastLatchImpactTick: -999,
     alive: true,
     exited: null,
+    pocketIndex: -1,
+    pocketDwell: 0,
     stoppedTick: -1,
     stopDwell: 0,
     contacted: false,
@@ -270,6 +385,16 @@ function rand(w: WorldState): number {
   return r.value;
 }
 
+/** Stable presentation seed without consuming/changing the physics PRNG. */
+function burstReleaseSeed(w: WorldState, bey: number): number {
+  let x = (w.rng ^ Math.imul(w.tick + 1, 0x9e3779b1) ^ Math.imul(bey + 1, 0x85ebca6b)) >>> 0;
+  x ^= x >>> 16;
+  x = Math.imul(x, 0x7feb352d) >>> 0;
+  x ^= x >>> 15;
+  x = Math.imul(x, 0x846ca68b) >>> 0;
+  return (x ^ (x >>> 16)) >>> 0;
+}
+
 function pushEvent(
   w: WorldState,
   kind: WorldState["events"][number]["kind"],
@@ -281,6 +406,95 @@ function pushEvent(
   }
 }
 
+interface PocketEdgeContact {
+  point: Point2;
+  distance: number;
+}
+
+function closestPocketEdge(
+  s: StadiumSpec,
+  pocket: PocketSpec,
+  polygons: readonly (readonly Point2[])[],
+  x: number,
+  y: number,
+): PocketEdgeContact {
+  let best: PocketEdgeContact = { point: { x, y }, distance: Infinity };
+  for (const polygon of polygons) {
+    for (let i = 0; i < polygon.length; i++) {
+      const a = polygon[i]!;
+      const c = polygon[(i + 1) % polygon.length]!;
+      const dx = c.x - a.x;
+      const dy = c.y - a.y;
+      const denom = dx * dx + dy * dy;
+      const length = Math.sqrt(denom);
+      if (length > 1e-12) {
+        // Clockwise outlines have their exterior on the edge's left. If a
+        // probe there is still in the union, this is an internal overlap seam.
+        const probeX = (a.x + c.x) / 2 - (dy / length) * 0.0005;
+        const probeY = (a.y + c.y) / 2 + (dx / length) * 0.0005;
+        if (pocketAtPoint(s, probeX, probeY) === pocket) continue;
+      }
+      const t = denom > 1e-14
+        ? clamp(((x - a.x) * dx + (y - a.y) * dy) / denom, 0, 1)
+        : 0;
+      const px = a.x + dx * t;
+      const py = a.y + dy * t;
+      const distance = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
+      if (distance < best.distance) best = { point: { x: px, y: py }, distance };
+    }
+  }
+  return best;
+}
+
+/** Keep a live Bey inside the pale catch tray while leaving the bowl-side
+ * throat open. Returns false when it really escapes back into the bowl. */
+function constrainPocket(
+  s: StadiumSpec,
+  b: BeyState,
+  pocket: PocketSpec,
+  clearance: number,
+): boolean {
+  const path = pocketPath(s, pocket);
+  const dx = b.x - path.boundary.x;
+  const dy = b.y - path.boundary.y;
+  const along = dx * path.axis.x + dy * path.axis.y;
+  const inside = pocketAtPoint(s, b.x, b.y) === pocket;
+  if (inside && along <= pocket.throat.outwardDepth * 0.32) {
+    // Mouth traversal may be tipped/airborne in reality; only the broad
+    // catch tray applies a full horizontal footprint constraint.
+    return true;
+  }
+  if (inside && pocketSecureAtPoint(s, pocket, b.x, b.y, clearance)) return true;
+  if (
+    !inside &&
+    along < -pocket.throat.inwardDepth * 0.55 &&
+    stadiumBoundarySignedDistance(s, b.x, b.y) < 0
+  ) return false;
+
+  const nearest = closestPocketEdge(
+    s,
+    pocket,
+    [pocketPolygon(s, pocket), pocketCatchPolygon(s, pocket)],
+    b.x,
+    b.y,
+  );
+  if (!Number.isFinite(nearest.distance) || nearest.distance < 1e-12) return true;
+  const towardCurrentX = (b.x - nearest.point.x) / nearest.distance;
+  const towardCurrentY = (b.y - nearest.point.y) / nearest.distance;
+  const inwardX = inside ? towardCurrentX : -towardCurrentX;
+  const inwardY = inside ? towardCurrentY : -towardCurrentY;
+  const inwardVelocity = b.vx * inwardX + b.vy * inwardY;
+  if (inwardVelocity < 0) {
+    const restitution = 0.2;
+    b.vx -= (1 + restitution) * inwardVelocity * inwardX;
+    b.vy -= (1 + restitution) * inwardVelocity * inwardY;
+  }
+  const inset = inside ? Math.max(0.0002, clearance) : 0.0002;
+  b.x = nearest.point.x + inwardX * inset;
+  b.y = nearest.point.y + inwardY * inset;
+  return true;
+}
+
 function stepBey(
   w: WorldState,
   s: StadiumSpec,
@@ -288,13 +502,17 @@ function stepBey(
   p: BeyParams,
   i: number,
   xtremeDash: boolean,
-  clicksMax: number,
   other: BeyState,
 ): void {
   const r = Math.sqrt(b.x * b.x + b.y * b.y);
   const ur = r > 1e-9 ? { x: b.x / r, y: b.y / r } : { x: 1, y: 0 };
   const angle = datan2(b.y, b.x);
   const absOmega = Math.abs(b.omega);
+  let activePocket = b.pocketIndex >= 0 ? s.pockets[b.pocketIndex] ?? null : null;
+  if (b.pocketIndex >= 0 && !activePocket) {
+    b.pocketIndex = -1;
+    b.pocketDwell = 0;
+  }
 
   // airborne drop-in: ballistic flight from the launcher, spin conserved,
   // no ground forces/rail/walls until the tip meets the surface
@@ -304,12 +522,11 @@ function stepBey(
     b.vz -= G * DT;
     b.z += b.vz * DT;
     b.phase += b.omega * DT;
-    const r2 = Math.sqrt(b.x * b.x + b.y * b.y);
     // Outside the wall there is no imaginary continuation of the bowl. A
     // poor launch really falls beside the stadium and is an untouched over
     // finish instead of being clamped/teleported through the wall next tick.
-    const outside = r2 > s.rWall;
-    const floor = outside ? 0 : surfaceZ(s, r2);
+    const outside = stadiumBoundarySignedDistance(s, b.x, b.y) > 0;
+    const floor = outside ? 0 : surfaceZAt(s, b.x, b.y);
     if (b.z <= floor) {
       b.z = floor;
       if (outside) {
@@ -334,9 +551,27 @@ function stepBey(
   b.z = 0;
 
   // gravity restoring force down the bowl surface
-  const slope = surfaceSlope(s, r);
-  let ax = -G * slope * ur.x;
-  let ay = -G * slope * ur.y;
+  const pocketTerrain = activePocket ? stadiumTerrainAt(s, b.x, b.y) : null;
+  const gradient = pocketTerrain && pocketTerrain.normalZ > 1e-9
+    ? {
+        x: -pocketTerrain.normalX / pocketTerrain.normalZ,
+        y: -pocketTerrain.normalY / pocketTerrain.normalZ,
+      }
+    : surfaceGradientAt(s, b.x, b.y);
+  const slope = Math.sqrt(gradient.x * gradient.x + gradient.y * gradient.y);
+  // Once spin is exactly zero, low-speed contact on an ordinary bowl slope
+  // enters static friction instead of endlessly micro-sliding. A subsequent
+  // real hit raises speed above the gate and wakes the body immediately.
+  const staticRest =
+    absOmega === 0 &&
+    Math.sqrt(b.vx * b.vx + b.vy * b.vy) < STOP_LINEAR_SPEED &&
+    Math.abs(slope) < 0.25;
+  if (staticRest) {
+    b.vx = 0;
+    b.vy = 0;
+  }
+  let ax = staticRest ? 0 : -G * gradient.x;
+  let ay = staticRest ? 0 : -G * gradient.y;
 
   // tornado drift: tip traction converts spin into tangential travel.
   // Grippy (attack) tips additionally wander in petal-shaped loops that cut
@@ -356,12 +591,14 @@ function stepBey(
   const driftGain =
     p.grip * T.driftAccel * Math.min(1, absOmega / 600) *
     Math.max(0, 1 - speed / satSpeed);
-  ax += dirX * driftGain;
-  ay += dirY * driftGain;
+  if (!activePocket) {
+    ax += dirX * driftGain;
+    ay += dirY * driftGain;
+  }
 
   // translational damping (+ stumbling when spin is nearly gone)
   const drag =
-    p.muMove + (absOmega < T.lowSpinThreshold ? T.lowSpinDrag : 0);
+    p.muMove + (absOmega < T.lowSpinThreshold ? T.lowSpinDrag : 0) + (activePocket ? 4.5 : 0);
   const dampen = Math.max(0, 1 - drag * DT);
   b.vx = (b.vx + ax * DT) * dampen;
   b.vy = (b.vy + ay * DT) * dampen;
@@ -371,24 +608,35 @@ function stepBey(
   if (absOmega > decay) b.omega -= Math.sign(b.omega) * decay;
   else b.omega = 0;
 
-  // Xtreme Line (gear rack) engagement — the rack follows the real molded
-  // curve (railRadiusAt: oval base + concave dips), so riding through a
-  // concave section naturally slings the bey across the stadium.
+  // Xtreme Line engagement follows the product-specific traced centerline.
   if (b.railTicks < 0) b.railTicks++; // cooldown
+  const railContact = railClosestPoint(s, b.x, b.y);
   if (
+    !activePocket &&
     xtremeDash &&
     s.railArcs.length > 0 &&
     b.railTicks === 0 &&
-    Math.abs(r - railRadiusAt(s, angle)) < s.railHalfWidth &&
+    railContact.distance < s.railHalfWidth &&
     speed > T.railMinSpeed &&
     absOmega > OMEGA_STOP * 2
   ) {
     for (const arc of s.railArcs) {
-      if (!inArc(arc, angle)) continue;
-      const vr = b.vx * ur.x + b.vy * ur.y; // outward radial speed
-      if (vr >= T.railBreakSpeed) {
-        // launched clean over the ridge by a huge hit — teeth just graze
-        b.omega *= 0.95;
+      if (!inArc(arc, railContact.theta)) continue;
+      const vr = b.vx * railContact.normal.x + b.vy * railContact.normal.y;
+      const vt = b.vx * railContact.tangent.x + b.vy * railContact.tangent.y;
+      const canMesh =
+        p.dashFactor >= T.railRideMinDash &&
+        Math.abs(vt) >= T.railMinSpeed * 0.75 &&
+        Math.abs(vt) >= Math.abs(vr) * 0.65;
+      if (canMesh) {
+        // A Bit arriving substantially along the rack presents its gear teeth
+        // to the line and meshes; normal-dominant motion climbs or clashes.
+        b.railTicks = T.railTicks;
+        b.railDir = vt >= 0 ? 1 : -1;
+        pushEvent(w, "dashStart", i, speed);
+      } else if (vr >= T.railBreakSpeed) {
+        // Enough normal energy to climb the real low rack; teeth just graze.
+        b.omega *= 0.98;
         pushEvent(w, "gear", i, vr);
         break;
       }
@@ -396,30 +644,22 @@ function stepBey(
         // slammed into the rack: teeth clash instead of meshing — the bey
         // is tripped: bounced off, destabilized, and takes a burst click
         b.railTicks = -T.railCooldownTicks;
-        b.vx -= ur.x * vr * 1.6;
-        b.vy -= ur.y * vr * 1.6;
+        b.vx -= railContact.normal.x * vr * 1.6;
+        b.vy -= railContact.normal.y * vr * 1.6;
         const jolt = (rand(w) - 0.5) * 0.5;
-        b.vx += -ur.y * jolt;
-        b.vy += ur.x * jolt;
+        b.vx += railContact.tangent.x * jolt;
+        b.vy += railContact.tangent.y * jolt;
         b.omega *= T.tripSpinKeep;
-        applyBurst(w, b, p, i, (T.tripClicks * 120) / p.burstRes, clicksMax);
         pushEvent(w, "trip", i, vr);
-      } else if (p.dashFactor >= T.railRideMinDash) {
-        // only grippy dash bits mesh and ride; others just bump the ridge
-        b.railTicks = T.railTicks;
-        const ct = railTangentAt(s, angle);
-        const vt = b.vx * ct.x + b.vy * ct.y;
-        b.railDir = vt >= 0 ? 1 : -1;
-        pushEvent(w, "dashStart", i, speed);
       }
       break;
     }
   }
-  if (b.railTicks > 0) {
-    const railR = railRadiusAt(s, angle);
+  if (!activePocket && b.railTicks > 0) {
+    const nearestRail = railClosestPoint(s, b.x, b.y);
     // while meshed the teeth are a positional constraint — only leaving the
     // rack's arc (or a dip sling / mesh end) releases the bey
-    const inBand = s.railArcs.some((a) => inArc(a, angle));
+    const inBand = s.railArcs.some((a) => inArc(a, nearestRail.theta));
     if (!inBand) {
       // flung off the rack — dart across the stadium
       b.railTicks = -T.railCooldownTicks;
@@ -428,52 +668,40 @@ function stepBey(
       pushEvent(w, "dashEnd", i, Math.sqrt(b.vx * b.vx + b.vy * b.vy));
     } else {
       b.railTicks--;
-      const ct = railTangentAt(s, angle);
+      const ct = nearestRail.tangent;
       // rack-and-pinion drive: accelerate toward synchronous speed
       // (spin → travel), efficiency scaled by the bit's dash stat
       const meshEff = 0.45 + 0.55 * Math.min(1, p.dashFactor / 1.6);
       const vSync = Math.min(T.railMaxSpeed, absOmega * T.gearRadius) * meshEff;
-      const vAlong = (b.vx * ct.x + b.vy * ct.y) * b.railDir;
-      // dip sling: riding through a concave section at speed hurls the bey
-      // across the bowl AT THE OPPONENT — the signature X attack run
-      if (railR < s.rRail * T.dipRadiusFrac && vAlong > T.dipSlingSpeed) {
+      // A meshed Bit carries scalar speed through a molded corner. Projecting
+      // the old segment's velocity onto the new near-radial jog erased almost
+      // all energy exactly where the product redirects the Bey toward center.
+      const vAlong = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+      // Product ramp release is shape-driven. Keep the true inward tangent;
+      // never erase it with a radial projection or replace it with homing.
+      const releaseDirection = railReleaseDirectionAt(s, nearestRail.theta, b.railDir);
+      if (releaseDirection && vAlong > T.dipSlingSpeed) {
         b.railTicks = -T.railCooldownTicks;
-        let dx = -ur.x;
-        let dy = -ur.y;
-        if (other.alive && !other.airborne) {
-          // lead the target: aim at where the opponent will BE over the
-          // crossing time, not where it is (misses caused self-ejections)
-          const cross = Math.max(0.05, vAlong + T.dipSlingBoost * p.dashFactor);
-          const dist0 = Math.sqrt((other.x - b.x) ** 2 + (other.y - b.y) ** 2);
-          const tFly = dist0 / cross;
-          const ox = other.x + other.vx * tFly - b.x;
-          const oy = other.y + other.vy * tFly - b.y;
-          const od = Math.sqrt(ox * ox + oy * oy);
-          if (od > 1e-6) {
-            dx = ox / od;
-            dy = oy / od;
-          }
-        }
-        b.vx += dx * T.dipSlingBoost * p.dashFactor;
-        b.vy += dy * T.dipSlingBoost * p.dashFactor;
+        const releaseSpeed = Math.min(
+          T.railMaxSpeed + T.dipSlingBoost,
+          vAlong + T.dipSlingBoost * p.dashFactor,
+        );
+        b.x = nearestRail.point.x;
+        b.y = nearestRail.point.y;
+        b.vx = releaseDirection.x * releaseSpeed;
+        b.vy = releaseDirection.y * releaseSpeed;
         pushEvent(w, "dashEnd", i, vAlong);
       } else {
         const dv = Math.min(Math.max(0, vSync - vAlong), T.railMeshAccel * DT);
-        b.vx += ct.x * b.railDir * dv;
-        b.vy += ct.y * b.railDir * dv;
         // driving the rack costs spin (energy conservation, loosely)
         b.omega -= Math.sign(b.omega) * dv * 6;
-        // gear teeth = holonomic constraint: snap to the rack curve and
-        // absorb radial velocity (stable at any riding speed)
-        const rNow = Math.sqrt(b.x * b.x + b.y * b.y);
-        if (rNow > 1e-9) {
-          const k = railR / rNow;
-          b.x *= k;
-          b.y *= k;
-        }
-        const vrM = b.vx * ur.x + b.vy * ur.y;
-        b.vx -= vrM * ur.x;
-        b.vy -= vrM * ur.y;
+        // Holonomic curve constraint preserves the actual dogleg tangent,
+        // including its inward component.
+        b.x = nearestRail.point.x;
+        b.y = nearestRail.point.y;
+        const constrainedSpeed = Math.max(0, vAlong + dv);
+        b.vx = ct.x * b.railDir * constrainedSpeed;
+        b.vy = ct.y * b.railDir * constrainedSpeed;
         if (b.railTicks % T.gearEventEvery === 0) pushEvent(w, "gear", i, vAlong);
         if (b.railTicks === 0) b.railTicks = -T.railCooldownTicks;
       }
@@ -481,6 +709,8 @@ function stepBey(
   }
 
   // integrate
+  const previousX = b.x;
+  const previousY = b.y;
   b.x += b.vx * DT;
   b.y += b.vy * DT;
   b.phase += b.omega * DT;
@@ -488,49 +718,76 @@ function stepBey(
   // the gear rack is a PHYSICAL ridge even when not meshed (cooldown, slow
   // or dying beys): crossing outward needs real speed, otherwise the teeth
   // hold the bey inside the bowl — only hard knockbacks hop over
-  if (xtremeDash && s.railArcs.length > 0 && b.railTicks <= 0) {
-    const angleB = datan2(b.y, b.x);
-    if (s.railArcs.some((a) => inArc(a, angleB))) {
-      const railRB = railRadiusAt(s, angleB);
-      const inner = railRB - s.railHalfWidth * T.railBarrierInner;
-      const rB = Math.sqrt(b.x * b.x + b.y * b.y);
-      // Containment is CONTINUOUS, not just on the crossing tick: a bey that
-      // is already past the ridge line and still drifting outward gets held
-      // too. Only checking the crossing let beys leak over the rack whenever
-      // the crossing happened during a dash or a rail cooldown.
-      if (rB > inner) {
-        const uB = { x: b.x / rB, y: b.y / rB };
-        const vrB = b.vx * uB.x + b.vy * uB.y;
+  if (!activePocket && xtremeDash && s.railArcs.length > 0 && b.railTicks <= 0) {
+    const closestRail = railClosestPoint(s, b.x, b.y);
+    if (s.railArcs.some((a) => inArc(a, closestRail.theta))) {
+      const nx = closestRail.normal.x;
+      const ny = closestRail.normal.y;
+      const signedDistance = closestRail.signedDistance;
+      const inner = -s.railHalfWidth * T.railBarrierInner;
+      const previousRail = railClosestPoint(s, previousX, previousY);
+      const crossedRack =
+        s.railArcs.some((a) => inArc(a, previousRail.theta)) &&
+        previousRail.signedDistance <= inner &&
+        signedDistance > inner;
+      // Resolve the physical crossing once. Re-applying containment on every
+      // later tick pulled already-cleared Beys backward across an invisible
+      // wall as normal speed decayed.
+      if (crossedRack) {
+        const vrB = b.vx * nx + b.vy * ny;
         if (vrB > 0 && vrB < T.railBreakSpeed) {
-          b.vx -= (1 + T.railBumpRestitution) * vrB * uB.x;
-          b.vy -= (1 + T.railBumpRestitution) * vrB * uB.y;
-          const over = rB - inner;
-          b.x -= uB.x * over;
-          b.y -= uB.y * over;
+          b.vx -= (1 + T.railBumpRestitution) * vrB * nx;
+          b.vy -= (1 + T.railBumpRestitution) * vrB * ny;
+          const over = signedDistance - inner;
+          b.x -= nx * over;
+          b.y -= ny * over;
           pushEvent(w, "gear", i, vrB); // teeth graze as the ridge holds
         }
       }
     }
   }
 
-  // wall / pockets
-  const r2 = Math.sqrt(b.x * b.x + b.y * b.y);
-  const wallR = s.rWall - p.radiusM * 0.6;
-  if (r2 > wallR) {
-    const u = { x: b.x / r2, y: b.y / r2 };
+  // Live pockets: crossing a real 2-D throat does not instantly score. The
+  // Bey follows the recessed terrain, can rebound from the tray and escape
+  // through the open inner edge, and remains collidable while there.
+  const pocketHere = pocketAtPoint(s, b.x, b.y);
+  const throatHere = pocketThroatAtPoint(s, b.x, b.y);
+  const contactClearance = p.radiusM * 0.6;
+  const crossedOutward =
+    stadiumBoundarySignedDistance(s, previousX, previousY, contactClearance) <= 0 &&
+    stadiumBoundarySignedDistance(s, b.x, b.y, contactClearance) > 0;
+  const entryNormal = stadiumBoundaryNormalAt(s, b.x, b.y);
+  const entrySpeed = b.vx * entryNormal.x + b.vy * entryNormal.y;
+  if (
+    !activePocket &&
+    pocketHere &&
+    throatHere === pocketHere &&
+    crossedOutward &&
+    entrySpeed >= Math.min(s.exitSpeed, T.pocketEntrySpeed)
+  ) {
+    b.pocketIndex = s.pockets.indexOf(pocketHere);
+    b.pocketDwell = 0;
+    b.stopDwell = 0;
+    b.railTicks = -T.railCooldownTicks;
+    activePocket = pocketHere;
+  }
+  if (activePocket && !constrainPocket(s, b, activePocket, p.radiusM)) {
+    b.pocketIndex = -1;
+    b.pocketDwell = 0;
+    activePocket = null;
+  }
+
+  // Solid circular/obround bowl wall. Its only official holes are the live
+  // pocket throats above; no wall bounce is applied while a Bey occupies one.
+  const wallPenetration = stadiumBoundarySignedDistance(s, b.x, b.y, contactClearance);
+  if (!activePocket && wallPenetration > 0) {
+    const u = stadiumBoundaryNormalAt(s, b.x, b.y);
     const vr = b.vx * u.x + b.vy * u.y;
     const angleNow = datan2(b.y, b.x);
-    const pocket = pocketAt(s, angleNow);
-    if (pocket && vr > s.exitSpeed) {
-      b.exited = pocket.kind;
-      b.alive = false;
-      pushEvent(w, "exit", i, vr);
-      return;
-    }
-    if (!pocket && vr > T.overTopSpeed) {
-      // flying over the wall: the transparent casing knocks it back in,
-      // unless it finds one of the loose gaps — then it falls out (over
-      // finish for the opponent)
+    if (vr > T.overTopSpeed) {
+      // Official products have no invented loose casing gaps: their only
+      // side apertures are the exact 2-D pocket polygons tested above. Keep
+      // legacy `coverGaps` support solely for custom stadium specs.
       const inGap = s.coverGaps.some((g) => inArc(g, angleNow));
       if (inGap) {
         b.exited = "top";
@@ -542,9 +799,8 @@ function stepBey(
       b.vy -= (1 + 0.35) * vr * u.y;
       b.omega *= 0.96;
       pushEvent(w, "coverHit", i, vr);
-      const over2 = r2 - wallR;
-      b.x -= u.x * over2;
-      b.y -= u.y * over2;
+      b.x -= u.x * wallPenetration;
+      b.y -= u.y * wallPenetration;
       return;
     }
     if (vr > 0) {
@@ -556,20 +812,101 @@ function stepBey(
       b.vy += u.x * kick;
       pushEvent(w, "wallHit", i, vr);
     }
-    const over = r2 - wallR;
-    b.x -= u.x * over;
-    b.y -= u.y * over;
+    b.x -= u.x * wallPenetration;
+    b.y -= u.y * wallPenetration;
   }
 
-  // spin finish detection: only after the bey has been under the threshold
-  // long enough to have visibly stopped (a brief dip must not end a battle)
-  if (Math.abs(b.omega) < OMEGA_STOP) {
-    b.stopDwell++;
-    if (b.stopDwell >= STOP_DWELL_TICKS && b.stoppedTick < 0) {
-      b.stoppedTick = w.tick;
+}
+
+/**
+ * Settle bookkeeping runs AFTER all collisions for the tick. Otherwise a
+ * bey at dwell 143 could be declared stopped in stepBey and then visibly
+ * kicked (or Burst) by collide() on the same tick while retaining a stale
+ * Spin Finish.
+ */
+function updateStopStates(w: WorldState): void {
+  for (const b of w.beys) {
+    if (!b.alive || b.exited !== null || b.pendingTicks > 0 || b.airborne) {
+      b.stopDwell = 0;
+      continue;
     }
-  } else {
-    b.stopDwell = 0;
+    // A stopped Bey inside a live Over/Xtreme tray is authorized by the
+    // shorter zone dwell first; it must never become an ordinary Spin Finish.
+    if (b.pocketIndex >= 0) {
+      b.stopDwell = 0;
+      continue;
+    }
+    const settledSpeed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+    const fullySettled =
+      b.omega === 0 && // decay clamps exactly; never announce while visibly rotating
+      settledSpeed < STOP_LINEAR_SPEED &&
+      Math.abs(b.vz) < 1e-6 &&
+      b.railTicks <= 0;
+    if (fullySettled) {
+      b.stopDwell++;
+      if (b.stopDwell >= STOP_DWELL_TICKS && b.stoppedTick < 0) {
+        b.stoppedTick = w.tick;
+      }
+    } else {
+      b.stopDwell = 0;
+    }
+  }
+}
+
+function updatePocketStates(w: WorldState, cfg: WorldConfig, s: StadiumSpec): void {
+  for (let i = 0; i < w.beys.length; i++) {
+    const b = w.beys[i]!;
+    if (!b.alive || b.exited !== null || b.pendingTicks > 0 || b.airborne || b.pocketIndex < 0) {
+      b.pocketDwell = 0;
+      continue;
+    }
+    const pocket = s.pockets[b.pocketIndex];
+    if (!pocket || pocketAtPoint(s, b.x, b.y) !== pocket) {
+      b.pocketIndex = -1;
+      b.pocketDwell = 0;
+      continue;
+    }
+    const speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+    const params = cfg.beys[i]!;
+    const secure = pocketSecureAtPoint(
+      s,
+      pocket,
+      b.x,
+      b.y,
+      params.radiusM,
+    );
+    const fullyStopped =
+      b.omega === 0 &&
+      speed < STOP_LINEAR_SPEED &&
+      Math.abs(b.vz) < 1e-6 &&
+      b.railTicks <= 0;
+    if (!secure || !fullyStopped) {
+      b.pocketDwell = 0;
+      continue;
+    }
+    b.pocketDwell++;
+    if (b.pocketDwell >= POCKET_DWELL_TICKS) {
+      b.exited = pocket.kind;
+      b.alive = false;
+      pushEvent(w, "exit", i, 0);
+    }
+  }
+}
+
+function resolvePocketConstraints(w: WorldState, cfg: WorldConfig, s: StadiumSpec): void {
+  for (let i = 0; i < w.beys.length; i++) {
+    const b = w.beys[i]!;
+    if (!b.alive || b.pocketIndex < 0) continue;
+    const pocket = s.pockets[b.pocketIndex];
+    if (!pocket) {
+      b.pocketIndex = -1;
+      b.pocketDwell = 0;
+      continue;
+    }
+    if (!constrainPocket(s, b, pocket, cfg.beys[i]!.radiusM)) {
+      b.pocketIndex = -1;
+      b.pocketDwell = 0;
+    }
   }
 }
 
@@ -597,6 +934,8 @@ function collidePair(w: WorldState, cfg: WorldConfig, i: number, j: number): voi
 
   const n = { x: dx / dist, y: dy / dist };
   const t = { x: -n.y, y: n.x };
+  const pre1 = { vx: b1.vx, vy: b1.vy };
+  const pre2 = { vx: b2.vx, vy: b2.vy };
 
   // separate
   const overlap = minDist - dist;
@@ -645,23 +984,80 @@ function collidePair(w: WorldState, cfg: WorldConfig, i: number, j: number): voi
   b1.omega -= Math.sign(b1.omega) * Math.min(Math.abs(b1.omega), loss1);
   b2.omega -= Math.sign(b2.omega) * Math.min(Math.abs(b2.omega), loss2);
 
-  // burst clicks — physics of the latch: the lock only advances when the
-  // impact lands ON one of the ratchet's N latch joints (checked in each
-  // bey's rotating frame at the instant of contact) AND carries a real
-  // impulse. Grazes and off-joint hits knock the bey around but never
-  // crack it. Where the joints are at impact time is deterministic chaos —
-  // exactly like the real toy.
-  const hitAngle1 = datan2(n.y, n.x) - b1.phase; // impact spot on bey1's rim
-  const hitAngle2 = datan2(-n.y, -n.x) - b2.phase;
-  const onJoint1 = p1.latchCount > 0 && Math.abs(wrapAngle(hitAngle1 * p1.latchCount)) < T.jointWindow;
-  const onJoint2 = p2.latchCount > 0 && Math.abs(wrapAngle(hitAngle2 * p2.latchCount)) < T.jointWindow;
-  const imp1 = jn * T.burstNormalK + smash2 * T.burstSmashK;
-  const imp2 = jn * T.burstNormalK + smash1 * T.burstSmashK;
-  if (onJoint1 && imp1 > T.burstMinImpulse) {
-    applyBurst(w, b1, p1, i, latchDamage(imp1, p1), cfg.clicksMax);
+  // Ratchet detents respond once per PHYSICAL closing impact. The old path
+  // re-evaluated tangential slip on every overlap tick, allowing one clash
+  // to masquerade as several latch hits. Radial closing impulse identifies
+  // a new collision episode; transmitted tangential impulse determines the
+  // signed unlock/re-seat torque against the Bit Gear Structure.
+  if (
+    jn >= T.latchImpactMinNormal &&
+    w.tick - b1.lastLatchImpactTick >= T.latchImpactGapTicks
+  ) {
+    b1.lastLatchImpactTick = w.tick;
+    const response = latchImpactResponse(p1, {
+      normalImpulse: jn,
+      incomingSmash: smash2,
+      attackerSpinDir: d2,
+      currentClicks: b1.burstDamage,
+    });
+    applyLatchDetent(
+      w,
+      b1,
+      p1,
+      i,
+      response.detentDelta,
+      cfg.clicksMax,
+      response.overloadSeverity,
+      {
+        tick: w.tick,
+        contactAngle: datan2(n.y, n.x),
+        normalImpulse: jn,
+        tangentialImpulse: d2 === p1.spinDir ? smash2 : -smash2,
+        preVx: pre1.vx,
+        preVy: pre1.vy,
+        postVx: b1.vx,
+        postVy: b1.vy,
+        omega: b1.omega,
+        phase: b1.phase,
+        severity: response.overloadSeverity,
+        seed: burstReleaseSeed(w, i),
+      },
+    );
   }
-  if (onJoint2 && imp2 > T.burstMinImpulse) {
-    applyBurst(w, b2, p2, j, latchDamage(imp2, p2), cfg.clicksMax);
+  if (
+    jn >= T.latchImpactMinNormal &&
+    w.tick - b2.lastLatchImpactTick >= T.latchImpactGapTicks
+  ) {
+    b2.lastLatchImpactTick = w.tick;
+    const response = latchImpactResponse(p2, {
+      normalImpulse: jn,
+      incomingSmash: smash1,
+      attackerSpinDir: d1,
+      currentClicks: b2.burstDamage,
+    });
+    applyLatchDetent(
+      w,
+      b2,
+      p2,
+      j,
+      response.detentDelta,
+      cfg.clicksMax,
+      response.overloadSeverity,
+      {
+        tick: w.tick,
+        contactAngle: datan2(-n.y, -n.x),
+        normalImpulse: jn,
+        tangentialImpulse: d1 === p2.spinDir ? smash1 : -smash1,
+        preVx: pre2.vx,
+        preVy: pre2.vy,
+        postVx: b2.vx,
+        postVy: b2.vy,
+        omega: b2.omega,
+        phase: b2.phase,
+        severity: response.overloadSeverity,
+        seed: burstReleaseSeed(w, j),
+      },
+    );
   }
 
   b1.contacted = true;
@@ -676,45 +1072,32 @@ function collidePair(w: WorldState, cfg: WorldConfig, i: number, j: number): voi
   }
 }
 
-function applyBurst(
+function applyLatchDetent(
   w: WorldState,
   b: BeyState,
   p: BeyParams,
   i: number,
-  dmg: number,
+  detentDelta: number,
   clicksMax: number,
+  overloadSeverity = 0,
+  release: BurstReleaseState | null = null,
 ): void {
-  if (p.fixedBurst || dmg <= 0) return;
-  const before = Math.floor(b.burstDamage);
-  b.burstDamage += dmg;
-  if (Math.floor(b.burstDamage) > before) {
-    pushEvent(w, "click", i, Math.floor(b.burstDamage));
+  if (detentDelta === 0) return;
+  const before = Math.round(b.burstDamage);
+  const after = clamp(before + detentDelta, 0, clicksMax);
+  if (after === before) return;
+  const direction = after > before ? 1 : -1;
+  for (let click = before + direction; click !== after + direction; click += direction) {
+    pushEvent(w, "click", i, click);
   }
-  if (b.burstDamage >= clicksMax) {
+  b.burstDamage = after;
+  if (after >= clicksMax) {
+    b.burstOverload = clamp(overloadSeverity, 0, 1);
+    b.burstRelease = release
+      ? { ...release, severity: b.burstOverload, seed: release.seed >>> 0 }
+      : null;
     b.alive = false; // burst finish — exited stays null
   }
-}
-
-/**
- * Latch damage from one joint hit.
- *
- * Two things were wrong before. First, damage was proportional to the WHOLE
- * impulse, so a hit that merely cleared burstMinImpulse already advanced the
- * latch by ~1.4 of the 4 clicks — three qualifying hits cracked anything.
- * Only the impulse ABOVE the threshold should move the latch: below it the
- * teeth simply hold.
- *
- * Second, the ratchet's protrusion count did nothing. In the real toy the
- * number is the whole point — a 9-60 locks far harder than a 3-60 because
- * nine teeth share the load, so the torque needed to slip one grows with N.
- * Damage now scales inversely with the tooth count, taking 3 teeth as the
- * baseline (docs/MODELING.md §1.2).
- */
-function latchDamage(impulse: number, p: BeyParams): number {
-  const excess = impulse - T.burstMinImpulse;
-  if (excess <= 0) return 0;
-  const teeth = Math.max(1, p.latchCount);
-  return (excess * T.burstScale) / (p.burstRes * (teeth / 3));
 }
 
 /** Free-for-all resolution: elimination order + last survivor. */
@@ -730,13 +1113,9 @@ function resolveFfa(w: WorldState, cfg: WorldConfig): void {
   }
   if (survivors.length === 1) w.ffaWinner = survivors[0]!;
   else if (survivors.length === 0) w.ffaWinner = -1; // simultaneous wipe
-  else if (w.tick >= cfg.maxTicks) {
-    let best = survivors[0]!;
-    for (const k of survivors) {
-      if (Math.abs(w.beys[k]!.omega) > Math.abs(w.beys[best]!.omega)) best = k;
-    }
-    w.ffaWinner = best;
-  }
+  // The tick cap is a safety/time limit, not a fictional Spin Finish. If
+  // several Beys are still alive, the round is unresolved and must re-battle.
+  else if (w.tick >= cfg.maxTicks) w.ffaWinner = -1;
 }
 
 function resolveFinish(w: WorldState, cfg: WorldConfig): void {
@@ -757,19 +1136,10 @@ function resolveFinish(w: WorldState, cfg: WorldConfig): void {
   const t1 = terminal(b1);
   const t2 = terminal(b2);
   if (!t1 && !t2) {
-    if (w.tick >= cfg.maxTicks) {
-      const a1 = Math.abs(b1.omega);
-      const a2 = Math.abs(b2.omega);
-      if (a1 === a2) w.draw = true;
-      else {
-        w.finish = {
-          type: "spin",
-          winner: a1 > a2 ? 0 : 1,
-          ownFinish: false,
-          tick: w.tick,
-        };
-      }
-    }
+    // Never call a Spin Finish by comparing two still-rotating Beys at the
+    // simulation safety cap. A true Spin Finish is authorized only by the
+    // exact-zero, settled dwell above; a live timeout is a draw/re-battle.
+    if (w.tick >= cfg.maxTicks) w.draw = true;
     return;
   }
   if (t1 && t2) {
@@ -824,9 +1194,12 @@ export function step(w: WorldState, cfg: WorldConfig, s: StadiumSpec, afterglow 
         other = o;
       }
     }
-    stepBey(w, s, b, cfg.beys[i]!, i, cfg.xtremeDashEnabled, cfg.clicksMax, other);
+    stepBey(w, s, b, cfg.beys[i]!, i, cfg.xtremeDashEnabled, other);
   }
   collide(w, cfg);
+  resolvePocketConstraints(w, cfg, s);
+  updatePocketStates(w, cfg, s);
+  updateStopStates(w);
   if (!afterglow) resolveFinish(w, cfg);
 }
 
@@ -844,8 +1217,39 @@ export function simulateBattle(
 
 /** Lockstep verification hash of the dynamic state. */
 export function hashWorld(w: WorldState): string {
-  const vals: number[] = [w.tick, w.rng];
+  const finishType = w.finish?.type === "spin"
+    ? 1
+    : w.finish?.type === "over"
+      ? 2
+      : w.finish?.type === "burst"
+        ? 3
+        : w.finish?.type === "xtreme"
+          ? 4
+          : 0;
+  const vals: number[] = [
+    w.tick,
+    w.rng,
+    w.lastHitTick,
+    w.draw ? 1 : 0,
+    w.ffaWinner ?? -2,
+    w.finish ? 1 : 0,
+    finishType,
+    w.finish?.winner ?? -1,
+    w.finish?.ownFinish ? 1 : 0,
+    w.finish?.tick ?? -1,
+    w.eliminatedOrder.length,
+    ...w.eliminatedOrder,
+  ];
   for (const b of w.beys) {
+    const exitCode = b.exited === "over"
+      ? 1
+      : b.exited === "xtreme"
+        ? 2
+        : b.exited === "top"
+          ? 3
+          : b.exited === "launchMiss"
+            ? 4
+            : 0;
     vals.push(
       b.x,
       b.y,
@@ -855,8 +1259,36 @@ export function hashWorld(w: WorldState): string {
       b.vz,
       b.omega,
       b.burstDamage,
+      b.burstOverload,
+      b.lastLatchImpactTick,
+      b.airborne ? 1 : 0,
+      b.pendingTicks,
       b.alive ? 1 : 0,
+      exitCode,
+      b.pocketIndex,
+      b.pocketDwell,
       b.stoppedTick,
+      b.stopDwell,
+      b.contacted ? 1 : 0,
+      b.railTicks,
+      b.railDir,
+      b.phase,
+    );
+    const release = b.burstRelease;
+    vals.push(
+      release ? 1 : 0,
+      release?.tick ?? -1,
+      release?.contactAngle ?? 0,
+      release?.normalImpulse ?? 0,
+      release?.tangentialImpulse ?? 0,
+      release?.preVx ?? 0,
+      release?.preVy ?? 0,
+      release?.postVx ?? 0,
+      release?.postVy ?? 0,
+      release?.omega ?? 0,
+      release?.phase ?? 0,
+      release?.severity ?? 0,
+      release?.seed ?? 0,
     );
   }
   return hashFloats(vals);

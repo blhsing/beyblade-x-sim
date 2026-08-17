@@ -343,9 +343,10 @@ export function ratchetSpec(code: string | undefined): { count: number; heightM:
 }
 
 /**
- * Ratchet: a translucent POM disc whose N protrusions both index the blade
- * and act as the burst latch joints the physics core models. Height is the
- * real millimetre value from the code.
+ * Ratchet: a translucent POM disc whose N perimeter protrusions index the
+ * blade and form its exposed contact profile. They are not the internal Bit
+ * Gear Structure lock teeth that click during Burst. Height is the real
+ * millimetre value from the code.
  */
 export function buildRatchet(part: PartEntry | null | undefined, topZ: number): THREE.Group {
   const color = COLOR_NAMES[part?.color?.toLowerCase() ?? ""] ?? 0xf2f2f8;

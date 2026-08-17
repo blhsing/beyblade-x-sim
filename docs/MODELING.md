@@ -44,8 +44,9 @@ The ratchet code is literally its geometry: **first number = count of
 protrusions, second number = height in tenths of a millimetre.**
 `3-60` = 3 protrusions, 6.0 mm tall; `9-60` = 9 protrusions, 6.0 mm;
 `4-80` = 4 protrusions, 8.0 mm. Heights in the dataset run 5.0 – 8.5 mm.
-Those same protrusions are the burst latch joints the physics core uses
-(`BeyParams.latchCount`, docs/PHYSICS.md).
+Those protrusions shape perimeter attack exposure; they are not internal
+Burst-latch teeth. Burst resistance comes primarily from the Bit Gear Structure.
+The count remains in `BeyParams.latchCount` as geometry metadata only.
 
 Material: translucent glass-filled nylon / POM, faintly milky, low
 roughness. Standard Ratchets use separate molded ring/cover/base pieces; only
@@ -107,21 +108,31 @@ Lock Chip + Main + Assist, or Expand Lock Chip + Metal + Over + Assist.
   tops toward the centre; the bowl inside it is the battle dish.
 - **Xtreme Line**: a gear rack moulded into the floor (green on the standard
   release) that meshes with gear-ringed Bits to trigger the Xtreme Dash.
-- Colours/materials: off-white opaque ABS dish and lower body, green ABS
-  X-Line, and a broad faceted clear-polycarbonate upper cover. The cover is a
-  thickness-bearing canopy with a raised circular launch opening and four
-  fastening tabs—not a transparent cylindrical wall.
-- The rendered rack uses declared 5.0 mm tooth pitch, 3.8 mm tooth height,
-  trapezoidal teeth, and a 1.2 mm base channel. Pocket geometry is physically
-  recessed and has an open throat, floor, two cheeks and a low backstop.
+- The material line printed on Takara Tomy's BX-10 sheet identifies the cover
+  and body as **PVC**, the green Xtreme Line as **PA**, and the four fasteners
+  as **PP**. The pale battle tray and mostly transparent, faceted outer casing
+  are shaded separately; no ABS or polycarbonate chemistry is inferred.
+- The continuous Xtreme Line follows a product-specific traced centerline,
+  including the asymmetric rear-right inward dogleg. Its 5.0 mm tooth pitch,
+  2.2 mm tooth height, 0.7 mm base channel and trapezoidal profile are
+  conservative photo/Bit-engagement model estimates, not published Takara
+  Tomy mold dimensions.
+- The official top-view play diagram has exactly three openings at the front:
+  a broad center Xtreme Zone flanked by two Over Zones. Each is a real 2-D
+  sloped throat joined to a recessed catch tray, cheeks and backstop; there are
+  no invented rear openings or casing gaps.
 
 ### 2.2 BX-32 Wide Xtreme Stadium
 
 - Configured body **600 × 440 mm**, from physical/product measurements (the
   official public page confirms the three-player role but does not state its
-  dimensions). Its long, rounded-rectangle white body, indigo oval/notched
-  X-Line, three red triangular shoot markers, clear faceted cover and side
-  catch trays are modeled separately from BX-10.
+  dimensions). Its bowl, wall, launch aperture and traced indigo Xtreme Line
+  are obround rather than circular.
+- The official diagram shows exactly two narrow, rounded and tangential rear
+  Xtreme openings plus one broad front-center trapezoidal Over opening. The
+  cover has two red triangular shoot marks and a distinct rear molded shoot
+  indicator. BX-32 plastic chemistry is left explicitly unspecified because
+  the cited public material does not identify the resin.
 - It is officially **designed for three players**, which is exactly the
   free-for-all (大亂鬥) mode's stadium.
 

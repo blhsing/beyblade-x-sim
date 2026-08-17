@@ -32,7 +32,8 @@ Fetched endpoints (→ `data/raw/`, gitignored):
      (set-code prefixes and colorway suffixes stripped; bit/assist/over names
      via `part_code_names.json`);
    - carries stats `{attack, defense, stamina, dash, burst, height}`,
-     `rotation`, line (BX/UX/CX), `fixedBurst`, release date, and the
+     `rotation`, line (BX/UX/CX), `fixedBurst` (Ratchet-provided constant
+     Burst resistance, not immunity), release date, and the
      site-provided `stat_ranges` for normalization;
    - emits official complete-bey presets (`combos`) from Series records with
      part references by group plus exact source variant IDs/palettes.

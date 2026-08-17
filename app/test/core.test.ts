@@ -10,8 +10,8 @@ import {
   comboError,
   ratchetLatchCount,
 } from "../src/core/derive";
-import { STADIUM_BX10, type StadiumSpec } from "../src/core/stadium";
-import { createWorld, hashWorld, simulateBattle, step } from "../src/core/sim";
+import { pocketExitTarget, STADIUM_BX10, type StadiumSpec } from "../src/core/stadium";
+import { createWorld, hashWorld, latchImpactResponse, POCKET_DWELL_TICKS, simulateBattle, step } from "../src/core/sim";
 import type { BeyParams, LaunchParams, PartCategory, PartsDb, WorldConfig } from "../src/core/types";
 import { MatchEngine, RULES_OFFICIAL, RULE_PRESETS, deckDuplicateError, pointsForFinish } from "../src/game/rules";
 import { BOT_ROSTER, botBuildDeck, botChooseLaunch } from "../src/game/bots";
@@ -36,7 +36,6 @@ const baseParams = (over: Partial<BeyParams> = {}): BeyParams => ({
   muSpin: 0.05,
   muMove: 0.9,
   spinDir: 1,
-  fixedBurst: false,
   latchCount: 4,
   staminaFactor: 1,
   ...over,
@@ -127,7 +126,7 @@ describe("battle outcomes", () => {
   });
 
   it("glass-cannon matchup ends in a burst", () => {
-    const smasher = baseParams({ attackFactor: 9, fixedBurst: true, grip: 0.9 });
+    const smasher = baseParams({ attackFactor: 9, burstRes: 10_000, grip: 0.9 });
     const victim = baseParams({ burstRes: 6, defenseFactor: 1 });
     const noExit: StadiumSpec = { ...STADIUM_BX10, exitSpeed: 99, pockets: [], coverGaps: [] };
     const w = simulateBattle(cfg(smasher, victim, 3), noExit);
@@ -198,25 +197,25 @@ describe("battle outcomes", () => {
     expect(w.events.filter((e) => e.kind === "hit").length).toBeGreaterThan(0);
   });
 
-  it("a ratchet's tooth count is its burst resistance", () => {
-    // The ratchet code is the geometry: more protrusions share the latch
-    // load, so a 9-60 must survive far longer than a 3-60 under the same
-    // beating. This was inverted-by-omission before — the tooth count did
-    // nothing at all, and three qualifying hits cracked anything.
-    const smasher = baseParams({ attackFactor: 9, fixedBurst: true, grip: 0.9 });
-    const noExit: StadiumSpec = { ...STADIUM_BX10, exitSpeed: 99, pockets: [], coverGaps: [] };
-    const survivedTicks = (latchCount: number): number => {
-      const victim = baseParams({ burstRes: 60, defenseFactor: 1, latchCount });
-      const w = simulateBattle(cfg(smasher, victim, 3), noExit);
-      return w.finish?.type === "burst" ? w.tick : Number.POSITIVE_INFINITY;
+  it("Ratchet perimeter protrusions do not multiply Bit Burst resistance", () => {
+    // N in N-HH describes OUTER attack protrusions, not internal latch teeth.
+    // Identical Bits therefore have identical yield under identical torque.
+    const impact = {
+      normalImpulse: 0.02,
+      incomingSmash: 0.05,
+      attackerSpinDir: 1 as const,
+      currentClicks: 0,
     };
-    expect(survivedTicks(9)).toBeGreaterThan(survivedTicks(3));
+    const three = latchImpactResponse(baseParams({ burstRes: 60, latchCount: 3 }), impact);
+    const nine = latchImpactResponse(baseParams({ burstRes: 60, latchCount: 9 }), impact);
+    expect(nine.yieldLoad).toBe(three.yieldLoad);
+    expect(nine.detentDelta).toBe(three.detentDelta);
   });
 
   it("a hit at the burst threshold barely moves the latch", () => {
-    // damage comes from the impulse ABOVE the threshold, so a marginal
+    // slip comes from load ABOVE the yield threshold, so a marginal
     // joint hit must not advance the lock by a meaningful fraction of the
-    // 4 clicks that crack a bey
+    // Four latch detents that release (Burst) the bey; no part is cracked.
     const glancer = baseParams({ attackFactor: 0.35, grip: 0.2 });
     const victim = baseParams({ burstRes: 60, latchCount: 3 });
     const noExit: StadiumSpec = { ...STADIUM_BX10, exitSpeed: 99, pockets: [], coverGaps: [] };
@@ -224,7 +223,7 @@ describe("battle outcomes", () => {
     expect(w.finish?.type).not.toBe("burst");
   });
 
-  it("bey shot into the central pocket = xtreme finish; untouched = own finish", () => {
+  it("a fully stopped untouched Bey in the central tray = own Xtreme Finish", () => {
     const c = cfg(baseParams(), baseParams());
     const w = createWorld(c);
     for (const b of w.beys) {
@@ -233,11 +232,17 @@ describe("battle outcomes", () => {
       b.vz = 0;
     }
     const b0 = w.beys[0]!;
-    b0.x = 0;
-    b0.y = -0.09;
+    const pocket = STADIUM_BX10.pockets[1]!;
+    const target = pocketExitTarget(STADIUM_BX10, pocket);
+    b0.x = target.x;
+    b0.y = target.y;
     b0.vx = 0;
-    b0.vy = -2.4; // well above railBreakSpeed: sails over the rack into the pocket
-    for (let i = 0; i < 240 && !w.finish; i++) step(w, c, STADIUM_BX10);
+    b0.vy = 0;
+    b0.omega = 0;
+    b0.pocketIndex = 1;
+    b0.pocketDwell = POCKET_DWELL_TICKS - 1;
+    b0.railTicks = -1;
+    step(w, c, STADIUM_BX10);
     expect(w.finish?.type).toBe("xtreme");
     expect(w.finish?.winner).toBe(1);
     expect(w.finish?.ownFinish).toBe(true);

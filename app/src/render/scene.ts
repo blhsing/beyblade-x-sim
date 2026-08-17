@@ -5,15 +5,36 @@
 
 import * as THREE from "three";
 
-import { surfaceZ, type StadiumSpec } from "../core/stadium";
+import {
+  pocketAtPoint,
+  pocketExitTarget,
+  stadiumTerrainAt,
+  type StadiumSpec,
+} from "../core/stadium";
 import { normalizeLauncherForSpin } from "../core/launcher";
-import { launchKinematics } from "../core/sim";
-import type { BeyParams, LauncherKind, LaunchParams, WorldState } from "../core/types";
+import { launchKinematics, STOP_DWELL_TICKS } from "../core/sim";
+import type { BeyParams, BeyState, LauncherKind, LaunchParams, WorldState } from "../core/types";
 import type { ResolvedCombo } from "../core/derive";
 import { gyro } from "../sensors/gyro";
 import { sfx } from "../audio/sfx";
 import { studioEnvironment, tableMaps } from "./materials";
 import { buildBeyMesh, partRadiusM } from "./parts";
+import {
+  advanceBurstDebris,
+  applyBurstReleaseImpulse,
+  buildBurstDebrisBody,
+  buildBurstLatchRig,
+  burstPartMasses,
+  burstSeparationTopology,
+  groupBurstRigidAssembly,
+  intactBeyCollisionSphere,
+  pulseBurstLatch,
+  updateBurstLatchRig,
+  type BurstDebrisVisual,
+  type BurstKinematicCollider,
+  type BurstLatchRig,
+  type BurstPartMasses,
+} from "./burst";
 import {
   alignLauncherMountToWorld,
   applyLauncherPreviewPose,
@@ -21,6 +42,7 @@ import {
   composeLaunchedBeyOrientation,
   LAUNCHER_PREVIEW_POSE,
   launcherAimTiltFromGesture,
+  launchCameraFrame,
   launcherExitOrientation,
   orientWorldLauncher,
   setLauncherClawOpen,
@@ -30,9 +52,9 @@ import {
 } from "./launcher";
 import { RT_PRESETS, RayMarchComposer, markReflective } from "./rt";
 import { buildStadiumModel, disposeStadiumModel } from "./stadium";
+import { applyStopTopplePose, persistentStopToppleDwell, pocketToppleDwell } from "./topple";
 
 export { buildBeyMesh } from "./parts";
-export { pocketDepth } from "./stadium";
 
 /** Star-ish 2D outline: base radius with N lobes of given depth. */
 export function lobedShape(r: number, lobes: number, depth: number, sharp: number): THREE.Shape {
@@ -132,76 +154,153 @@ export class BattleView {
   /** look-at point, moved by two-finger pan */
   private orbitTarget = new THREE.Vector3(0, 0, 0.02);
   /** per-bey knock-out flights, so a KO'd bey lands and stays visible */
-  private koFlights: ({ t: number; from: THREE.Vector3; to: THREE.Vector3; spin: number } | null)[] = [];
-  /** beys already blown apart, so a burst only detonates once */
-  private burstDone: boolean[] = [];
+  private koFlights: ({
+    t: number;
+    from: THREE.Vector3;
+    to: THREE.Vector3;
+    spin: number;
+    pocket: boolean;
+    orientation: THREE.Quaternion;
+  } | null)[] = [];
+  /** Beys whose latch has already released, so separation runs only once. */
+  private burstSeparated: boolean[] = [];
+  /** Seated lower-assembly detent pose before the core authorizes separation. */
+  private burstLatchRigs: (BurstLatchRig | null)[] = [];
+  /** Current rules use four internal slip events; kept configurable for modes. */
+  private burstClicksMax = 4;
   /** rendered blade radius per bey (m) */
   private beyRadius: number[] = [];
-  /** free-flying blade/ratchet/bit pieces from a burst */
-  private debris: { mesh: THREE.Object3D; vel: THREE.Vector3; spin: THREE.Vector3; rest: number }[] = [];
+  /** Monotonic physical fall progress; a wake-up hit cannot stand it back up. */
+  private stopToppleDwell: number[] = [];
+  /** Authored whole-Bey bounds used as kinematic debris collision proxies. */
+  private beyCollisionSpheres: ({ center: THREE.Vector3; radiusM: number } | null)[] = [];
+  /** Catalog-derived mass allocation for complete upper/Ratchet/Bit bodies. */
+  private burstMasses: BurstPartMasses[] = [];
+  /** Deterministic rigid Blade/lower bodies from authorized Burst releases. */
+  private debris: BurstDebrisVisual[] = [];
+  private debrisAccumulator = 0;
 
   /**
-   * A burst finish is literally the bey coming apart, so show it: detach the
-   * blade, ratchet and bit, throw them off the tip's position and let them
-   * tumble, bounce and settle on the dish.
+   * A normal X Burst releases the complete Blade assembly while Ratchet+Bit
+   * stay coupled. Only a severe terminal overload ejects the Bit as a third
+   * body. Every body inherits the terminal collision's real motion.
    */
-  private explodeBey(i: number, at: THREE.Vector3): void {
+  private separateBurstBey(i: number, state: BeyState): void {
     const m = this.beyMeshes[i];
-    if (!m || this.burstDone[i]) return;
-    this.burstDone[i] = true;
-    sfx.burst();
-    const parts = m.children.filter((c) => c.name.startsWith("part:"));
-    parts.forEach((part, k) => {
-      const world = new THREE.Vector3();
-      part.getWorldPosition(world);
-      m.remove(part);
-      part.position.copy(world);
-      this.scene.add(part);
-      // the blade flies furthest, the bit mostly drops
-      const a = (k / Math.max(1, parts.length)) * Math.PI * 2 + Math.random() * 1.2;
-      const push = part.name === "part:blade" ? 0.62 : part.name === "part:ratchet" ? 0.42 : 0.24;
-      this.debris.push({
-        mesh: part,
-        vel: new THREE.Vector3(
-          Math.cos(a) * push,
-          Math.sin(a) * push,
-          0.55 + Math.random() * 0.5,
-        ),
-        spin: new THREE.Vector3(
-          (Math.random() - 0.5) * 26,
-          (Math.random() - 0.5) * 26,
-          (Math.random() - 0.5) * 40,
-        ),
-        rest: at.z,
-      });
+    if (!m || this.burstSeparated[i]) return;
+    this.burstSeparated[i] = true;
+    if (!this.audioMuted) sfx.burst();
+    m.updateWorldMatrix(true, true);
+    const beyOrigin = m.getWorldPosition(new THREE.Vector3());
+    const beyQuaternion = m.getWorldQuaternion(new THREE.Quaternion());
+    const topAxis = new THREE.Vector3(0, 0, 1).applyQuaternion(beyQuaternion).normalize();
+    const release = state.burstRelease ?? {
+      tick: 0,
+      contactAngle: Math.atan2(state.y, state.x),
+      normalImpulse: 0,
+      tangentialImpulse: 0,
+      preVx: state.vx,
+      preVy: state.vy,
+      postVx: state.vx,
+      postVy: state.vy,
+      omega: state.omega,
+      phase: state.phase,
+      severity: state.burstOverload,
+      seed: ((i + 1) * 0x9e3779b9) >>> 0,
+    };
+    const beyVelocity = new THREE.Vector3(release.postVx, release.postVy, state.vz);
+    const beyAngularVelocity = topAxis.clone().multiplyScalar(release.omega);
+    const blade = m.children.find((part) => part.name === "part:blade");
+    const ratchet = m.children.find((part) => part.name === "part:ratchet");
+    const bit = m.children.find((part) => part.name === "part:bit");
+    const masses = this.burstMasses[i] ?? burstPartMasses(this.beyParams[i]?.massKg ?? 0.044, null);
+    const topology = burstSeparationTopology(release.severity);
+    const bodySpecs: { mesh: THREE.Group; kind: "blade" | "lower" | "ratchet" | "bit"; massKg: number }[] = [];
+    const bladeBody = blade
+      ? groupBurstRigidAssembly(this.scene, [blade], "burst body:complete blade assembly")
+      : null;
+    if (bladeBody) bodySpecs.push({ mesh: bladeBody, kind: "blade", massKg: masses.bladeKg });
+    if (topology === "blade-lower") {
+      const members = [ratchet, bit].filter((part): part is THREE.Object3D => Boolean(part));
+      const lowerBody = groupBurstRigidAssembly(
+        this.scene,
+        members,
+        "burst body:coupled ratchet and bit",
+      );
+      if (lowerBody) {
+        bodySpecs.push({
+          mesh: lowerBody,
+          kind: "lower",
+          massKg: masses.ratchetKg + masses.bitKg,
+        });
+      }
+    } else {
+      const ratchetBody = ratchet
+        ? groupBurstRigidAssembly(this.scene, [ratchet], "burst body:ratchet")
+        : null;
+      const bitBody = bit
+        ? groupBurstRigidAssembly(this.scene, [bit], "burst body:bit")
+        : null;
+      if (ratchetBody) bodySpecs.push({ mesh: ratchetBody, kind: "ratchet", massKg: masses.ratchetKg });
+      if (bitBody) bodySpecs.push({ mesh: bitBody, kind: "bit", massKg: masses.bitKg });
+    }
+    const releasedBodies = bodySpecs.map((spec, bodyIndex) => {
+      const body = buildBurstDebrisBody(
+        spec.mesh,
+        spec.kind,
+        spec.massKg,
+        beyOrigin,
+        beyVelocity,
+        beyAngularVelocity,
+        (release.seed ^ Math.imul(bodyIndex + 1, 0x85ebca6b)) >>> 0,
+      );
+      const visual = { mesh: spec.mesh, body };
+      this.debris.push(visual);
+      return body;
     });
+    applyBurstReleaseImpulse(releasedBodies, release, beyOrigin, topAxis);
     m.visible = false;
-    // a burst throws sparks from the latch
-    this.spawnSparks(1.6, i);
   }
 
-  private stepDebris(dt: number): void {
-    const s = this.stadium;
-    for (const d of this.debris) {
-      d.vel.z -= 9.81 * dt;
-      d.mesh.position.addScaledVector(d.vel, dt);
-      d.mesh.rotation.x += d.spin.x * dt;
-      d.mesh.rotation.y += d.spin.y * dt;
-      d.mesh.rotation.z += d.spin.z * dt;
-      const r = Math.hypot(d.mesh.position.x, d.mesh.position.y);
-      const floor = s ? surfaceZ(s, Math.min(r, s.rWall)) : 0;
-      if (d.mesh.position.z <= floor) {
-        d.mesh.position.z = floor;
-        if (Math.abs(d.vel.z) > 0.2) {
-          d.vel.z = -d.vel.z * 0.42; // bounce
-          d.vel.x *= 0.7;
-          d.vel.y *= 0.7;
-          d.spin.multiplyScalar(0.6);
-        } else {
-          d.vel.set(0, 0, 0); // settled — the pieces stay lying there
-          d.spin.multiplyScalar(0.82);
-        }
-      }
+  private burstKinematicColliders(world: WorldState | null): BurstKinematicCollider[] {
+    if (!world) return [];
+    const colliders: BurstKinematicCollider[] = [];
+    const count = Math.min(world.beys.length, this.beyMeshes.length);
+    for (let index = 0; index < count; index++) {
+      const state = world.beys[index]!;
+      const mesh = this.beyMeshes[index];
+      const authored = this.beyCollisionSpheres[index];
+      if (!mesh || !authored || !state.alive || state.exited || state.pendingTicks > 0) continue;
+      mesh.updateWorldMatrix(true, true);
+      const position = authored.center.clone().applyMatrix4(mesh.matrixWorld);
+      const scale = mesh.getWorldScale(new THREE.Vector3());
+      const radiusM = authored.radiusM * Math.max(scale.x, scale.y, scale.z);
+      const topAxis = new THREE.Vector3(0, 0, 1)
+        .applyQuaternion(mesh.getWorldQuaternion(new THREE.Quaternion()))
+        .normalize();
+      colliders.push({
+        position,
+        velocity: new THREE.Vector3(state.vx, state.vy, state.vz),
+        angularVelocity: topAxis.multiplyScalar(state.omega),
+        radiusM,
+        restitution: 0.2,
+        friction: 0.28,
+      });
+    }
+    return colliders;
+  }
+
+  private stepDebris(dt: number, world: WorldState | null): void {
+    this.debrisAccumulator = advanceBurstDebris(
+      this.debris.map((debris) => debris.body),
+      this.stadium,
+      dt,
+      this.debrisAccumulator,
+      this.burstKinematicColliders(world),
+    );
+    for (const debris of this.debris) {
+      debris.mesh.position.copy(debris.body.position);
+      debris.mesh.quaternion.copy(debris.body.quaternion);
     }
   }
 
@@ -211,6 +310,15 @@ export class BattleView {
       disposeModel(d.mesh);
     }
     this.debris = [];
+    this.debrisAccumulator = 0;
+  }
+
+  private clearSparks(): void {
+    for (const spark of this.sparks) {
+      this.scene.remove(spark.mesh);
+      spark.mesh.geometry.dispose();
+    }
+    this.sparks = [];
   }
   launchSide: 0 | 1 = 0;
   /** silences hums/sfx/haptics (menu-background battles) */
@@ -369,6 +477,22 @@ export class BattleView {
       generation: this.launcherGeneration,
     };
     setLauncherPull(this.launcherRig, 0);
+  }
+
+  private applyLaunchCameraFrame(): void {
+    const frame = launchCameraFrame(this.stadium, this.launchSide);
+    this.camera.position.copy(frame.position);
+    this.camera.lookAt(frame.target);
+  }
+
+  /** BX-32's 600 mm shell needs its final launch framing before the expensive
+   * Hold launcher/hands are attached. Otherwise the browser can composite one
+   * stale cinema frame from inside the wide casing during setup. */
+  synchronizeWideLaunchCamera(): void {
+    if (this.mode !== "launch" || this.stadium?.name !== "wide") return;
+    this.ease = null;
+    this.applyLaunchCameraFrame();
+    this.camera.updateMatrixWorld(true);
   }
 
   /**
@@ -818,6 +942,13 @@ export class BattleView {
     this.setBeysList([a, b]);
   }
 
+  /** Match the renderer's detent steps to the core rule configuration. */
+  setBurstClickThreshold(clicksMax: number): void {
+    this.burstClicksMax = Number.isFinite(clicksMax)
+      ? Math.max(1, Math.round(clicksMax))
+      : 4;
+  }
+
   setBeysList(list: { rc: ResolvedCombo | null; params: BeyParams }[]): void {
     this.clearStagedLaunchers();
     for (const m of this.beyMeshes) {
@@ -842,8 +973,19 @@ export class BattleView {
     this.beyRadius = list.map((e) =>
       partRadiusM(e.rc?.parts.blade ?? e.rc?.parts.mainBlade, e.params.radiusM),
     );
+    this.stopToppleDwell = list.map(() => 0);
+    this.beyCollisionSpheres = this.beyMeshes.map((mesh) => {
+      if (!mesh) return null;
+      mesh.updateMatrixWorld(true);
+      const sphere = intactBeyCollisionSphere(mesh);
+      return { center: sphere.center.clone(), radiusM: sphere.radius };
+    });
+    this.burstMasses = list.map((entry) => burstPartMasses(entry.params.massKg, entry.rc));
+    this.burstLatchRigs = this.beyMeshes.map((mesh, i) =>
+      mesh ? buildBurstLatchRig(mesh, list[i]!.params.spinDir) : null,
+    );
     this.koFlights = list.map(() => null);
-    this.burstDone = list.map(() => false);
+    this.burstSeparated = list.map(() => false);
     this.clearDebris();
     while (this.lastBeyPos.length < list.length) {
       const a = (this.lastBeyPos.length / Math.max(2, list.length)) * Math.PI * 2;
@@ -868,8 +1010,13 @@ export class BattleView {
     this.launchMissTumble = [];
     this.launchMissElapsed = [];
     this.launchMissSpin = [];
-    this.burstDone = [];
+    this.burstSeparated = [];
+    this.burstLatchRigs = [];
+    this.burstMasses = [];
+    this.beyCollisionSpheres = [];
+    this.stopToppleDwell = [];
     this.clearDebris();
+    this.clearSparks();
     sfx.stopHums();
   }
 
@@ -884,6 +1031,8 @@ export class BattleView {
         if (!m) sfx.hit(e.magnitude);
         if (!m && navigator.vibrate) navigator.vibrate(Math.min(60, 8 + e.magnitude * 400));
       } else if (e.kind === "click") {
+        const latch = this.burstLatchRigs[e.bey];
+        if (latch) pulseBurstLatch(latch);
         if (!m) sfx.click();
         if (!m && navigator.vibrate) navigator.vibrate(15);
       } else if (e.kind === "dashStart") {
@@ -955,7 +1104,11 @@ export class BattleView {
         }
         this.releaseStagedLauncher(i, m, b.phase);
         this.updateStagedLauncher(i, dt);
-        if (!m.visible && !this.burstDone[i]) m.visible = true;
+        if (!m.visible && !this.burstSeparated[i]) m.visible = true;
+        const latch = this.burstLatchRigs[i];
+        if (latch && !this.burstSeparated[i]) {
+          updateBurstLatchRig(latch, b.burstDamage, this.burstClicksMax, dt);
+        }
         const r = Math.hypot(b.x, b.y);
 
         // A bad launch already followed the canonical ballistic path and
@@ -988,30 +1141,69 @@ export class BattleView {
           continue;
         }
 
-        // A knocked-out bey does not vanish: the sim stops tracking it, so
-        // the view flies it out over the wall on its last heading and lands
-        // it in the pocket it fell into, where it stays lying on its side.
+        // A knocked-out bey does not vanish. Pocket finishes follow the exact
+        // product throat/skew to a deterministic catch-tray target; top exits
+        // land outside the rectangular product body. Neither path invents
+        // random replay-only scatter or assumes BX-32 is circular.
         if (b.exited) {
           let ko = this.koFlights[i];
           if (!ko) {
-            const dir = r > 1e-4 ? { x: b.x / r, y: b.y / r } : { x: 0, y: -1 };
-            const restR = s.rWall + 0.035;
+            const pocket = pocketAtPoint(s, b.x, b.y);
+            if (pocket) {
+              // The authoritative pocket dwell has completed, so capture a
+              // genuinely side-resting zero-spin pose before freezing it.
+              applyStopTopplePose(
+                m,
+                STOP_DWELL_TICKS,
+                this.beyRadius[i] ?? 0.024,
+                b.phase + (this.launchPhaseOffsets[i] ?? 0),
+                stadiumTerrainAt(s, b.x, b.y).height,
+              );
+            }
+            let target: { x: number; y: number };
+            let targetZ: number;
+            if (pocket) {
+              target = pocketExitTarget(s, pocket);
+              targetZ = stadiumTerrainAt(s, target.x, target.y).height;
+            } else {
+              const dir = r > 1e-8
+                ? { x: b.x / r, y: b.y / r }
+                : { x: 0, y: -1 };
+              const scaleX = Math.abs(dir.x) > 1e-8
+                ? (s.deckW / 2 + 0.035) / Math.abs(dir.x)
+                : Number.POSITIVE_INFINITY;
+              const scaleY = Math.abs(dir.y) > 1e-8
+                ? (s.deckH / 2 + 0.035) / Math.abs(dir.y)
+                : Number.POSITIVE_INFINITY;
+              const distance = Math.min(scaleX, scaleY);
+              target = { x: dir.x * distance, y: dir.y * distance };
+              targetZ = 0;
+            }
             ko = {
               t: 0,
-              from: new THREE.Vector3(b.x, b.y, surfaceZ(s, Math.min(r, s.rWall))),
-              to: new THREE.Vector3(
-                dir.x * restR + (Math.random() - 0.5) * 0.012,
-                dir.y * restR + (Math.random() - 0.5) * 0.012,
-                b.exited === "top" ? -0.004 : surfaceZ(s, s.rWall) - 0.015,
-              ),
+              from: m.position.clone(),
+              to: new THREE.Vector3(target.x, target.y, targetZ),
               spin: m.rotation.z,
+              pocket: Boolean(pocket),
+              orientation: m.quaternion.clone(),
             };
             this.koFlights[i] = ko;
           }
           ko.t = Math.min(1, ko.t + dt * 1.6);
           const k = ko.t;
+          if (ko.pocket) {
+            // A pocket result is authorized only after the core has observed
+            // zero spin and a fully settled footprint for its complete dwell.
+            // Preserve that exact pose: replaying a flight/tumble here made a
+            // stopped Bey visibly re-spin after the result was announced.
+            m.position.copy(ko.from);
+            m.quaternion.copy(ko.orientation);
+            this.lastBeyPos[i]?.copy(m.position);
+            sfx.updateHum(i, 0, 0, 0);
+            continue;
+          }
           m.position.lerpVectors(ko.from, ko.to, k);
-          m.position.z += Math.sin(k * Math.PI) * 0.05; // tumble arc over the wall
+          m.position.z += Math.sin(k * Math.PI) * 0.05; // only a true top exit clears the casing
           m.rotation.z = ko.spin + k * 9; // still spinning as it flies
           m.rotation.x = Math.min(Math.PI / 2, k * 2.2); // comes to rest on its side
           // same tip-pivot correction as the topple: lie ON the floor, not in it
@@ -1022,10 +1214,11 @@ export class BattleView {
         }
         this.koFlights[i] = null;
 
+        const groundHeight = stadiumTerrainAt(s, b.x, b.y).height;
         m.position.set(
           b.x,
           b.y,
-          b.airborne ? b.z : surfaceZ(s, Math.min(r, s.rWall)),
+          b.airborne ? b.z : groundHeight,
         );
         const visualSpin = b.phase + (this.launchPhaseOffsets[i] ?? 0);
         const launchBase = this.launchOrientationBases[i];
@@ -1044,6 +1237,11 @@ export class BattleView {
           m.rotation.set(0, 0, visualSpin);
         }
         const absOmega = Math.abs(b.omega);
+        const visualStopDwell = persistentStopToppleDwell(
+          this.stopToppleDwell[i] ?? 0,
+          Math.max(b.stopDwell, pocketToppleDwell(b.pocketDwell)),
+        );
+        this.stopToppleDwell[i] = visualStopDwell;
         const blurMesh = m.getObjectByName("blurRing") as THREE.Mesh | undefined;
         if (blurMesh) {
           const bm = blurMesh.material as THREE.ShaderMaterial;
@@ -1053,15 +1251,29 @@ export class BattleView {
         if (b.airborne || preservesLaunchAxis) {
           // Preserve the full tilted top axis composed above until touchdown.
         } else if (!b.alive) {
-          // burst: the bey comes apart where it stood
-          this.explodeBey(i, m.position.clone());
-        } else if (b.stoppedTick >= 0) {
-          // Topple over. The mesh origin is the TIP, so rotating alone swung
-          // the body straight down through the dish — a stopped bey looked
-          // half-buried. Lift by the blade radius as it goes over, which is
-          // exactly where the rim ends up carrying it once it is on its side.
-          m.rotation.x = Math.min(Math.PI / 2, m.rotation.x + dt * 3.2);
-          m.position.z += (this.beyRadius[i] ?? 0.024) * Math.sin(m.rotation.x);
+          // If a zero-spin Bey was already falling when the terminal latch
+          // hit arrived, release from that real side-lying pose.
+          if (visualStopDwell > 0) {
+            applyStopTopplePose(
+              m,
+              visualStopDwell,
+              this.beyRadius[i] ?? 0.024,
+              visualSpin,
+              groundHeight,
+            );
+          }
+          this.separateBurstBey(i, b);
+        } else if (visualStopDwell > 0 || b.stoppedTick >= 0) {
+          // The core now requires exactly zero spin plus a 0.6 s static dwell.
+          // Use that same progress, so the finish never freezes an upright Bey
+          // and render-frame rate cannot change how far it has toppled.
+          applyStopTopplePose(
+            m,
+            visualStopDwell,
+            this.beyRadius[i] ?? 0.024,
+            visualSpin,
+            groundHeight,
+          );
         } else if (absOmega < WOBBLE_OMEGA) {
           // wobble grows as the bey winds down, so the moment it is called
           // stopped it has visibly been dying for a while (not a sudden cut)
@@ -1080,7 +1292,7 @@ export class BattleView {
         );
       }
     }
-    this.stepDebris(dt);
+    this.stepDebris(dt, world);
     for (let i = this.sparks.length - 1; i >= 0; i--) {
       const sp = this.sparks[i]!;
       sp.life -= dt;
@@ -1088,6 +1300,7 @@ export class BattleView {
       sp.mesh.position.addScaledVector(sp.vel, dt);
       if (sp.life <= 0) {
         this.scene.remove(sp.mesh);
+        sp.mesh.geometry.dispose();
         this.sparks.splice(i, 1);
       }
     }
@@ -1188,10 +1401,7 @@ export class BattleView {
       return;
     }
     if (this.mode === "launch") {
-      const side = this.launchSide === 0 ? 1 : -1;
-      const base = new THREE.Vector3(-0.16 * side, -0.4, 0.3);
-      this.camera.position.copy(base);
-      this.camera.lookAt(0, 0.03, 0.02);
+      this.applyLaunchCameraFrame();
       return;
     }
     // orbit around the (pannable) target at the (pinchable) distance
