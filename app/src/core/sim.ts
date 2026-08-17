@@ -552,8 +552,8 @@ function collidePair(w: WorldState, cfg: WorldConfig, i: number, j: number): voi
   // exactly like the real toy.
   const hitAngle1 = datan2(n.y, n.x) - b1.phase; // impact spot on bey1's rim
   const hitAngle2 = datan2(-n.y, -n.x) - b2.phase;
-  const onJoint1 = Math.abs(wrapAngle(hitAngle1 * p1.latchCount)) < T.jointWindow;
-  const onJoint2 = Math.abs(wrapAngle(hitAngle2 * p2.latchCount)) < T.jointWindow;
+  const onJoint1 = p1.latchCount > 0 && Math.abs(wrapAngle(hitAngle1 * p1.latchCount)) < T.jointWindow;
+  const onJoint2 = p2.latchCount > 0 && Math.abs(wrapAngle(hitAngle2 * p2.latchCount)) < T.jointWindow;
   const imp1 = jn * T.burstNormalK + smash2 * T.burstSmashK;
   const imp2 = jn * T.burstNormalK + smash1 * T.burstSmashK;
   if (onJoint1 && imp1 > T.burstMinImpulse) {

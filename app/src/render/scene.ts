@@ -53,6 +53,23 @@ interface Spark {
   life: number;
 }
 
+/** Release one transient model without destroying globally cached textures. */
+function disposeModel(root: THREE.Object3D): void {
+  const geometries = new Set<THREE.BufferGeometry>();
+  const materials = new Set<THREE.Material>();
+  root.traverse((object) => {
+    const mesh = object as THREE.Mesh;
+    if (mesh.geometry) geometries.add(mesh.geometry);
+    if (Array.isArray(mesh.material)) {
+      for (const material of mesh.material) materials.add(material);
+    } else if (mesh.material) {
+      materials.add(mesh.material);
+    }
+  });
+  for (const geometry of geometries) geometry.dispose();
+  for (const material of materials) material.dispose();
+}
+
 /** |ω| where a bey starts visibly wobbling, well above OMEGA_STOP so the
  * wind-down is watchable rather than an abrupt stop. */
 const WOBBLE_OMEGA = 55;
@@ -160,7 +177,10 @@ export class BattleView {
   }
 
   private clearDebris(): void {
-    for (const d of this.debris) this.scene.remove(d.mesh);
+    for (const d of this.debris) {
+      this.scene.remove(d.mesh);
+      disposeModel(d.mesh);
+    }
     this.debris = [];
   }
   launchSide: 0 | 1 = 0;
@@ -362,6 +382,7 @@ export class BattleView {
   removeLauncher(): void {
     if (this.launcherRig) {
       this.camera.remove(this.launcherRig.group);
+      disposeModel(this.launcherRig.group);
       this.launcherRig = null;
     }
   }
@@ -412,7 +433,10 @@ export class BattleView {
         }
         if (t < 1) requestAnimationFrame(tick);
         else {
-          for (const rig of rigs) this.scene.remove(rig.group);
+          for (const rig of rigs) {
+            this.scene.remove(rig.group);
+            disposeModel(rig.group);
+          }
           this.oppRigs = this.oppRigs.filter((r) => !rigs.includes(r));
           resolve();
         }
@@ -425,6 +449,7 @@ export class BattleView {
     this.oppRigs = this.oppRigs.filter((r) => {
       if (side === undefined || r.side === side) {
         this.scene.remove(r.group);
+        disposeModel(r.group);
         return false;
       }
       return true;
@@ -843,7 +868,11 @@ export class BattleView {
   }
 
   setBeysList(list: { rc: ResolvedCombo | null; params: BeyParams }[]): void {
-    for (const m of this.beyMeshes) if (m) this.scene.remove(m);
+    for (const m of this.beyMeshes) {
+      if (!m) continue;
+      this.scene.remove(m);
+      disposeModel(m);
+    }
     this.beyMeshes = list.map((e, i) => {
       const m = buildBeyMesh(e.rc, e.params, BattleView.SIDE_COLORS[i % BattleView.SIDE_COLORS.length]!);
       markReflective(m, 0.72); // die-cast metal mirrors the dish and rivals
@@ -867,7 +896,11 @@ export class BattleView {
   }
 
   clearBeys(): void {
-    for (const m of this.beyMeshes) if (m) this.scene.remove(m);
+    for (const m of this.beyMeshes) {
+      if (!m) continue;
+      this.scene.remove(m);
+      disposeModel(m);
+    }
     this.beyMeshes = [];
     this.beyParams = [];
     this.burstDone = [];

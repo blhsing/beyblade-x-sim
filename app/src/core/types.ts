@@ -42,12 +42,38 @@ export interface PartEntry {
   diameterMm: number | null;
   /** official colorway name from phstudy part_colors (e.g. "blue", "gold") */
   color?: string | null;
+  /** Full mould palette for the representative release, ordered primary → accents. */
+  colors?: string[];
+  /** Exact Bit rack tooth count measured from the released part. */
+  gearTeeth?: number | null;
+  /** Full physical Bit height, including the portion captured by the Ratchet. */
+  totalHeightMm?: number | null;
+  /** Visible Bit height from contact point to the Ratchet mounting face. */
+  exposedHeightMm?: number | null;
+  /** Contact behavior of a Bit, normalized from its official code. */
+  tipFamily?:
+    | "flat" | "ball" | "needle" | "point" | "taper" | "spike"
+    | "rubberFlat" | "rubberHybrid" | "special" | "integrated" | null;
+  /** This part contains the Ratchet mechanism and is not freely combinable. */
+  integratedRatchet?: boolean;
   /** short zh-TW flavor/performance description */
   desc?: string | null;
   line: "BX" | "UX" | "CX" | null;
   fixedBurst: boolean;
   releaseAt: string | null;
-  variants: { id: string; setId: string | null }[];
+  /** Source row chosen as the default appearance for this mechanical entry. */
+  canonicalVariantId?: string | null;
+  /** Source row applied while resolving an official preset (runtime only). */
+  selectedVariantId?: string;
+  /** The selected source row uses a different palette than this entry's reference image. */
+  variantColorOverride?: boolean;
+  variants: {
+    id: string;
+    setId: string | null;
+    colors?: string[];
+    /** Release/colorway suffix such as a metal-coat or clear-edition label. */
+    label?: string | null;
+  }[];
 }
 
 export interface PartsDb {
@@ -75,6 +101,8 @@ export interface ComboSelection {
   assistBlade: string | null;
   metalBlade: string | null;
   overBlade: string | null;
+  /** Exact source-part IDs for official presets, used to restore stock palettes. */
+  variantIds?: Partial<Record<PartCategory, string>>;
 }
 
 export type SpinDir = 1 | -1; // +1 right (cw from above), -1 left

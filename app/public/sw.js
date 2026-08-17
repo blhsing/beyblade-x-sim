@@ -1,6 +1,6 @@
 // Minimal PWA service worker: cache-first for hashed assets, network-first
 // for the shell + data so redeploys show up on next launch.
-const VERSION = "beyx-v1";
+const VERSION = "beyx-v2-models";
 const CORE = ["./", "./manifest.webmanifest", "./icon.svg"];
 
 self.addEventListener("install", (e) => {
@@ -26,8 +26,10 @@ self.addEventListener("fetch", (e) => {
         (hit) =>
           hit ??
           fetch(e.request).then((res) => {
-            const copy = res.clone();
-            caches.open(VERSION).then((c) => c.put(e.request, copy));
+            if (res.ok) {
+              const copy = res.clone();
+              caches.open(VERSION).then((c) => c.put(e.request, copy));
+            }
             return res;
           }),
       ),
@@ -36,8 +38,10 @@ self.addEventListener("fetch", (e) => {
     e.respondWith(
       fetch(e.request)
         .then((res) => {
-          const copy = res.clone();
-          caches.open(VERSION).then((c) => c.put(e.request, copy));
+          if (res.ok) {
+            const copy = res.clone();
+            caches.open(VERSION).then((c) => c.put(e.request, copy));
+          }
           return res;
         })
         .catch(() => caches.match(e.request).then((hit) => hit ?? Response.error())),

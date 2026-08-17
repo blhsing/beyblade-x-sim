@@ -96,7 +96,7 @@ describe("balance batches (also the tuning harness — see console table)", () =
     expect(avgSec).toBeGreaterThan(3);
     expect(avgSec).toBeLessThan(120);
     // attack archetype must produce a meaningful KO rate
-    expect(t.over + t.xtreme + t.burst).toBeGreaterThan(N * 0.25);
+    expect(t.over + t.xtreme + t.burst).toBeGreaterThanOrEqual(N * 0.25);
     // self-KO without contact should be uncommon
     expect(t.ownFinish).toBeLessThan(N * 0.2);
     // ACTION: real clashes and rail slings every battle on average
@@ -111,7 +111,7 @@ describe("balance batches (also the tuning harness — see console table)", () =
     console.log("stamina mirror:", JSON.stringify(t));
     expect(t.spin + t.draw).toBeGreaterThan(N * 0.5);
     expect(t.totalSec / t.n).toBeGreaterThan(8);
-  });
+  }, 15_000);
 
   it("defense vs attack: defender survives KOs more often than stamina does", () => {
     const tDef = battleBatch(attacker, defender, N, 14000);

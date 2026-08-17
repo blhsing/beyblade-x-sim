@@ -1,9 +1,10 @@
 # Modeling reference (real-world dimensions and materials)
 
-Everything the renderer builds is parametric — no third-party meshes or
-textures ship with this project (see docs/DATA.md for the image-licensing
-constraint). This file is the measured reference those parameters come from,
-so geometry can be checked against reality instead of taste.
+Everything the renderer builds is parametric — no third-party meshes ship
+with this project. Transparent catalog renders are normalized into sourced
+top/side references, then traced into high-density silhouettes and used as
+alpha-cut surface maps. This file is the measured reference those parameters
+come from, so geometry can be checked against reality instead of taste.
 
 Units in the renderer are **metres** (the sim is SI), so a 48.5 mm blade is
 `0.0485`.
@@ -47,7 +48,10 @@ Those same protrusions are the burst latch joints the physics core uses
 (`BeyParams.latchCount`, docs/PHYSICS.md).
 
 Material: translucent glass-filled nylon / POM, faintly milky, low
-roughness. The centre carries a metal-toothed burst latch ring.
+roughness. Standard Ratchets use separate molded ring/cover/base pieces; only
+M-85 carries the visible riveted metal underside ring. Codes ending in 5 use
+the compact Simple/O-type joint, and zero-series Ratchets have a smooth
+zero-lobe perimeter.
 
 ### 1.3 Bit codes → tip shape
 
@@ -61,11 +65,14 @@ shapes the renderer builds:
 | Needle | `N`, `HN`, `MN`, `GN` | narrow cone to a small radius |
 | Point | `P`, `GP`, `TP`, `D`, `S` | very fine point |
 | Taper | `T`, `HT` | tall truncated cone |
-| Rubber | `R`, `RA`, `RS` | flat/round rubber, matte and grippy |
-| **Gear** | `GF`, `GB`, `GP`, `GN`, `GR`, `GU` | any of the above **plus a toothed gear ring** that meshes with the stadium's Xtreme Line |
+| Rush | `R`, `LR`, `GR` | small hard-plastic flat with a shortened 10-tooth gear |
+| Rubber | `RA`, `M` | a rubber contact insert or sleeve, matte and grippy |
+| Extended Gear | `GF`, `GB`, `GP`, `GN`, `GR`, `GU` | the normal gear teeth continue down around the contact shape |
 
-`MN` (Metal Needle) is metal, not POM. The gear ring is the visible
-signature of Xtreme Dash bits and is modelled as real teeth, not a texture.
+`MN` (Metal Needle) has a metal insert, not an all-metal body. Every ordinary
+X Bit has a molded X-Line gear (usually 12 teeth; code-specific counts range
+from 10 to 20). The gear is modelled as geometry, not a texture. Exact exposed
+and total heights come from `part_weights.json` and the keyed Bit catalog.
 
 ### 1.4 Materials
 
@@ -73,9 +80,21 @@ signature of Xtreme Dash bits and is modelled as real teeth, not a texture.
   anisotropic highlight) or painted; metallic ≈ 0.9, roughness 0.25 – 0.4.
 - **Blade core / underlay**: ABS, glossy injection-moulded, faint orange-peel.
 - **Ratchet**: translucent POM/nylon, clearcoat.
-- **Bit**: POM (hard tips), rubber (`R*` family, matte roughness ≈ 0.9),
+- **Bit**: POM (hard tips), rubber (`RA`/`M`, matte roughness ≈ 0.9),
   metal (`MN`).
 - Official colourways come from the dataset's `color` field.
+- Official presets retain their exact source-part palette, so multi-color
+  Ratchets/Bits and recolored/metal-coated variants do not collapse to one
+  generic tint.
+
+### 1.5 Reference-driven topology
+
+`tools/fetch-model-reference.py` uses the public MediaWiki API to normalize
+isolated part renders. The generated manifest stores 256 radial samples for
+upper parts/Ratchets and 96 side samples for Bits. BX/UX upper bodies retain
+about 61k triangles; lower parts retain at least about 25k. Full catalog tops
+are UV-mapped with alpha-cut gaps, while CX is assembled from its real layers:
+Lock Chip + Main + Assist, or Expand Lock Chip + Metal + Over + Assist.
 
 ## 2. Stadiums
 

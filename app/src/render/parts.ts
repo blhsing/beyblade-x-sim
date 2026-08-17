@@ -1,14 +1,7 @@
-// Parametric Beyblade X part geometry built from the *real* measurements in
-// the parts dataset (docs/MODELING.md): per-part diameters in mm, ratchet
-// codes that literally encode protrusion count and height, and bit codes that
-// name the tip shape. Nothing here is a guessed silhouette scaled to taste —
-// where the dataset has a number, that number is the geometry.
-//
-// Everything is built around one primitive: a swept solid whose vertical
-// cross-section is modulated by a plan-view outline function. That is how a
-// real moulded part is shaped (a profile revolved around the axis, with the
-// outline cut by the tooling), and it gives proper sloped faces, rims and
-// undercuts instead of a flat extrusion.
+// Beyblade X assembly entry points. Catalog-keyed upper/lower builders consume
+// measured dimensions, traced silhouettes, surface references, palettes, and
+// code-specific mechanisms. The legacy swept-solid helper remains only as the
+// null-data fallback and for geometry compatibility tests.
 
 import * as THREE from "three";
 
@@ -19,12 +12,21 @@ import {
   absPlastic,
   diecastMetal,
   paintedMetal,
-  pomTranslucent,
-  rubberMat,
   stickerMaterial,
   stickerImageTexture,
   stickerTexture,
 } from "./materials";
+import {
+  bitFamily as lowerBitFamily,
+  bitHasGear as lowerBitHasGear,
+  bitHeight as lowerBitHeight,
+  bitHeightForPart as lowerBitHeightForPart,
+  bitTipHeight as lowerBitTipHeight,
+  buildBitModel,
+  buildRatchetModel,
+  ratchetSpec as lowerRatchetSpec,
+} from "./lower-parts";
+import { buildBxUxUpper, buildCxUpper } from "./upper-parts";
 
 const BLADE_STICKERS = stickerManifest.blades as Record<string, string>;
 const LOCK_CHIP_STICKERS = stickerManifest.lockChips as Record<string, string>;
@@ -208,6 +210,15 @@ function bladeColorOf(part: PartEntry | null | undefined, accent: number): numbe
   return named ?? (part?.type ? TYPE_COLORS[part.type]! : accent);
 }
 
+function partPaletteOf(part: PartEntry | null | undefined, fallback: number): number[] {
+  const colors = (part?.colors ?? [])
+    .map((name) => COLOR_NAMES[name.toLowerCase()])
+    .filter((color): color is number => color !== undefined);
+  const primary = part?.color ? COLOR_NAMES[part.color.toLowerCase()] : undefined;
+  if (primary !== undefined && colors[0] !== primary) colors.unshift(primary);
+  return colors.length > 0 ? colors : [fallback];
+}
+
 /**
  * A BX/UX Blade: die-cast metal upper (the part that actually hits) sitting
  * on a moulded plastic core, with the emblem boss on top. Height ≈ 11 mm,
@@ -220,11 +231,14 @@ export function buildBlade(
   baseZ = 0,
   withSticker = true,
 ): THREE.Group {
+  if (part) {
+    return buildBxUxUpper(part, accent, R, baseZ, { referenceTop: withSticker });
+  }
   const g = new THREE.Group();
-  const type = part?.type ?? null;
-  const seed = partSeed(part?.key ?? "?");
-  const color = bladeColorOf(part, accent);
-  const outline = outlineFor(type, R, part?.stats.attack ?? 40, seed);
+  const type = null;
+  const seed = partSeed("?");
+  const color = accent;
+  const outline = outlineFor(type, R, 40, seed);
 
   // A real blade is mostly MOULDED COLOUR PLASTIC (PMMA/ABS) with a zinc
   // alloy ring exposed at the contact points and a die-cut sticker over the
@@ -284,8 +298,8 @@ export function buildBlade(
     const stickerMap = sourceUrl
       ? stickerImageTexture(sourceUrl)
       : stickerTexture({
-          key: part?.key ?? "?",
-          label: part?.code ?? part?.name.en ?? "BEY",
+          key: "?",
+          label: "BEY",
           base: color,
           accent: new THREE.Color(color).offsetHSL(0.5, 0.1, 0.12).getHex(),
           seed,
@@ -312,73 +326,20 @@ export function buildCxStack(
   R: number,
   baseZ = 0,
 ): THREE.Group {
-  const g = new THREE.Group();
-  const main = rc.parts.mainBlade;
-  const assist = rc.parts.assistBlade;
-  const mainR = partRadiusM(main, R);
-  // assist blade height (real, from the 0.1 mm-unit stat) lifts the main blade
-  const assistH = assist ? Math.max(0.004, (assist.stats.height || 55) / 10000) : 0;
-  // CX uses its Lock Chip as the visible top emblem; unlike BX/UX it does not
-  // carry a second traditional Blade sticker underneath.
-  g.add(buildBlade(main, accent, mainR, baseZ + assistH, false));
-
-  if (assist) {
-    const h = assistH;
-    const aR = partRadiusM(assist, mainR * 0.96);
-    const lobes = 4 + Math.round(partSeed(assist.key) * 5);
-    const skirt = sweepSolid(
-      [
-        { f: 0.0, z: baseZ + h },
-        { f: 1.0, z: baseZ + h },
-        { f: 1.0, z: baseZ + h * 0.45 },
-        { f: 0.42, z: baseZ },
-        { f: 0.0, z: baseZ },
-      ],
-      (th) => aR * (0.93 + 0.07 * Math.cos(lobes * th)),
-    );
-    const mat = absPlastic(
-      COLOR_NAMES[assist.color?.toLowerCase() ?? ""] ?? 0xb8bcd0,
-      { rough: 0.38 },
-    );
-    const m = new THREE.Mesh(skirt, mat);
-    m.castShadow = true;
-    g.add(m);
-  }
-  if (rc.parts.lockChip) {
-    // Lock Chip: catalog artwork on the top cap, official mould colour on
-    // the sides. CylinderGeometry assigns [side, top, bottom] materials.
-    const lockChip = rc.parts.lockChip;
-    const chipColor = COLOR_NAMES[lockChip.color?.toLowerCase() ?? ""] ?? 0xcfae4a;
-    const sideMat = absPlastic(chipColor, { rough: 0.3, coat: 0.9 });
-    const sourceUrl = lockChipStickerUrl(lockChip);
-    const topMap = sourceUrl
-      ? stickerImageTexture(sourceUrl)
-      : stickerTexture({
-          key: lockChip.key,
-          label: lockChip.code,
-          base: chipColor,
-          accent: new THREE.Color(chipColor).offsetHSL(0.5, 0.1, 0.12).getHex(),
-          seed: partSeed(lockChip.key),
-        });
-    const chip = new THREE.Mesh(
-      new THREE.CylinderGeometry(mainR * 0.26, mainR * 0.29, 0.0042, DETAIL.radial),
-      [sideMat, stickerMaterial(topMap), sideMat],
-    );
-    chip.rotation.x = Math.PI / 2;
-    chip.position.z = baseZ + assistH + 0.0142;
-    g.add(chip);
-  }
-  return g;
+  return buildCxUpper(rc, accent, R, baseZ, {
+    referenceTop: true,
+    // Official presets carry a catalog composite. It is the exact visible
+    // top surface; component meshes beneath it preserve the physical stack.
+    compositeOverlay: !!rc.compositeBlade,
+  });
 }
 
 // ---- ratchet ---------------------------------------------------------------
 
 /** `3-60` → 3 protrusions, 6.0 mm tall (docs/MODELING.md §1.2). */
 export function ratchetSpec(code: string | undefined): { count: number; heightM: number } {
-  const m = /^(\d+)-(\d+)/.exec(code ?? "");
-  const count = m ? Math.max(1, Number.parseInt(m[1]!, 10)) : 3;
-  const heightM = m ? Number.parseInt(m[2]!, 10) / 10000 : 0.006;
-  return { count, heightM: Math.max(0.004, heightM) };
+  const spec = lowerRatchetSpec(code);
+  return { count: spec.count, heightM: spec.heightM };
 }
 
 /**
@@ -387,83 +348,36 @@ export function ratchetSpec(code: string | undefined): { count: number; heightM:
  * real millimetre value from the code.
  */
 export function buildRatchet(part: PartEntry | null | undefined, topZ: number): THREE.Group {
-  const g = new THREE.Group();
-  const { count, heightM } = ratchetSpec(part?.code);
-  const R = 0.013; // ≈ 26 mm across, measured
-  const baseZ = topZ - heightM;
-  const outline = (th: number): number => {
-    // rounded protrusions on a cylindrical body
-    const lobe = Math.pow(Math.max(0, Math.cos(count * th)), 0.6);
-    return R * (0.84 + 0.16 * lobe);
-  };
-  const body = sweepSolid(
-    [
-      { f: 0.0, z: topZ },
-      { f: 1.0, z: topZ },
-      { f: 1.0, z: baseZ + heightM * 0.25 },
-      { f: 0.86, z: baseZ },
-      { f: 0.3, z: baseZ },
-      { f: 0.0, z: baseZ + heightM * 0.2 },
-    ],
-    outline,
-  );
-  const mat = pomTranslucent(
-    COLOR_NAMES[part?.color?.toLowerCase() ?? ""] ?? 0xf2f2f8,
-  );
-  const mesh = new THREE.Mesh(body, mat);
-  mesh.castShadow = true;
-  g.add(mesh);
-
-  // burst latch ring: the sprung teeth that click out under impact
-  const teeth = new THREE.Mesh(
-    new THREE.CylinderGeometry(R * 0.46, R * 0.46, 0.0016, Math.max(24, count * 12), 2, true),
-    paintedMetal(0xb9bfd2, 0.32),
-  );
-  teeth.rotation.x = Math.PI / 2;
-  teeth.position.z = topZ - 0.0008;
-  g.add(teeth);
-  return g;
+  const color = COLOR_NAMES[part?.color?.toLowerCase() ?? ""] ?? 0xf2f2f8;
+  return buildRatchetModel(part, topZ, partPaletteOf(part, color));
 }
 
 // ---- bit -------------------------------------------------------------------
 
-type BitFamily = "flat" | "ball" | "needle" | "point" | "taper" | "rubberFlat";
+type BitFamily = ReturnType<typeof lowerBitFamily>;
 
 export function bitFamily(code: string): BitFamily {
-  const c = code.replace(/^G/, ""); // gear variants share the base shape
-  if (/^(R|RA|RS)$/.test(code)) return "rubberFlat";
-  if (/^(B|O|DB|FB|WB|LO|Q)/.test(c)) return "ball";
-  if (/^(N|HN|MN)/.test(c)) return "needle";
-  if (/^(P|TP|D|S|BS)/.test(c)) return "point";
-  if (/^(T|HT)/.test(c)) return "taper";
-  return "flat";
+  return lowerBitFamily(code);
 }
 
 /** Gear-ringed bits (`GF`, `GB`, `GN`, `GP`, `GR`, `GU`) mesh with the
  * stadium's Xtreme Line — the ring is real teeth, not a decal. */
 export function bitHasGear(code: string): boolean {
-  return /^G[A-Z]/.test(code) || code === "G";
+  return lowerBitHasGear(code);
 }
 
 /** Height of a bit's tip: contact point → the flange's underside. */
 export function bitTipHeight(code: string): number {
-  switch (bitFamily(code)) {
-    case "ball":
-      return 0.0044;
-    case "needle":
-      return 0.0058;
-    case "point":
-      return 0.0034;
-    case "taper":
-      return 0.0052;
-    default:
-      return 0.0028;
-  }
+  return lowerBitTipHeight(code);
 }
 
 /** Total bit height: contact point → the face the ratchet screws onto. */
 export function bitHeight(code: string): number {
-  return bitTipHeight(code) + 0.0062;
+  return lowerBitHeight(code);
+}
+
+export function bitHeightForPart(part: PartEntry | null | undefined): number {
+  return lowerBitHeightForPart(part);
 }
 
 /**
@@ -471,100 +385,8 @@ export function bitHeight(code: string): number {
  * origin on the dish surface, so the tip has to be the local zero).
  */
 export function buildBit(part: PartEntry | null | undefined, baseZ = 0): THREE.Group {
-  const g = new THREE.Group();
-  const code = part?.code ?? "F";
-  const fam = bitFamily(code);
-  const flangeR = 0.0095; // ≈ 19 mm flange, measured
   const color = COLOR_NAMES[part?.color?.toLowerCase() ?? ""] ?? TYPE_COLORS[part?.type ?? "attack"]!;
-  const shellMat = absPlastic(color, { rough: 0.34 });
-  const tipTop = baseZ + bitTipHeight(code); // where the shell starts
-  const mountZ = tipTop + 0.0062;
-
-  // flange + shaft: the body that bolts up into the ratchet
-  const shell = sweepSolid(
-    [
-      { f: 0.0, z: mountZ },
-      { f: 1.0, z: mountZ },
-      { f: 1.0, z: mountZ - 0.0022 },
-      { f: 0.55, z: mountZ - 0.0042 },
-      { f: 0.5, z: tipTop },
-      { f: 0.0, z: tipTop },
-    ],
-    () => flangeR,
-    DETAIL.sweep,
-  );
-  const shellMesh = new THREE.Mesh(shell, shellMat);
-  shellMesh.castShadow = true;
-  g.add(shellMesh);
-
-  if (bitHasGear(code)) {
-    // the Xtreme Dash gear ring: visible teeth around the flange
-    const teeth = 16;
-    const ringMat = paintedMetal(0xd8d8e4, 0.3);
-    const geo = new THREE.BoxGeometry(0.0011, 0.0016, 0.0022);
-    const inst = new THREE.InstancedMesh(geo, ringMat, teeth);
-    const m4 = new THREE.Matrix4();
-    const q = new THREE.Quaternion();
-    for (let i = 0; i < teeth; i++) {
-      const a = (i / teeth) * Math.PI * 2;
-      q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), a);
-      m4.compose(
-        new THREE.Vector3(Math.cos(a) * flangeR * 0.98, Math.sin(a) * flangeR * 0.98, mountZ - 0.0034),
-        q,
-        new THREE.Vector3(1, 1, 1),
-      );
-      inst.setMatrixAt(i, m4);
-    }
-    g.add(inst);
-  }
-
-  // tip — the part that touches the dish
-  const hard = new THREE.MeshPhysicalMaterial({
-    color: code === "MN" ? 0xc9ccd8 : 0x23232b,
-    metalness: code === "MN" ? 1 : 0.05,
-    roughness: code === "MN" ? 0.24 : 0.42,
-    clearcoat: 0.5,
-    clearcoatRoughness: 0.25,
-  });
-  const tipMat = fam === "rubberFlat" ? rubberMat(0x7e1c1c) : hard;
-  // every tip is built so its lowest point lands exactly on baseZ
-  const h = bitTipHeight(code);
-  let tip: THREE.Mesh;
-  switch (fam) {
-    case "ball": {
-      // a hemisphere-ish ball: the contact point is the bottom of the sphere
-      const rBall = 0.0032;
-      tip = new THREE.Mesh(new THREE.SphereGeometry(rBall, DETAIL.radial, DETAIL.rings), tipMat);
-      tip.position.z = baseZ + rBall;
-      break;
-    }
-    case "needle":
-      tip = new THREE.Mesh(new THREE.ConeGeometry(0.0016, h, DETAIL.radial, 6), tipMat);
-      tip.rotation.x = -Math.PI / 2; // apex down
-      tip.position.z = baseZ + h / 2;
-      break;
-    case "point":
-      tip = new THREE.Mesh(new THREE.ConeGeometry(0.0009, h, DETAIL.radial, 6), tipMat);
-      tip.rotation.x = -Math.PI / 2;
-      tip.position.z = baseZ + h / 2;
-      break;
-    case "taper":
-      tip = new THREE.Mesh(new THREE.CylinderGeometry(0.0036, 0.0012, h, DETAIL.radial, 6), tipMat);
-      tip.rotation.x = Math.PI / 2;
-      tip.position.z = baseZ + h / 2;
-      break;
-    default: {
-      // flat family: wide skidding disc with a crisp edge
-      const wide = code.startsWith("W") || code === "LF" ? 0.0042 : 0.0034;
-      tip = new THREE.Mesh(new THREE.CylinderGeometry(wide, wide * 0.9, h, DETAIL.radial, 4), tipMat);
-      tip.rotation.x = Math.PI / 2;
-      tip.position.z = baseZ + h / 2;
-      break;
-    }
-  }
-  tip.castShadow = true;
-  g.add(tip);
-  return g;
+  return buildBitModel(part, baseZ, partPaletteOf(part, color));
 }
 
 // ---- whole bey -------------------------------------------------------------
@@ -579,13 +401,13 @@ export function buildBeyMesh(
   accent: number,
 ): THREE.Group {
   const g = new THREE.Group();
-  const bladePart = rc?.parts.blade ?? rc?.parts.mainBlade;
+  const bladePart = rc?.parts.blade ?? rc?.parts.mainBlade ?? rc?.parts.metalBlade ?? rc?.compositeBlade;
   const R = partRadiusM(bladePart, params.radiusM);
 
   // stack upward from the tip, which sits at local z = 0 because the sim
   // places the mesh origin on the dish surface: bit → ratchet → blade
   const bitCode = rc?.parts.bit?.code ?? "F";
-  const bitTop = bitHeight(bitCode);
+  const bitTop = bitHeightForPart(rc?.parts.bit) || bitHeight(bitCode);
   const { heightM } = ratchetSpec(rc?.parts.ratchet?.code);
   const ratchetTopZ = bitTop + heightM;
 

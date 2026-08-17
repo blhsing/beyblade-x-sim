@@ -233,11 +233,15 @@ export function comboItems(app: GameApp, includeAuto: boolean): GalleryItem[] {
         stats.dash += p.stats.dash;
         stats.burst += p.stats.burst;
         weight += p.weightG ?? 0;
-        if (p.category === "blade" || p.category === "mainBlade") {
-          if (!desc) desc = p.desc ?? undefined;
-          if (p.type) tags.push(p.type);
-          if (p.line) tags.push(p.line);
-        }
+      }
+      // Filter a combo by its upper system, not by a reused lower part.  Expand
+      // CX keeps its catalog composite outside the physical-parts map so it is
+      // not double-counted by the simulator, but it still owns the picker tag.
+      const upper = rc.compositeMainBlade ?? rc.compositeBlade ?? rc.parts.mainBlade ?? rc.parts.blade;
+      if (upper) {
+        desc = upper.desc ?? undefined;
+        if (upper.type) tags.push(upper.type);
+        if (upper.line) tags.push(upper.line);
       }
     } catch {
       /* keep zeros */
@@ -266,6 +270,9 @@ export function partItems(app: GameApp, category: PartCategory, optionalNone: bo
   const out: GalleryItem[] = [];
   if (optionalNone) out.push({ key: "", title: "（無）", thumb: null });
   for (const p of app.db.parts[category]) {
+    // This row represents the absence of a separate Ratchet in integrated
+    // assemblies, not a standalone object with renderable geometry.
+    if (category === "ratchet" && p.integratedRatchet) continue;
     out.push(partItem(p));
   }
   return out;

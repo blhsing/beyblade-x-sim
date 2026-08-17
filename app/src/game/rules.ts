@@ -2,7 +2,7 @@
 // Defaults = TAKARA TOMY official 1v1 (docs/RULES.md). The match engine only
 // reads this object, so WBO/custom variants are pure data.
 
-import type { ComboSelection, FinishEvent, FinishType } from "../core/types";
+import type { ComboSelection, FinishEvent, FinishType, PartCategory } from "../core/types";
 
 export interface RuleSet {
   name: string;
@@ -168,13 +168,17 @@ export class MatchEngine {
 export function deckDuplicateError(
   rules: RuleSet,
   deck: ComboSelection[],
-  groupOf: (category: keyof ComboSelection, key: string) => string | null,
+  groupOf: (category: PartCategory, key: string) => string | null,
 ): string | null {
   if (!rules.noDuplicateParts || deck.length <= 1) return null;
   const seen = new Set<string>();
   const cxOncePerChip = new Set<string>(); // 戰神/帝王 exception
+  const categories: PartCategory[] = [
+    "blade", "ratchet", "bit", "lockChip",
+    "mainBlade", "assistBlade", "metalBlade", "overBlade",
+  ];
   for (const combo of deck) {
-    for (const cat of Object.keys(combo) as (keyof ComboSelection)[]) {
+    for (const cat of categories) {
       const key = combo[cat];
       if (!key) continue;
       const group = groupOf(cat, key) ?? key;

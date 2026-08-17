@@ -1,0 +1,2129 @@
+{
+  "assist-blade-assault.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeAssault.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/24/AssistBladeAssault.png/revision/latest?cb=20250613042027",
+    "width": 349,
+    "height": 345,
+    "parts": [
+      "assistBlade:A"
+    ]
+  },
+  "assist-blade-bumper.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeBumper.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/aa/AssistBladeBumper.png/revision/latest?cb=20250215050654",
+    "width": 358,
+    "height": 365,
+    "parts": [
+      "assistBlade:B"
+    ]
+  },
+  "assist-blade-charge.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeCharge.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/89/AssistBladeCharge.png/revision/latest?cb=20250314041928",
+    "width": 358,
+    "height": 359,
+    "parts": [
+      "assistBlade:C"
+    ]
+  },
+  "assist-blade-dual-smash-mode.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeDual_%28Smash_Mode%29.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/22/AssistBladeDual_%28Smash_Mode%29.png/revision/latest?cb=20250918112418",
+    "width": 343,
+    "height": 347,
+    "parts": [
+      "assistBlade:D#2"
+    ]
+  },
+  "assist-blade-dual-upper-mode.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeDual_%28Upper_Mode%29.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/7e/AssistBladeDual_%28Upper_Mode%29.png/revision/latest?cb=20250812023514",
+    "width": 356,
+    "height": 360,
+    "parts": [
+      "assistBlade:D"
+    ]
+  },
+  "assist-blade-erase.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeErase.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/0/0c/AssistBladeErase.png/revision/latest?cb=20260214043159",
+    "width": 356,
+    "height": 341,
+    "parts": [
+      "assistBlade:E"
+    ]
+  },
+  "assist-blade-free.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeFree.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/be/AssistBladeFree.png/revision/latest?cb=20251015205027",
+    "width": 358,
+    "height": 358,
+    "parts": [
+      "assistBlade:F"
+    ]
+  },
+  "assist-blade-gravity.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeGravity.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/89/AssistBladeGravity.png/revision/latest?cb=20260616045029",
+    "width": 533,
+    "height": 594,
+    "parts": [
+      "assistBlade:G"
+    ]
+  },
+  "assist-blade-heavy.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeHeavy.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/0/0b/AssistBladeHeavy.png/revision/latest?cb=20251015205145",
+    "width": 356,
+    "height": 361,
+    "parts": [
+      "assistBlade:H"
+    ]
+  },
+  "assist-blade-jaggy.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeJaggy.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/14/AssistBladeJaggy.png/revision/latest?cb=20250415032856",
+    "width": 358,
+    "height": 356,
+    "parts": [
+      "assistBlade:J"
+    ]
+  },
+  "assist-blade-knuckle.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeKnuckle.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/11/AssistBladeKnuckle.png/revision/latest?cb=20260214040432",
+    "width": 356,
+    "height": 348,
+    "parts": [
+      "assistBlade:K"
+    ]
+  },
+  "assist-blade-massive.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeMassive.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/23/AssistBladeMassive.png/revision/latest?cb=20250613042947",
+    "width": 356,
+    "height": 349,
+    "parts": [
+      "assistBlade:M"
+    ]
+  },
+  "assist-blade-odd.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeOdd.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/85/AssistBladeOdd.png/revision/latest?cb=20260415025441",
+    "width": 358,
+    "height": 357,
+    "parts": [
+      "assistBlade:O"
+    ]
+  },
+  "assist-blade-quell.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeQuell.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/ef/AssistBladeQuell.png/revision/latest?cb=20260812030515",
+    "width": 358,
+    "height": 351,
+    "parts": [
+      "assistBlade:Q"
+    ]
+  },
+  "assist-blade-round.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeRound.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3c/AssistBladeRound.png/revision/latest?cb=20250215050554",
+    "width": 356,
+    "height": 356,
+    "parts": [
+      "assistBlade:R"
+    ]
+  },
+  "assist-blade-slash.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeSlash.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/cb/AssistBladeSlash.png/revision/latest?cb=20250215050454",
+    "width": 357,
+    "height": 360,
+    "parts": [
+      "assistBlade:S"
+    ]
+  },
+  "assist-blade-turn.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeTurn.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2c/AssistBladeTurn.png/revision/latest?cb=20250314041629",
+    "width": 357,
+    "height": 357,
+    "parts": [
+      "assistBlade:T",
+      "assistBlade:T#2"
+    ]
+  },
+  "assist-blade-vertical.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeVertical.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/65/AssistBladeVertical.png/revision/latest?cb=20260214040558",
+    "width": 356,
+    "height": 356,
+    "parts": [
+      "assistBlade:V"
+    ]
+  },
+  "assist-blade-wheel.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeWheel.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3d/AssistBladeWheel.png/revision/latest?cb=20250613042109",
+    "width": 356,
+    "height": 357,
+    "parts": [
+      "assistBlade:W"
+    ]
+  },
+  "assist-blade-zillion.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:AssistBladeZillion.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/37/AssistBladeZillion.png/revision/latest?cb=20260115043035",
+    "width": 356,
+    "height": 359,
+    "parts": [
+      "assistBlade:Z"
+    ]
+  },
+  "bit-accel.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitAccel.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/8e/BitAccel.png/revision/latest?cb=20260815023830",
+    "width": 346,
+    "height": 550,
+    "parts": [
+      "bit:A"
+    ]
+  },
+  "bit-ball.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitBall.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/8c/BitBall.png/revision/latest?cb=20250608045235",
+    "width": 326,
+    "height": 532,
+    "parts": [
+      "bit:B"
+    ]
+  },
+  "bit-boundspike.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitBoundSpike.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/88/BitBoundSpike.png/revision/latest?cb=20241015034935",
+    "width": 186,
+    "height": 293,
+    "parts": [
+      "bit:BS"
+    ]
+  },
+  "bit-cyclone.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitCyclone.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/fb/BitCyclone.png/revision/latest?cb=20240614034151",
+    "width": 184,
+    "height": 302,
+    "parts": [
+      "bit:C"
+    ]
+  },
+  "bit-diskball.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitDiskBall.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/10/BitDiskBall.png/revision/latest?cb=20260815024201",
+    "width": 558,
+    "height": 520,
+    "parts": [
+      "bit:DB"
+    ]
+  },
+  "bit-diskspike.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitDiskSpike.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/47/BitDiskSpike.png/revision/latest?cb=20260616044954",
+    "width": 716,
+    "height": 666,
+    "parts": [
+      "bit:DS"
+    ]
+  },
+  "bit-dot.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitDot.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b2/BitDot.png/revision/latest?cb=20240614034756",
+    "width": 180,
+    "height": 292,
+    "parts": [
+      "bit:D"
+    ]
+  },
+  "bit-elevate.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitElevate.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/38/BitElevate.png/revision/latest?cb=20240812022551",
+    "width": 259,
+    "height": 290,
+    "parts": [
+      "bit:E"
+    ]
+  },
+  "bit-flat.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitFlat.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b0/BitFlat.png/revision/latest?cb=20240913063436",
+    "width": 332,
+    "height": 562,
+    "parts": [
+      "bit:F"
+    ]
+  },
+  "bit-freeball.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitFreeBall.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/78/BitFreeBall.png/revision/latest?cb=20240913034835",
+    "width": 180,
+    "height": 282,
+    "parts": [
+      "bit:FB"
+    ]
+  },
+  "bit-freeflat.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitFreeFlat.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b4/BitFreeFlat.png/revision/latest?cb=20260313031408",
+    "width": 172,
+    "height": 283,
+    "parts": [
+      "bit:FF"
+    ]
+  },
+  "bit-gearball.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitGearBall.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/97/BitGearBall.png/revision/latest?cb=20260809063653",
+    "width": 346,
+    "height": 577,
+    "parts": [
+      "bit:GB"
+    ]
+  },
+  "bit-gearflat.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitGearFlat.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/bd/BitGearFlat.png/revision/latest?cb=20260809063549",
+    "width": 338,
+    "height": 593,
+    "parts": [
+      "bit:GF"
+    ]
+  },
+  "bit-gearneedle.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitGearNeedle.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/9d/BitGearNeedle.png/revision/latest?cb=20260813014758",
+    "width": 365,
+    "height": 590,
+    "parts": [
+      "bit:GN"
+    ]
+  },
+  "bit-gearpoint.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitGearPoint.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/36/BitGearPoint.png/revision/latest?cb=20260813014626",
+    "width": 316,
+    "height": 561,
+    "parts": [
+      "bit:GP"
+    ]
+  },
+  "bit-gearrush.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitGearRush.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/58/BitGearRush.png/revision/latest?cb=20250415032926",
+    "width": 176,
+    "height": 286,
+    "parts": [
+      "bit:GR"
+    ]
+  },
+  "bit-gearunite.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitGearUnite.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/33/BitGearUnite.png/revision/latest?cb=20260415025452",
+    "width": 184,
+    "height": 300,
+    "parts": [
+      "bit:GU"
+    ]
+  },
+  "bit-glide.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitGlide.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d5/BitGlide.png/revision/latest?cb=20240712055345",
+    "width": 183,
+    "height": 294,
+    "parts": [
+      "bit:G"
+    ]
+  },
+  "bit-hexa.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitHexa.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/8c/BitHexa.png/revision/latest?cb=20260815023958",
+    "width": 343,
+    "height": 560,
+    "parts": [
+      "bit:H"
+    ]
+  },
+  "bit-highneedle.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitHighNeedle.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2f/BitHighNeedle.png/revision/latest?cb=20260802062012",
+    "width": 310,
+    "height": 517,
+    "parts": [
+      "bit:HN"
+    ]
+  },
+  "bit-hightaper.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitHighTaper.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b5/BitHighTaper.png/revision/latest?cb=20260808045810",
+    "width": 337,
+    "height": 582,
+    "parts": [
+      "bit:HT"
+    ]
+  },
+  "bit-ignition.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitIgnition.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/37/BitIgnition.png/revision/latest?cb=20260214040456",
+    "width": 183,
+    "height": 285,
+    "parts": [
+      "bit:I"
+    ]
+  },
+  "bit-jolt.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitJolt.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/10/BitJolt.png/revision/latest?cb=20260810211427",
+    "width": 254,
+    "height": 394,
+    "parts": [
+      "bit:J"
+    ]
+  },
+  "bit-kick.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitKick.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/47/BitKick.png/revision/latest?cb=20250314041641",
+    "width": 186,
+    "height": 301,
+    "parts": [
+      "bit:K"
+    ]
+  },
+  "bit-level.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitLevel.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/56/BitLevel.png/revision/latest?cb=20241015033722",
+    "width": 176,
+    "height": 287,
+    "parts": [
+      "bit:L"
+    ]
+  },
+  "bit-lowflat.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitLowFlat.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/0/0e/BitLowFlat.png/revision/latest?cb=20260802062128",
+    "width": 304,
+    "height": 521,
+    "parts": [
+      "bit:LF"
+    ]
+  },
+  "bit-loworb.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitLowOrb.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/f4/BitLowOrb.png/revision/latest?cb=20250215050618",
+    "width": 186,
+    "height": 283,
+    "parts": [
+      "bit:LO"
+    ]
+  },
+  "bit-lowrush.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitLowRush.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/36/BitLowRush.png/revision/latest?cb=20241115024042",
+    "width": 181,
+    "height": 290,
+    "parts": [
+      "bit:LR"
+    ]
+  },
+  "bit-merge.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitMerge.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/5e/BitMerge.png/revision/latest?cb=20250715051358",
+    "width": 176,
+    "height": 276,
+    "parts": [
+      "bit:M"
+    ]
+  },
+  "bit-metalneedle.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitMetalNeedle.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/47/BitMetalNeedle.png/revision/latest?cb=20240416003755",
+    "width": 176,
+    "height": 292,
+    "parts": [
+      "bit:MN"
+    ]
+  },
+  "bit-narrow.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitNarrow.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d6/BitNarrow.png/revision/latest?cb=20260517043012",
+    "width": 179,
+    "height": 279,
+    "parts": [
+      "bit:Nr"
+    ]
+  },
+  "bit-needle.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitNeedle.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/26/BitNeedle.png/revision/latest?cb=20250609060238",
+    "width": 326,
+    "height": 515,
+    "parts": [
+      "bit:N"
+    ]
+  },
+  "bit-orb.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitOrb.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/17/BitOrb.png/revision/latest?cb=20260803014115",
+    "width": 320,
+    "height": 572,
+    "parts": [
+      "bit:O"
+    ]
+  },
+  "bit-point.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitPoint.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/bf/BitPoint.png/revision/latest?cb=20260803013833",
+    "width": 319,
+    "height": 564,
+    "parts": [
+      "bit:P"
+    ]
+  },
+  "bit-quake.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitQuake.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/ed/BitQuake.png/revision/latest?cb=20240503184404",
+    "width": 169,
+    "height": 281,
+    "parts": [
+      "bit:Q"
+    ]
+  },
+  "bit-rubberaccel.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitRubberAccel.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/5a/BitRubberAccel.png/revision/latest?cb=20241015044738",
+    "width": 229,
+    "height": 292,
+    "parts": [
+      "bit:RA"
+    ]
+  },
+  "bit-rush.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitRush.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/e1/BitRush.png/revision/latest?cb=20260808045328",
+    "width": 339,
+    "height": 583,
+    "parts": [
+      "bit:R"
+    ]
+  },
+  "bit-spike.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitSpike.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/7d/BitSpike.png/revision/latest?cb=20260808045148",
+    "width": 334,
+    "height": 548,
+    "parts": [
+      "bit:S"
+    ]
+  },
+  "bit-taper.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitTaper.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/ad/BitTaper.png/revision/latest?cb=20250317055452",
+    "width": 328,
+    "height": 539,
+    "parts": [
+      "bit:T"
+    ]
+  },
+  "bit-transkick.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitTransKick.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/5d/BitTransKick.png/revision/latest?cb=20250812023538",
+    "width": 213,
+    "height": 285,
+    "parts": [
+      "bit:TK"
+    ]
+  },
+  "bit-transpoint.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitTransPoint.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d0/BitTransPoint.png/revision/latest?cb=20241015052109",
+    "width": 205,
+    "height": 276,
+    "parts": [
+      "bit:TP"
+    ]
+  },
+  "bit-underflat.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitUnderFlat.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/55/BitUnderFlat.png/revision/latest?cb=20250715051536",
+    "width": 181,
+    "height": 278,
+    "parts": [
+      "bit:UF"
+    ]
+  },
+  "bit-underneedle.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitUnderNeedle.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/16/BitUnderNeedle.png/revision/latest?cb=20250115052342",
+    "width": 187,
+    "height": 271,
+    "parts": [
+      "bit:UN"
+    ]
+  },
+  "bit-unite.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitUnite.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/a0/BitUnite.png/revision/latest?cb=20240515052315",
+    "width": 180,
+    "height": 283,
+    "parts": [
+      "bit:U"
+    ]
+  },
+  "bit-vortex.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitVortex.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/f9/BitVortex.png/revision/latest?cb=20250215050522",
+    "width": 172,
+    "height": 285,
+    "parts": [
+      "bit:V"
+    ]
+  },
+  "bit-wallball.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitWallBall.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/38/BitWallBall.png/revision/latest?cb=20250613042119",
+    "width": 183,
+    "height": 300,
+    "parts": [
+      "bit:WB"
+    ]
+  },
+  "bit-wallwedge.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitWallWedge.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/9a/BitWallWedge.png/revision/latest?cb=20260115043200",
+    "width": 173,
+    "height": 280,
+    "parts": [
+      "bit:WW"
+    ]
+  },
+  "bit-wedge.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitWedge.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/29/BitWedge.png/revision/latest?cb=20250215050716",
+    "width": 173,
+    "height": 271,
+    "parts": [
+      "bit:W"
+    ]
+  },
+  "bit-yielding.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitYielding.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/f1/BitYielding.png/revision/latest?cb=20260214043217",
+    "width": 243,
+    "height": 232,
+    "parts": [
+      "bit:Y"
+    ]
+  },
+  "bit-zap.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BitZap.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/61/BitZap.png/revision/latest?cb=20250415034411",
+    "width": 174,
+    "height": 276,
+    "parts": [
+      "bit:Z"
+    ]
+  },
+  "blade-aeropegasus.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeAeroPegasus.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/58/BladeAeroPegasus.png/revision/latest?cb=20250528202546",
+    "width": 1100,
+    "height": 1100,
+    "parts": [
+      "blade:AEROPEGASUS",
+      "blade:AEROPEGASUS#2"
+    ]
+  },
+  "blade-bahamutblitzbk.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeBahamutBlitzBK.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3e/BladeBahamutBlitzBK.png/revision/latest?cb=20260214060758",
+    "width": 720,
+    "height": 690,
+    "parts": [
+      "blade:BAHAMUTBLITZ",
+      "blade:BAHAMUTBLITZ#2"
+    ]
+  },
+  "blade-blackshell.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeBlackShell.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3c/BladeBlackShell.png/revision/latest?cb=20250528201216",
+    "width": 322,
+    "height": 296,
+    "parts": [
+      "blade:BLACKSHELL"
+    ]
+  },
+  "blade-cerberusflamew.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeCerberusFlameW.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/cf/BladeCerberusFlameW.png/revision/latest?cb=20250613084226",
+    "width": 720,
+    "height": 702,
+    "parts": [
+      "blade:CERBERUSFLAME"
+    ]
+  },
+  "blade-clockmirage.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeClockMirage.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/7c/BladeClockMirage.png/revision/latest?cb=20250912034434",
+    "width": 353,
+    "height": 328,
+    "parts": [
+      "blade:CLOCKMIRAGE"
+    ]
+  },
+  "blade-cobaltdragoon.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeCobaltDragoon.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/c2/BladeCobaltDragoon.png/revision/latest?cb=20250528202711",
+    "width": 360,
+    "height": 338,
+    "parts": [
+      "blade:COBALTDRAGOON",
+      "blade:COBALTDRAGOON#2"
+    ]
+  },
+  "blade-cobaltdrake.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeCobaltDrake.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2f/BladeCobaltDrake.png/revision/latest?cb=20250528202030",
+    "width": 354,
+    "height": 336,
+    "parts": [
+      "blade:COBALTDRAKE",
+      "blade:COBALTDRAKE#2"
+    ]
+  },
+  "blade-crimsongaruda.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeCrimsonGaruda.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/60/BladeCrimsonGaruda.png/revision/latest?cb=20241015052049",
+    "width": 350,
+    "height": 336,
+    "parts": [
+      "blade:CRIMSONGARUDA"
+    ]
+  },
+  "blade-crococrunch.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeCrocoCrunch.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/0/0d/BladeCrocoCrunch.png/revision/latest?cb=20260815182638",
+    "width": 700,
+    "height": 616,
+    "parts": [
+      "blade:CROCOCRUNCH"
+    ]
+  },
+  "blade-darthvader.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDarthVader.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/7e/BladeDarthVader.png/revision/latest?cb=20250321062834",
+    "width": 354,
+    "height": 349,
+    "parts": [
+      "blade:達斯維達"
+    ]
+  },
+  "blade-dracielshield.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDracielShield.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/79/BladeDracielShield.png/revision/latest?cb=20241202045350",
+    "width": 357,
+    "height": 343,
+    "parts": [
+      "blade:DRACIELSHIELD"
+    ]
+  },
+  "blade-dragoonstorm.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDragoonStorm.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/c4/BladeDragoonStorm.png/revision/latest?cb=20251114045923",
+    "width": 357,
+    "height": 339,
+    "parts": [
+      "blade:DRAGOONSTORM"
+    ]
+  },
+  "blade-drakebrave-g.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Blade_DrakeBrave_G.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3e/Blade_DrakeBrave_G.png/revision/latest?cb=20260615040940",
+    "width": 720,
+    "height": 720,
+    "parts": [
+      "blade:DRAKEBRAVE"
+    ]
+  },
+  "blade-dranbraves.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDranBraveS.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/1a/BladeDranBraveS.png/revision/latest?cb=20250305054628",
+    "width": 720,
+    "height": 675,
+    "parts": [
+      "blade:DRANBRAVE",
+      "blade:DRANBRAVE#2"
+    ]
+  },
+  "blade-dranbuster.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDranBuster.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/db/BladeDranBuster.png/revision/latest?cb=20260815023129",
+    "width": 701,
+    "height": 676,
+    "parts": [
+      "blade:DRANBUSTER",
+      "blade:DRANBUSTER#2",
+      "blade:蒼龍爆刃 鍍金版",
+      "blade:蒼龍爆刃 鍍銀版",
+      "blade:蒼龍爆刃 鍍銅版"
+    ]
+  },
+  "blade-drandagger.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDranDagger.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/c8/BladeDranDagger.png/revision/latest?cb=20260808045217",
+    "width": 695,
+    "height": 693,
+    "parts": [
+      "blade:DRANDAGGER",
+      "blade:DRANDAGGER#2"
+    ]
+  },
+  "blade-dranstrike.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDranStrike.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/67/BladeDranStrike.png/revision/latest?cb=20260313031347",
+    "width": 358,
+    "height": 341,
+    "parts": [
+      "blade:DRANSTRIKE",
+      "blade:DRANSTRIKE#2"
+    ]
+  },
+  "blade-dransword.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDranSword.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/5f/BladeDranSword.png/revision/latest?cb=20250814202546",
+    "width": 691,
+    "height": 682,
+    "parts": [
+      "blade:DRANSWORD",
+      "blade:DRANSWORD#2",
+      "blade:DRANSWORD#3"
+    ]
+  },
+  "blade-dranzerspiral.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDranzerSpiral.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/ce/BladeDranzerSpiral.png/revision/latest?cb=20230807194254",
+    "width": 336,
+    "height": 346,
+    "parts": [
+      "blade:DRANZERSPIRAL"
+    ]
+  },
+  "blade-drigerslash.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeDrigerSlash.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/c5/BladeDrigerSlash.png/revision/latest?cb=20240322182711",
+    "width": 367,
+    "height": 354,
+    "parts": [
+      "blade:DRIGERSLASH"
+    ]
+  },
+  "blade-emperormighth-metal-coat-black.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeEmperorMightH_%28Metal_Coat_Black%29.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b8/BladeEmperorMightH_%28Metal_Coat_Black%29.png/revision/latest?cb=20251026010259",
+    "width": 720,
+    "height": 676,
+    "parts": [
+      "blade:EMPERORMIGHT"
+    ]
+  },
+  "blade-foxbrushj.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeFoxBrushJ.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3b/BladeFoxBrushJ.png/revision/latest?cb=20250416134856",
+    "width": 720,
+    "height": 708,
+    "parts": [
+      "blade:FOXBRUSH"
+    ]
+  },
+  "blade-ghostcircle.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeGhostCircle.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/7a/BladeGhostCircle.png/revision/latest?cb=20241115025132",
+    "width": 356,
+    "height": 333,
+    "parts": [
+      "blade:GHOSTCIRCLE"
+    ]
+  },
+  "blade-goattackle.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeGoatTackle.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/1f/BladeGoatTackle.png/revision/latest?cb=20250828045656",
+    "width": 348,
+    "height": 321,
+    "parts": [
+      "blade:GOATTACKLE"
+    ]
+  },
+  "blade-golemrock.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeGolemRock.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/27/BladeGolemRock.png/revision/latest?cb=20250115052241",
+    "width": 358,
+    "height": 324,
+    "parts": [
+      "blade:GOLEMROCK",
+      "blade:GOLEMROCK#2"
+    ]
+  },
+  "blade-heavensring.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeHeavensRing.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/41/BladeHeavensRing.png/revision/latest?cb=20260615070349",
+    "width": 720,
+    "height": 668,
+    "parts": [
+      "blade:HEAVENSRING"
+    ]
+  },
+  "blade-hellschain.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeHellsChain.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/83/BladeHellsChain.png/revision/latest?cb=20260808045710",
+    "width": 701,
+    "height": 677,
+    "parts": [
+      "blade:HELLSCHAIN",
+      "blade:HELLSCHAIN#2"
+    ]
+  },
+  "blade-hellshammer.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeHellsHammer.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/67/BladeHellsHammer.png/revision/latest?cb=20260815023901",
+    "width": 706,
+    "height": 658,
+    "parts": [
+      "blade:HELLSHAMMER",
+      "blade:HELLSHAMMER#2",
+      "blade:HELLSHUMMER"
+    ]
+  },
+  "blade-hellsreapert.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeHellsReaperT.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/4a/BladeHellsReaperT.png/revision/latest?cb=20250314153042",
+    "width": 720,
+    "height": 676,
+    "parts": [
+      "blade:HELLSREAPER",
+      "blade:HELLSREAPER#2"
+    ]
+  },
+  "blade-hellsscythe.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeHellsScythe.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/e4/BladeHellsScythe.png/revision/latest?cb=20250817035337",
+    "width": 693,
+    "height": 656,
+    "parts": [
+      "blade:HELLSSCYTHE",
+      "blade:HELLSSCYTHE#2"
+    ]
+  },
+  "blade-impactdrake.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeImpactDrake.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b1/BladeImpactDrake.png/revision/latest?cb=20241115024018",
+    "width": 354,
+    "height": 331,
+    "parts": [
+      "blade:IMPACTDRAKE"
+    ]
+  },
+  "blade-ironman.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeIronMan.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/78/BladeIronMan.png/revision/latest?cb=20250321062619",
+    "width": 355,
+    "height": 338,
+    "parts": [
+      "blade:鋼鐵人"
+    ]
+  },
+  "blade-knifeshinobi.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeKnifeShinobi.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/25/BladeKnifeShinobi.png/revision/latest?cb=20250815182407",
+    "width": 827,
+    "height": 750,
+    "parts": [
+      "blade:SHINOBIKNIFE"
+    ]
+  },
+  "blade-knightfortressgv.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeKnightFortressGV.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/48/BladeKnightFortressGV.png/revision/latest?cb=20260214060758",
+    "width": 720,
+    "height": 687,
+    "parts": [
+      "blade:KNIGHTFORTRESS"
+    ]
+  },
+  "blade-knightlance.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeKnightLance.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/cb/BladeKnightLance.png/revision/latest?cb=20260802061924",
+    "width": 705,
+    "height": 657,
+    "parts": [
+      "blade:KNIGHTLANCE"
+    ]
+  },
+  "blade-knightmail.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeKnightMail.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/fc/BladeKnightMail.png/revision/latest?cb=20241015034144",
+    "width": 352,
+    "height": 316,
+    "parts": [
+      "blade:KNIGHTMAIL",
+      "blade:KNIGHTMAIL#2"
+    ]
+  },
+  "blade-knightshield.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeKnightShield.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/9c/BladeKnightShield.png/revision/latest?cb=20250609060142",
+    "width": 706,
+    "height": 686,
+    "parts": [
+      "blade:KNIGHTSHIELD",
+      "blade:KNIGHTSHIELD#2"
+    ]
+  },
+  "blade-leonclaw.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeLeonClaw.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/93/BladeLeonClaw.png/revision/latest?cb=20260803013726",
+    "width": 714,
+    "height": 687,
+    "parts": [
+      "blade:LEONCLAW",
+      "blade:LEONCLAW#2"
+    ]
+  },
+  "blade-leoncrest.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeLeonCrest.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/c7/BladeLeonCrest.png/revision/latest?cb=20240712055426",
+    "width": 340,
+    "height": 336,
+    "parts": [
+      "blade:LEONCREST"
+    ]
+  },
+  "blade-lightningl-drago-rapid-hittype.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeLightningL-Drago%28Rapid-HitType%29.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/5b/BladeLightningL-Drago%28Rapid-HitType%29.png/revision/latest?cb=20240809163229",
+    "width": 352,
+    "height": 337,
+    "parts": [
+      "blade:LIGHTNING L-DRAGO"
+    ]
+  },
+  "blade-lightningl-drago-uppertype.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeLightningL-Drago%28UpperType%29.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d0/BladeLightningL-Drago%28UpperType%29.png/revision/latest?cb=20240809163223",
+    "width": 357,
+    "height": 337,
+    "parts": [
+      "blade:LIGHTNING L-DRAGO#2"
+    ]
+  },
+  "blade-lukeskywalker.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeLukeSkywalker.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/71/BladeLukeSkywalker.png/revision/latest?cb=20250321062806",
+    "width": 354,
+    "height": 349,
+    "parts": [
+      "blade:路克天行者"
+    ]
+  },
+  "blade-megatron.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeMegatron.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b0/BladeMegatron.png/revision/latest?cb=20250321063015",
+    "width": 334,
+    "height": 313,
+    "parts": [
+      "blade:密卡登"
+    ]
+  },
+  "blade-meteordragoon.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeMeteorDragoon.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b7/BladeMeteorDragoon.png/revision/latest?cb=20260810211243",
+    "width": 634,
+    "height": 622,
+    "parts": [
+      "blade:METEORDRAGOON"
+    ]
+  },
+  "blade-moffgideon.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeMoffGideon.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b6/BladeMoffGideon.png/revision/latest?cb=20250321062919",
+    "width": 353,
+    "height": 326,
+    "parts": [
+      "blade:星區長吉迪恩"
+    ]
+  },
+  "blade-mummycurse.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeMummyCurse.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/ab/BladeMummyCurse.png/revision/latest?cb=20251114034130",
+    "width": 345,
+    "height": 333,
+    "parts": [
+      "blade:MUMMYCURSE"
+    ]
+  },
+  "blade-optimusprime.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeOptimusPrime.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/8e/BladeOptimusPrime.png/revision/latest?cb=20250321062945",
+    "width": 358,
+    "height": 342,
+    "parts": [
+      "blade:柯博文"
+    ]
+  },
+  "blade-orochicluster.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeOrochiCluster.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d0/BladeOrochiCluster.png/revision/latest?cb=20260121134642",
+    "width": 699,
+    "height": 720,
+    "parts": [
+      "blade:OROCHICLUSTER"
+    ]
+  },
+  "blade-pegasusblasta.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladePegasusBlastA.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/1f/BladePegasusBlastA.png/revision/latest?cb=20250613084219",
+    "width": 720,
+    "height": 692,
+    "parts": [
+      "blade:PEGASUSBLAST"
+    ]
+  },
+  "blade-perseusdarkb.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladePerseusDarkB.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/64/BladePerseusDarkB.png/revision/latest?cb=20250305054642",
+    "width": 720,
+    "height": 675,
+    "parts": [
+      "blade:PERSEUSDARK",
+      "blade:PERSEUSDARK#2"
+    ]
+  },
+  "blade-phoenixfeather.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladePhoenixFeather.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/96/BladePhoenixFeather.png/revision/latest?cb=20231207074705",
+    "width": 515,
+    "height": 485,
+    "parts": [
+      "blade:PHOENIXFEATHER",
+      "blade:PHOENIXFEATHER#2"
+    ]
+  },
+  "blade-phoenixrudder.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladePhoenixRudder.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/0/0f/BladePhoenixRudder.png/revision/latest?cb=20250528203411",
+    "width": 338,
+    "height": 326,
+    "parts": [
+      "blade:PHOENIXRUDDER",
+      "blade:PHOENIXRUDDER#2"
+    ]
+  },
+  "blade-phoenixwing.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladePhoenixWing.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2d/BladePhoenixWing.png/revision/latest?cb=20260809063447",
+    "width": 638,
+    "height": 604,
+    "parts": [
+      "blade:PHOENIXWING",
+      "blade:PHOENIXWING#2"
+    ]
+  },
+  "blade-pteraswing.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladePteraSwing.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3a/BladePteraSwing.png/revision/latest?cb=20241227163416",
+    "width": 1920,
+    "height": 1794,
+    "parts": [
+      "blade:PTERASWING"
+    ]
+  },
+  "blade-ragnaragefe.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeRagnaRageFE.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b8/BladeRagnaRageFE.png/revision/latest?cb=20260214060755",
+    "width": 720,
+    "height": 667,
+    "parts": [
+      "blade:RAGNARAGE",
+      "blade:RAGNARAGE#2"
+    ]
+  },
+  "blade-ratchetbladebulletgriffon.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:RatchetBladeBulletGriffon.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d2/RatchetBladeBulletGriffon.png/revision/latest?cb=20260313031310",
+    "width": 358,
+    "height": 344,
+    "parts": [
+      "blade:BULLETGRIFFON"
+    ]
+  },
+  "blade-ratchetbladegloryvalkyrie.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:RatchetBladeGloryValkyrie.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b6/RatchetBladeGloryValkyrie.png/revision/latest?cb=20260616045056",
+    "width": 588,
+    "height": 590,
+    "parts": [
+      "blade:GLORYVALKYRIE"
+    ]
+  },
+  "blade-ratchetbladehellsnether.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:RatchetBladeHellsNether.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/43/RatchetBladeHellsNether_%28Low_Mode%29.png/revision/latest?cb=20260715045608",
+    "width": 358,
+    "height": 330,
+    "parts": [
+      "blade:HELLSNETHER",
+      "blade:HELLSNETHER#2"
+    ]
+  },
+  "blade-rhinohorn.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeRhinoHorn.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/41/BladeRhinoHorn.png/revision/latest?cb=20260808045050",
+    "width": 721,
+    "height": 694,
+    "parts": [
+      "blade:RHINOHORN"
+    ]
+  },
+  "blade-rhinoreaperc.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeRhinoReaperC.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/cd/BladeRhinoReaperC.png/revision/latest?cb=20260317051857",
+    "width": 720,
+    "height": 681,
+    "parts": [
+      "blade:RHINOREAPER"
+    ]
+  },
+  "blade-rockleone.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeRockLeone.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/a2/BladeRockLeone.png/revision/latest?cb=20250719051128",
+    "width": 1849,
+    "height": 1750,
+    "parts": [
+      "blade:ROCKLEONE"
+    ]
+  },
+  "blade-samuraicalibur.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSamuraiCalibur.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/ab/BladeSamuraiCalibur.png/revision/latest?cb=20250715051328",
+    "width": 356,
+    "height": 327,
+    "parts": [
+      "blade:SAMURAICALIBUR"
+    ]
+  },
+  "blade-samuraisaber.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSamuraiSaber.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/de/BladeSamuraiSaber.png/revision/latest?cb=20241015033005",
+    "width": 349,
+    "height": 334,
+    "parts": [
+      "blade:SAMURAISABER",
+      "blade:WARRIORSABER",
+      "blade:WARRIORSABER#2"
+    ]
+  },
+  "blade-scorpiospear.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeScorpioSpear.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/89/BladeScorpioSpear.png/revision/latest?cb=20250614081207",
+    "width": 358,
+    "height": 339,
+    "parts": [
+      "blade:SCORPIOSPEAR",
+      "blade:SCORPIOSPEAR#2",
+      "blade:SCORPIOSPEAR#3",
+      "blade:SCORPIOSPEAR#4"
+    ]
+  },
+  "blade-sharkedge.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSharkEdge.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2e/BladeSharkEdge.png/revision/latest?cb=20260802062042",
+    "width": 699,
+    "height": 700,
+    "parts": [
+      "blade:SHARKEDGE",
+      "blade:SHARKEDGE#2"
+    ]
+  },
+  "blade-sharkgill.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSharkGill.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/7c/BladeSharkGill.png/revision/latest?cb=20251015212355",
+    "width": 360,
+    "height": 363,
+    "parts": [
+      "blade:SHARKGILL"
+    ]
+  },
+  "blade-sharkscale.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSharkScale.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/e0/BladeSharkScale.png/revision/latest?cb=20250715051433",
+    "width": 359,
+    "height": 340,
+    "parts": [
+      "blade:SHARKSCALE"
+    ]
+  },
+  "blade-shelterdrake.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeShelterDrake.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/89/BladeShelterDrake.png/revision/latest?cb=20250530222732",
+    "width": 370,
+    "height": 377,
+    "parts": [
+      "blade:SHELTERDRAKE"
+    ]
+  },
+  "blade-shinobishadow.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeShinobiShadow.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/48/BladeShinobiShadow.png/revision/latest?cb=20250528201917",
+    "width": 356,
+    "height": 359,
+    "parts": [
+      "blade:SHINOBISHADOW"
+    ]
+  },
+  "blade-silverwolf.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSilverWolf.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/f1/BladeSilverWolf.png/revision/latest?cb=20240913034202",
+    "width": 359,
+    "height": 341,
+    "parts": [
+      "blade:SILVERWOLF",
+      "blade:SILVERWOLF#2"
+    ]
+  },
+  "blade-soleclipse-d-double-smash-mode.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Blade_SolEclipse_D_%28Double_Smash_Mode%29.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/5f/Blade_SolEclipse_D_%28Double_Smash_Mode%29.png/revision/latest?cb=20250812044929",
+    "width": 720,
+    "height": 708,
+    "parts": [
+      "blade:SOLECLIPSE",
+      "blade:SOLECLIPSE#2"
+    ]
+  },
+  "blade-sphinxcowl.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSphinxCowl.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/31/BladeSphinxCowl.png/revision/latest?cb=20260813014650",
+    "width": 712,
+    "height": 707,
+    "parts": [
+      "blade:SPHINXCOWL"
+    ]
+  },
+  "blade-spiderman.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSpiderMan.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/a5/BladeSpiderMan.png/revision/latest?cb=20250321062709",
+    "width": 353,
+    "height": 333,
+    "parts": [
+      "blade:蜘蛛人"
+    ]
+  },
+  "blade-starscream.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeStarscream.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/83/BladeStarscream.png/revision/latest?cb=20250321063101",
+    "width": 331,
+    "height": 303,
+    "parts": [
+      "blade:天王星"
+    ]
+  },
+  "blade-steelsamurai.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeSteelSamurai.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2c/BladeSteelSamurai.png/revision/latest?cb=20250503034245",
+    "width": 1820,
+    "height": 1670,
+    "parts": [
+      "blade:SAMURAISTEEL"
+    ]
+  },
+  "blade-stormpegasis.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeStormPegasis.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/43/BladeStormPegasis.png/revision/latest?cb=20260617033126",
+    "width": 706,
+    "height": 673,
+    "parts": [
+      "blade:STORMPEGASIS"
+    ]
+  },
+  "blade-stormspriggan.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeStormSpriggan.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/64/BladeStormSpriggan.png/revision/latest?cb=20260322045727",
+    "width": 358,
+    "height": 365,
+    "parts": [
+      "blade:BEYBLADEBURST"
+    ]
+  },
+  "blade-thanos.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeThanos.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/ef/BladeThanos.png/revision/latest?cb=20250321062645",
+    "width": 353,
+    "height": 325,
+    "parts": [
+      "blade:薩諾斯"
+    ]
+  },
+  "blade-themandalorian.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeTheMandalorian.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2d/BladeTheMandalorian.png/revision/latest?cb=20250321062856",
+    "width": 353,
+    "height": 323,
+    "parts": [
+      "blade:曼達洛人"
+    ]
+  },
+  "blade-tricerapress.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeTriceraPress.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/48/BladeTriceraPress.png/revision/latest?cb=20250515033251",
+    "width": 354,
+    "height": 332,
+    "parts": [
+      "blade:TRICERAPRESS"
+    ]
+  },
+  "blade-tyrannobeat.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeTyrannoBeat.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/ff/BladeTyrannoBeat.png/revision/latest?cb=20240415173927",
+    "width": 307,
+    "height": 282,
+    "parts": [
+      "blade:TYRANNOBEAT",
+      "blade:TYRANNOBEAT#2"
+    ]
+  },
+  "blade-tyrannoroar.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeTyrannoRoar.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/6d/BladeTyrannoRoar.png/revision/latest?cb=20250727003819",
+    "width": 1920,
+    "height": 1804,
+    "parts": [
+      "blade:TYRANNOROAR"
+    ]
+  },
+  "blade-unicorndelta-po.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeUnicornDelta_PO.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/6b/BladeUnicornDelta_PO.png/revision/latest?cb=20260415041225",
+    "width": 720,
+    "height": 676,
+    "parts": [
+      "blade:UNICORNDELTA"
+    ]
+  },
+  "blade-unicornsting.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeUnicornSting.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/15/BladeUnicornSting.png/revision/latest?cb=20260813014525",
+    "width": 711,
+    "height": 670,
+    "parts": [
+      "blade:UNICORNSTING"
+    ]
+  },
+  "blade-venom.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeVenom.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/ee/BladeVenom.png/revision/latest?cb=20250321062739",
+    "width": 353,
+    "height": 344,
+    "parts": [
+      "blade:猛毒"
+    ]
+  },
+  "blade-victoryvalkyrie-2-60ra.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:VictoryValkyrie%202-60RA.jpeg",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/6b/VictoryValkyrie_2-60RA.jpeg/revision/latest?cb=20240717033721",
+    "width": 463,
+    "height": 451,
+    "parts": [
+      "blade:VICTORYVALKYRIE"
+    ]
+  },
+  "blade-vipertail.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeViperTail.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/9d/BladeViperTail.png/revision/latest?cb=20260803013908",
+    "width": 710,
+    "height": 679,
+    "parts": [
+      "blade:VIPERTAIL"
+    ]
+  },
+  "blade-weisstiger.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWeissTiger.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/37/BladeWeissTiger.png/revision/latest?cb=20240515052303",
+    "width": 358,
+    "height": 328,
+    "parts": [
+      "blade:WEISSTIGER"
+    ]
+  },
+  "blade-whalewave.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWhaleWave.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/89/BladeWhaleWave.png/revision/latest?cb=20240812022438",
+    "width": 352,
+    "height": 322,
+    "parts": [
+      "blade:WHALEWAVE",
+      "blade:WHALEWAVE#2"
+    ]
+  },
+  "blade-wizardarcr.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWizardArcR.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/46/BladeWizardArcR.png/revision/latest?cb=20250305054635",
+    "width": 720,
+    "height": 668,
+    "parts": [
+      "blade:WIZARDARC",
+      "blade:WIZARDARC#2"
+    ]
+  },
+  "blade-wizardarrow.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWizardArrow.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/44/BladeWizardArrow.png/revision/latest?cb=20250626062049",
+    "width": 709,
+    "height": 651,
+    "parts": [
+      "blade:WIZARDARROW"
+    ]
+  },
+  "blade-wizardrod.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWizardRod.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/a3/BladeWizardRod.png/revision/latest?cb=20260815024049",
+    "width": 683,
+    "height": 635,
+    "parts": [
+      "blade:WIZARDROD",
+      "blade:WIZARDROD#2"
+    ]
+  },
+  "blade-wolfhuntf.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWolfHuntF.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/20/BladeWolfHuntF.png/revision/latest?cb=20251026010234",
+    "width": 720,
+    "height": 693,
+    "parts": [
+      "blade:WOLFHUNT"
+    ]
+  },
+  "blade-wyverngale.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWyvernGale.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3d/BladeWyvernGale.png/revision/latest?cb=20260809063621",
+    "width": 644,
+    "height": 614,
+    "parts": [
+      "blade:WYVERNGALE"
+    ]
+  },
+  "blade-wyvernhover.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeWyvernHover.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b2/BladeWyvernHover.png/revision/latest?cb=20260715031743",
+    "width": 356,
+    "height": 334,
+    "parts": [
+      "blade:WYVERNHOVER",
+      "blade:WYVERNHOVER#2"
+    ]
+  },
+  "blade-xenoxcalibur.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:BladeXenoXcalibur.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/bb/BladeXenoXcalibur.png/revision/latest?cb=20250322231907",
+    "width": 718,
+    "height": 750,
+    "parts": [
+      "blade:XENOXCALIBUR"
+    ]
+  },
+  "main-blade-arc.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeArc.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/f5/MainBladeArc.png/revision/latest?cb=20250801190723",
+    "width": 357,
+    "height": 341,
+    "parts": [
+      "mainBlade:ARC",
+      "mainBlade:ARC#2"
+    ]
+  },
+  "main-blade-blast.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeBlast.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/5f/MainBladeBlast.png/revision/latest?cb=20250613042021",
+    "width": 350,
+    "height": 348,
+    "parts": [
+      "mainBlade:BLAST"
+    ]
+  },
+  "main-blade-brave.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeBrave.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/df/MainBladeBrave.png/revision/latest?cb=20250727212836",
+    "width": 356,
+    "height": 364,
+    "parts": [
+      "mainBlade:BRAVE",
+      "mainBlade:BRAVE#2"
+    ]
+  },
+  "main-blade-brush.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeBrush.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/e7/MainBladeBrush.png/revision/latest?cb=20250415032849",
+    "width": 356,
+    "height": 367,
+    "parts": [
+      "mainBlade:BRUSH"
+    ]
+  },
+  "main-blade-dark.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeDark.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/e/e0/MainBladeDark.png/revision/latest?cb=20250215050646",
+    "width": 356,
+    "height": 338,
+    "parts": [
+      "mainBlade:DARK",
+      "mainBlade:DARK#2"
+    ]
+  },
+  "main-blade-eclipse-smash-mode.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeEclipse_%28Smash_Mode%29.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/53/MainBladeEclipse_%28Smash_Mode%29.png/revision/latest?cb=20250812023508",
+    "width": 358,
+    "height": 368,
+    "parts": [
+      "mainBlade:ECLIPSE#2"
+    ]
+  },
+  "main-blade-eclipse-upper-mode.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeEclipse_%28Upper_Mode%29.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/84/MainBladeEclipse_%28Upper_Mode%29.png/revision/latest?cb=20250812023458",
+    "width": 356,
+    "height": 364,
+    "parts": [
+      "mainBlade:ECLIPSE"
+    ]
+  },
+  "main-blade-fang.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeFang.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/ae/MainBladeFang.png/revision/latest?cb=20250515031203",
+    "width": 166,
+    "height": 161,
+    "parts": [
+      "mainBlade:FANG"
+    ]
+  },
+  "main-blade-flame.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeFlame.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/99/MainBladeFlame.png/revision/latest?cb=20250613042102",
+    "width": 356,
+    "height": 363,
+    "parts": [
+      "mainBlade:FLAME"
+    ]
+  },
+  "main-blade-flare.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeFlare.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d3/MainBladeFlare.png/revision/latest?cb=20260115043015",
+    "width": 358,
+    "height": 356,
+    "parts": [
+      "mainBlade:FLARE"
+    ]
+  },
+  "main-blade-fort.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeFort.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3b/MainBladeFort.png/revision/latest?cb=20250814033238",
+    "width": 438,
+    "height": 435,
+    "parts": [
+      "mainBlade:FORT"
+    ]
+  },
+  "main-blade-hunt.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeHunt.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/4d/MainBladeHunt.png/revision/latest?cb=20251015205016",
+    "width": 358,
+    "height": 358,
+    "parts": [
+      "mainBlade:HUNT"
+    ]
+  },
+  "main-blade-might.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeMight.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/0/07/MainBladeMight.png/revision/latest?cb=20251015205128",
+    "width": 357,
+    "height": 356,
+    "parts": [
+      "mainBlade:MIGHT"
+    ]
+  },
+  "main-blade-reaper.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeReaper.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/a4/MainBladeReaper.png/revision/latest?cb=20250314041624",
+    "width": 355,
+    "height": 357,
+    "parts": [
+      "mainBlade:REAPER"
+    ]
+  },
+  "main-blade-volt.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeVolt.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/0/04/MainBladeVolt.png/revision/latest?cb=20260218211332",
+    "width": 3000,
+    "height": 3000,
+    "parts": [
+      "mainBlade:VOLT"
+    ]
+  },
+  "main-blade-wriggle.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MainBladeWriggle.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/12/MainBladeWriggle.png/revision/latest?cb=20250814033242",
+    "width": 400,
+    "height": 383,
+    "parts": [
+      "mainBlade:RIGGLE"
+    ]
+  },
+  "metal-blade-blitz.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MetalBladeBlitz.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/28/MetalBladeBlitz.png/revision/latest?cb=20260214040423",
+    "width": 356,
+    "height": 361,
+    "parts": [
+      "metalBlade:BLITZ",
+      "metalBlade:BLITZ#2"
+    ]
+  },
+  "metal-blade-delta.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MetalBladeDelta.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/19/MetalBladeDelta.png/revision/latest?cb=20260415025431",
+    "width": 358,
+    "height": 362,
+    "parts": [
+      "metalBlade:DELTA"
+    ]
+  },
+  "metal-blade-fortress.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MetalBladeFortress.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/81/MetalBladeFortress.png/revision/latest?cb=20260214040527",
+    "width": 356,
+    "height": 346,
+    "parts": [
+      "metalBlade:FORTRESS"
+    ]
+  },
+  "metal-blade-rage.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MetalBladeRage.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d0/MetalBladeRage.png/revision/latest?cb=20260214043148",
+    "width": 356,
+    "height": 355,
+    "parts": [
+      "metalBlade:RAGE",
+      "metalBlade:RAGE#2"
+    ]
+  },
+  "metal-blade-tread.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MetalBladeTread.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/5b/MetalBladeTread.png/revision/latest?cb=20260812030356",
+    "width": 358,
+    "height": 361,
+    "parts": [
+      "metalBlade:碾壓"
+    ]
+  },
+  "metal-blade-whip.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:MetalBladeWhip.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/59/MetalBladeWhip.png/revision/latest?cb=20260517042545",
+    "width": 358,
+    "height": 361,
+    "parts": [
+      "metalBlade:WHIP"
+    ]
+  },
+  "over-blade-break.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:OverBladeBreak.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/38/OverBladeBreak.png/revision/latest?cb=20260214040407",
+    "width": 318,
+    "height": 325,
+    "parts": [
+      "overBlade:B"
+    ]
+  },
+  "over-blade-flow.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:OverBladeFlow.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/0/00/OverBladeFlow.png/revision/latest?cb=20260214043129",
+    "width": 283,
+    "height": 317,
+    "parts": [
+      "overBlade:F"
+    ]
+  },
+  "over-blade-guard.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:OverBladeGuard.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/8b/OverBladeGuard.png/revision/latest?cb=20260214040517",
+    "width": 309,
+    "height": 305,
+    "parts": [
+      "overBlade:G"
+    ]
+  },
+  "over-blade-outer.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:OverBladeOuter.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/f2/OverBladeOuter.png/revision/latest?cb=20260517042333",
+    "width": 358,
+    "height": 352,
+    "parts": [
+      "overBlade:O"
+    ]
+  },
+  "over-blade-peak.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:OverBladePeak.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/0/01/OverBladePeak.png/revision/latest?cb=20260415025424",
+    "width": 358,
+    "height": 321,
+    "parts": [
+      "overBlade:P"
+    ]
+  },
+  "over-blade-tough.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:OverBladeTough.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/64/OverBladeTough.png/revision/latest?cb=20260812030243",
+    "width": 358,
+    "height": 353,
+    "parts": [
+      "overBlade:T"
+    ]
+  },
+  "ratchet-0-60.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet0-60.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/20/Ratchet0-60.png/revision/latest?cb=20251015205044",
+    "width": 355,
+    "height": 324,
+    "parts": [
+      "ratchet:0-60"
+    ]
+  },
+  "ratchet-0-70.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet0-70.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/0/08/Ratchet0-70.png/revision/latest?cb=20250415034357",
+    "width": 350,
+    "height": 319,
+    "parts": [
+      "ratchet:0-70"
+    ]
+  },
+  "ratchet-0-80.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet0-80.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/ac/Ratchet0-80.png/revision/latest?cb=20241115025146",
+    "width": 336,
+    "height": 305,
+    "parts": [
+      "ratchet:0-80"
+    ]
+  },
+  "ratchet-1-50.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet1-50.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/c2/Ratchet1-50.png/revision/latest?cb=20260214040444",
+    "width": 358,
+    "height": 333,
+    "parts": [
+      "ratchet:1-50"
+    ]
+  },
+  "ratchet-1-60.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet1-60.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/3a/Ratchet1-60.png/revision/latest?cb=20260815023207",
+    "width": 710,
+    "height": 669,
+    "parts": [
+      "ratchet:1-60"
+    ]
+  },
+  "ratchet-1-70.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet1-70.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/f1/Ratchet1-70.png/revision/latest?cb=20250715052629",
+    "width": 351,
+    "height": 324,
+    "parts": [
+      "ratchet:1-70"
+    ]
+  },
+  "ratchet-1-80.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet1-80.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/46/Ratchet1-80.png/revision/latest?cb=20240513065345",
+    "width": 313,
+    "height": 300,
+    "parts": [
+      "ratchet:1-80"
+    ]
+  },
+  "ratchet-2-60.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet2-60.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/a6/Ratchet2-60.png/revision/latest?cb=20240614034142",
+    "width": 358,
+    "height": 335,
+    "parts": [
+      "ratchet:2-60",
+      "ratchet:2-60#2"
+    ]
+  },
+  "ratchet-2-70.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet2-70.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/cb/Ratchet2-70.png/revision/latest?cb=20241015033717",
+    "width": 355,
+    "height": 320,
+    "parts": [
+      "ratchet:2-70"
+    ]
+  },
+  "ratchet-2-80.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet2-80.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/dc/Ratchet2-80.png/revision/latest?cb=20240527053613",
+    "width": 369,
+    "height": 336,
+    "parts": [
+      "ratchet:2-80"
+    ]
+  },
+  "ratchet-3-60.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet3-60.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/1b/Ratchet3-60.png/revision/latest?cb=20240913063429",
+    "width": 702,
+    "height": 604,
+    "parts": [
+      "ratchet:3-60"
+    ]
+  },
+  "ratchet-3-70.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet3-70.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/da/Ratchet3-70.png/revision/latest?cb=20260815023932",
+    "width": 709,
+    "height": 654,
+    "parts": [
+      "ratchet:3-70"
+    ]
+  },
+  "ratchet-3-80.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet3-80.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/69/Ratchet3-80.png/revision/latest?cb=20250609060206",
+    "width": 694,
+    "height": 600,
+    "parts": [
+      "ratchet:3-80"
+    ]
+  },
+  "ratchet-3-85.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet3-85.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/b/b8/Ratchet3-85.png/revision/latest?cb=20260202220915",
+    "width": 352,
+    "height": 320,
+    "parts": [
+      "ratchet:3-85"
+    ]
+  },
+  "ratchet-4-50.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet4-50.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/2a/Ratchet4-50.png/revision/latest?cb=20250715051521",
+    "width": 356,
+    "height": 323,
+    "parts": [
+      "ratchet:4-50"
+    ]
+  },
+  "ratchet-4-55.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet4-55.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/7a/Ratchet4-55.png/revision/latest?cb=20250605000210",
+    "width": 356,
+    "height": 319,
+    "parts": [
+      "ratchet:4-55"
+    ]
+  },
+  "ratchet-4-60.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet4-60.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/46/Ratchet4-60.png/revision/latest?cb=20250317055414",
+    "width": 653,
+    "height": 589,
+    "parts": [
+      "ratchet:4-60"
+    ]
+  },
+  "ratchet-4-70.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet4-70.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/16/Ratchet4-70.png/revision/latest?cb=20240524163324",
+    "width": 320,
+    "height": 295,
+    "parts": [
+      "ratchet:4-70"
+    ]
+  },
+  "ratchet-4-80.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet4-80.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/ae/Ratchet4-80.png/revision/latest?cb=20250608045210",
+    "width": 652,
+    "height": 587,
+    "parts": [
+      "ratchet:4-80"
+    ]
+  },
+  "ratchet-5-50.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet5-50.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/75/Ratchet5-50.png/revision/latest?cb=20260812030644",
+    "width": 358,
+    "height": 316,
+    "parts": [
+      "ratchet:5-50"
+    ]
+  },
+  "ratchet-5-60.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet5-60.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/f/f7/Ratchet5-60.png/revision/latest?cb=20260803013804",
+    "width": 677,
+    "height": 606,
+    "parts": [
+      "ratchet:5-60"
+    ]
+  },
+  "ratchet-5-70.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet5-70.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/cc/Ratchet5-70.png/revision/latest?cb=20260815024128",
+    "width": 714,
+    "height": 639,
+    "parts": [
+      "ratchet:5-70"
+    ]
+  },
+  "ratchet-5-80.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet5-80.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/4/42/Ratchet5-80.png/revision/latest?cb=20260803014049",
+    "width": 677,
+    "height": 606,
+    "parts": [
+      "ratchet:5-80"
+    ]
+  },
+  "ratchet-6-60.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet6-60.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/5/53/Ratchet6-60.png/revision/latest?cb=20250215050512",
+    "width": 357,
+    "height": 323,
+    "parts": [
+      "ratchet:6-60"
+    ]
+  },
+  "ratchet-6-70.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet6-70.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/1/14/Ratchet6-70.png/revision/latest?cb=20250715051344",
+    "width": 351,
+    "height": 315,
+    "parts": [
+      "ratchet:6-70"
+    ]
+  },
+  "ratchet-6-80.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet6-80.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/98/Ratchet6-80.png/revision/latest?cb=20250215050704",
+    "width": 356,
+    "height": 321,
+    "parts": [
+      "ratchet:6-80"
+    ]
+  },
+  "ratchet-7-55.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet7-55.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/af/Ratchet7-55.png/revision/latest?cb=20251114034152",
+    "width": 228,
+    "height": 206,
+    "parts": [
+      "ratchet:7-55"
+    ]
+  },
+  "ratchet-7-60.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet7-60.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/39/Ratchet7-60.png/revision/latest?cb=20240712055419",
+    "width": 336,
+    "height": 313,
+    "parts": [
+      "ratchet:7-60"
+    ]
+  },
+  "ratchet-7-70.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet7-70.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/3/38/Ratchet7-70.png/revision/latest?cb=20241015043216",
+    "width": 353,
+    "height": 325,
+    "parts": [
+      "ratchet:7-70"
+    ]
+  },
+  "ratchet-7-80.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet7-80.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/d/d7/Ratchet7-80.png/revision/latest?cb=20250115050921",
+    "width": 356,
+    "height": 325,
+    "parts": [
+      "ratchet:7-80"
+    ]
+  },
+  "ratchet-8-70.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet8-70.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/c/ca/Ratchet8-70.png/revision/latest?cb=20260214040608",
+    "width": 356,
+    "height": 322,
+    "parts": [
+      "ratchet:8-70"
+    ]
+  },
+  "ratchet-8-80.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet8-80.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/9/91/Ratchet8-80.png/revision/latest?cb=20260715045951",
+    "width": 356,
+    "height": 323,
+    "parts": [
+      "ratchet:8-80"
+    ]
+  },
+  "ratchet-9-60.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet9-60.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/a/af/Ratchet9-60.png/revision/latest?cb=20260809063523",
+    "width": 684,
+    "height": 625,
+    "parts": [
+      "ratchet:9-60"
+    ]
+  },
+  "ratchet-9-65.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet9-65.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/2/25/Ratchet9-65.png/revision/latest?cb=20250912034512",
+    "width": 356,
+    "height": 316,
+    "parts": [
+      "ratchet:9-65"
+    ]
+  },
+  "ratchet-9-70.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet9-70.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/8/86/Ratchet9-70.png/revision/latest?cb=20240712055351",
+    "width": 354,
+    "height": 320,
+    "parts": [
+      "ratchet:9-70"
+    ]
+  },
+  "ratchet-9-80.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:Ratchet9-80.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/6/61/Ratchet9-80.png/revision/latest?cb=20260813014725",
+    "width": 695,
+    "height": 626,
+    "parts": [
+      "ratchet:9-80"
+    ]
+  },
+  "ratchet-m-85.webp": {
+    "source": "https://beyblade.fandom.com/wiki/File:RatchetM-85.png",
+    "original": "https://static.wikia.nocookie.net/beyblade/images/7/79/RatchetM-85.png/revision/latest?cb=20250515033258",
+    "width": 353,
+    "height": 321,
+    "parts": [
+      "ratchet:M-85"
+    ]
+  }
+}

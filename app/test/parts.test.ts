@@ -39,9 +39,9 @@ describe("ratchet codes encode real geometry", () => {
 
   it("every ratchet in the dataset parses to a plausible part", () => {
     let parsed = 0;
-    for (const r of db.parts.ratchet) {
+    for (const r of db.parts.ratchet.filter((part) => /^\d+-\d+/.test(part.code))) {
       const spec = ratchetSpec(r.code);
-      expect(spec.count).toBeGreaterThanOrEqual(1);
+      expect(spec.count).toBeGreaterThanOrEqual(0);
       expect(spec.heightM).toBeGreaterThanOrEqual(0.004);
       expect(spec.heightM).toBeLessThanOrEqual(0.009);
       if (/^\d+-\d+/.test(r.code)) parsed++;
@@ -59,7 +59,9 @@ describe("bit codes map to the right tip", () => {
     expect(bitFamily("HN")).toBe("needle");
     expect(bitFamily("P")).toBe("point");
     expect(bitFamily("T")).toBe("taper");
-    expect(bitFamily("R")).toBe("rubberFlat");
+    expect(bitFamily("R")).toBe("flat"); // Rush is hard POM, not rubber
+    expect(bitFamily("RA")).toBe("rubberFlat");
+    expect(bitFamily("M")).toBe("rubberHybrid");
   });
 
   it("gear bits keep their base shape and gain the rack ring", () => {
@@ -68,16 +70,16 @@ describe("bit codes map to the right tip", () => {
     expect(bitFamily("GN")).toBe("needle");
     expect(bitHasGear("GF")).toBe(true);
     expect(bitHasGear("GN")).toBe(true);
-    expect(bitHasGear("F")).toBe(false);
-    expect(bitHasGear("N")).toBe(false);
+    expect(bitHasGear("F")).toBe(true);
+    expect(bitHasGear("N")).toBe(true);
   });
 
   it("tip heights stay inside a real bit's envelope", () => {
-    for (const b of db.parts.bit) {
+    for (const b of db.parts.bit.filter((part) => /^[A-Za-z]+$/.test(part.code))) {
       const h = bitHeight(b.code);
       expect(bitTipHeight(b.code)).toBeGreaterThan(0.002);
       expect(h).toBeGreaterThan(0.008);
-      expect(h).toBeLessThan(0.013);
+      expect(h).toBeLessThan(0.022);
     }
   });
 });

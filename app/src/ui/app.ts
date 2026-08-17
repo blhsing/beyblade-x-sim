@@ -183,22 +183,30 @@ export class GameApp {
   }
 
   comboLabel(sel: ComboSelection): string {
-    const blade = this.index.get("blade", sel.blade) ?? this.index.get("mainBlade", sel.mainBlade);
-    const ratchet = this.index.get("ratchet", sel.ratchet);
-    const bit = this.index.get("bit", sel.bit);
+    const resolved = resolveCombo(this.index, sel);
+    const blade = resolved.compositeBlade
+      ?? resolved.compositeMainBlade
+      ?? resolved.parts.blade
+      ?? resolved.parts.mainBlade
+      ?? resolved.parts.metalBlade;
+    const ratchet = resolved.parts.ratchet;
+    const bit = resolved.parts.bit;
     const name = blade?.name["zh-TW"] ?? "?";
     const v = blade?.variantLabel ? `（${blade.variantLabel}）` : "";
     return `${name}${v} ${ratchet?.code ?? "?"}${bit?.code ?? "?"}`;
   }
 
   comboOptions(): { value: string; label: string }[] {
-    const seen = new Set<string>();
+    const labelCounts = new Map<string, number>();
     const opts: { value: string; label: string }[] = [];
-    for (const c of this.db.combos as ComboPreset[]) {
-      const label = this.comboLabel(c.parts);
-      if (seen.has(label)) continue;
-      seen.add(label);
-      opts.push({ value: `official:${this.db.combos.indexOf(c)}`, label });
+    for (const [index, c] of (this.db.combos as ComboPreset[]).entries()) {
+      const baseLabel = this.comboLabel(c.parts);
+      const occurrence = (labelCounts.get(baseLabel) ?? 0) + 1;
+      labelCounts.set(baseLabel, occurrence);
+      // Keep every official source colorway selectable. A small ordinal only
+      // disambiguates the rare regional products with otherwise identical art.
+      const label = occurrence === 1 ? baseLabel : `${baseLabel} · ${occurrence}`;
+      opts.push({ value: `official:${index}`, label });
     }
     for (const c of this.customs.list()) {
       opts.push({ value: `custom:${c.name}`, label: `⭐ ${c.name}` });

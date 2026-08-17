@@ -29,6 +29,18 @@ const COLLECTIONS = {
   BeybladePartsOverBlade: "overBlade",
 };
 const CODE_NAME_KEYS = { bit: "Bit", assistBlade: "AssistBlade", overBlade: "OverBlade" };
+const BIT_FAMILIES = Object.fromEntries([
+  [["A", "C", "F", "FF", "GF", "GR", "I", "J", "L", "LF", "LR", "R", "UF", "V"], "flat"],
+  [["B", "D", "DB", "FB", "G", "GB", "LO", "Nr", "O", "WB", "Y"], "ball"],
+  [["GN", "HN", "MN", "N", "UN"], "needle"],
+  [["E", "GP", "GU", "P", "TP", "U", "Z"], "point"],
+  [["HT", "K", "T", "TK"], "taper"],
+  [["BS", "DS", "S", "W", "WW"], "spike"],
+  [["RA"], "rubberFlat"],
+  [["M"], "rubberHybrid"],
+  [["H", "Q"], "special"],
+  [["Op", "Tr"], "integrated"],
+].flatMap(([codes, family]) => codes.map((code) => [code, family])));
 
 const loadJson = async (name) =>
   JSON.parse(await readFile(join(rawDir, name), "utf8"));
@@ -39,7 +51,32 @@ const weights = await loadJson("part_weights.json");
 const codeNames = await loadJson("part_code_names.json");
 const partColors = await loadJson("part_colors.json").catch(() => ({}));
 
+// Prefer the ordinary numbered Takara Tomy retail release as the canonical
+// appearance of a mould. Event prizes and G/C/H promotional releases often
+// precede it in the source object and otherwise turn stock parts gold/clear.
+const releaseRank = (r) => {
+  const set = String(r.set_id ?? "");
+  if (/^(?:BX|UX|CX)-\d+(?:-\d+)?$/i.test(set)) return 0;
+  if (/^(?:BX|UX|CX)[A-Z]-\d+(?:-\d+)?$/i.test(set)) return 1;
+  return 2;
+};
+
 const dataOf = (o) => o.data ?? o;
+
+function isCatalogArtifact(category, groupKey, recs) {
+  if (category === "bit" && String(groupKey).trim() === "") return true;
+  const tokens = [groupKey, ...recs.flatMap((r) => [r.en_name, r.name?.["zh-TW"]])]
+    .filter(Boolean)
+    .map(String);
+  if (tokens.some((value) => value === "■")) return true;
+  if (category === "blade") {
+    return tokens.some((value) => value === "BIT" || /^加贈軸心活動/.test(value));
+  }
+  if (category === "ratchet") {
+    return tokens.some((value) => /^(?:P|V|O|D)$/.test(value));
+  }
+  return category === "bit" && tokens.some((value) => value.trim() === "");
+}
 
 // Set codes appear as their own token ("BXH-25-01 蒼龍突擊") or glued to CJK
 // ("BXC-13蒼龍至尊S"). Suffix tokens after the name are colorway descriptors
@@ -115,6 +152,7 @@ const summary = [];
 for (const [category, map] of Object.entries(groups)) {
   const list = [];
   for (const [groupKey, recs] of map) {
+    if (isCatalogArtifact(category, groupKey, recs)) continue;
     // partition by stat signature; base = signature of earliest release
     const bySig = new Map();
     for (const r of recs) {
@@ -134,11 +172,18 @@ for (const [category, map] of Object.entries(groups)) {
         .map((r) => ({ r, c: cleanName(r.name?.["zh-TW"] ?? "") }))
         .sort(
           (a, b) =>
+            releaseRank(a.r) - releaseRank(b.r) ||
+            String(a.r.release_at ?? "9999").localeCompare(String(b.r.release_at ?? "9999")) ||
             (a.c.name.length || 99) - (b.c.name.length || 99) ||
             String(a.r.release_at ?? "").localeCompare(String(b.r.release_at ?? "")),
         );
       const rep = scored[0].r;
       const st = rep.defaultStatus ?? {};
+      const code = rep.en_name || groupKey;
+      const descriptionText = Object.values(rep.description ?? {}).join(" ");
+      const integratedRatchet =
+        (category === "ratchet" && groupKey === "RATCHET-integrated") ||
+        /integrated\s+RATCHET|ラチェット一体|固鎖一體|核輪一體/i.test(descriptionText);
 
       const codeTable = CODE_NAME_KEYS[category]
         ? codeNames[CODE_NAME_KEYS[category]]?.[groupKey]
@@ -162,22 +207,30 @@ for (const [category, map] of Object.entries(groups)) {
       // weight/diameter from this stat version's own colorways
       let weightG = null;
       let diameterMm = null;
+      let gearTeeth = null;
+      let totalHeightMm = null;
+      let exposedHeightMm = null;
       for (const r of [rep, ...sigRecs]) {
         const w = weights[r.id];
         if (w?.weight_g != null) {
           weightG = w.weight_g;
           const mm = /([\d.]+)\s*mm/.exec(w.size ?? "");
           diameterMm = mm ? Number(mm[1]) : null;
+          gearTeeth = w.gear == null ? null : Number(w.gear);
+          totalHeightMm = w.total_height_mm == null ? null : Number(w.total_height_mm);
+          exposedHeightMm = w.exposed_height_mm == null ? null : Number(w.exposed_height_mm);
           break;
         }
       }
 
       // official colorway name (e.g. "blue", "gold") from part_colors
       let color = null;
+      let colors = [];
       for (const r of [rep, ...sigRecs]) {
         const c = partColors[r.id];
         if (Array.isArray(c) && c.length > 0) {
-          color = String(c[0]);
+          colors = c.map(String);
+          color = colors[0];
           break;
         }
       }
@@ -197,7 +250,7 @@ for (const [category, map] of Object.entries(groups)) {
         key,
         group: groupKey,
         category,
-        code: rep.en_name || groupKey,
+        code,
         name: { "zh-TW": zh, en: rep.en_name || groupKey, ja },
         variantLabel,
         type: rep.type ?? codeTable?.type ?? null,
@@ -213,11 +266,23 @@ for (const [category, map] of Object.entries(groups)) {
         weightG,
         diameterMm,
         color,
+        colors,
+        gearTeeth,
+        totalHeightMm,
+        exposedHeightMm,
+        tipFamily: category === "bit" ? (BIT_FAMILIES[code] ?? null) : null,
+        integratedRatchet,
         desc,
         line: lineOf(rep.tags),
         fixedBurst: rep.fixed_burst ?? false,
         releaseAt: firstRelease(sigRecs) === "9999" ? null : firstRelease(sigRecs),
-        variants: sigRecs.map((r) => ({ id: r.id, setId: r.set_id || null })),
+        canonicalVariantId: rep.id,
+        variants: sigRecs.map((r) => ({
+          id: r.id,
+          setId: r.set_id || null,
+          colors: Array.isArray(partColors[r.id]) ? partColors[r.id].map(String) : [],
+          label: cleanName(r.name?.["zh-TW"] ?? "").suffix || null,
+        })),
       });
     });
   }
@@ -233,6 +298,16 @@ for (const source of [dataOf(main), dataOf(hardcoded)]) {
   for (const rec of Object.values(source.BeybladeSeries ?? {})) {
     if (rec.invalid) continue;
     const ref = (id) => (id && idToEntry.get(id)?.key) || null;
+    const sourceIds = {
+      blade: rec.blade_id || null,
+      ratchet: rec.ratchet_id || null,
+      bit: rec.bit_id || null,
+      lockChip: rec.lock_chip_id || null,
+      mainBlade: rec.main_blade_id || null,
+      assistBlade: rec.assist_blade_id || null,
+      metalBlade: rec.metal_blade_id || null,
+      overBlade: rec.over_blade_id || null,
+    };
     const partRefs = {
       blade: ref(rec.blade_id),
       ratchet: ref(rec.ratchet_id),
@@ -242,19 +317,28 @@ for (const source of [dataOf(main), dataOf(hardcoded)]) {
       assistBlade: ref(rec.assist_blade_id),
       metalBlade: ref(rec.metal_blade_id),
       overBlade: ref(rec.over_blade_id),
+      variantIds: Object.fromEntries(Object.entries(sourceIds).filter(([, id]) => id)),
     };
+    const completeUpper = partRefs.blade || (
+      partRefs.lockChip && partRefs.assistBlade &&
+      (partRefs.mainBlade || (partRefs.metalBlade && partRefs.overBlade))
+    );
+    if (!completeUpper || !partRefs.ratchet || !partRefs.bit) continue;
     // dedupe by resolved composition (different colorways of one combo share it)
-    const compKey = Object.values(partRefs).join("|");
-    if (!rec.en_name || comboSeen.has(compKey)) continue;
-    comboSeen.set(compKey, {
+    const compKey = Object.values(partRefs).slice(0, 8).join("|");
+    if (!rec.en_name) continue;
+    const candidate = {
       code: rec.en_name,
       line: lineOf(rec.tags),
       releaseAt: rec.release_at ?? null,
       parts: partRefs,
-    });
+      _rank: releaseRank(rec),
+    };
+    const existing = comboSeen.get(compKey);
+    if (!existing || candidate._rank < existing._rank) comboSeen.set(compKey, candidate);
   }
 }
-const combos = [...comboSeen.values()].sort((a, b) =>
+const combos = [...comboSeen.values()].map(({ _rank, ...combo }) => combo).sort((a, b) =>
   String(a.releaseAt ?? "9999").localeCompare(String(b.releaseAt ?? "9999")),
 );
 

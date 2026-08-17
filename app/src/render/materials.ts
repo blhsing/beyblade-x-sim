@@ -1,11 +1,7 @@
-// Physically-based material library + procedural texture generation.
-//
-// Nothing here loads an external asset: every map is drawn into a canvas at
-// runtime (docs/DATA.md — third-party Beyblade imagery is licensed to its
-// source site and must never be bundled). What makes the result read as real
-// is not resolution but the *microstructure*: injection-moulded plastic has
-// orange peel, die-cast zinc has circular tooling marks, POM is milky and
-// translucent, rubber is matte with fine pores. Those are the maps below.
+// Physically-based material library, procedural microstructure, and the shared
+// loader for sourced catalog/sticker surface images. Injection-moulded plastic
+// has orange peel, die-cast zinc has tooling marks, POM is milky/translucent,
+// and rubber is matte with fine pores; docs/DATA.md records image provenance.
 //
 // Reference for which material belongs to which part: docs/MODELING.md §1.4.
 

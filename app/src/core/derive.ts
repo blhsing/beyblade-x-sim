@@ -37,24 +37,60 @@ export class PartIndex {
 export interface ResolvedCombo {
   parts: Partial<Record<PartCategory, PartEntry>>;
   isCx: boolean;
+  /** Catalog-only full CX assembly art; excluded from mass/stats component sums. */
+  compositeBlade?: PartEntry;
+  /** Synthetic assembled Main Blade row for Expand CX; components carry physics. */
+  compositeMainBlade?: PartEntry;
+}
+
+function samePalette(a: readonly string[] | undefined, b: readonly string[] | undefined): boolean {
+  const left = a ?? [];
+  const right = b ?? [];
+  return left.length === right.length && left.every(
+    (color, index) => color.toLowerCase() === right[index]?.toLowerCase(),
+  );
 }
 
 export function resolveCombo(index: PartIndex, sel: ComboSelection): ResolvedCombo {
   const parts: Partial<Record<PartCategory, PartEntry>> = {};
   for (const cat of Object.keys(FALLBACK_WEIGHT_G) as PartCategory[]) {
     const p = index.get(cat, sel[cat]);
-    if (p) parts[cat] = p;
+    if (p) {
+      const variantId = sel.variantIds?.[cat];
+      const variant = variantId ? p.variants.find((v) => v.id === variantId) : null;
+      parts[cat] = variant
+        ? {
+            ...p,
+            color: variant.colors?.[0] ?? p.color,
+            colors: variant.colors?.length ? variant.colors : p.colors,
+            variantLabel: variant.label ?? p.variantLabel,
+            selectedVariantId: variant.id,
+            variantColorOverride:
+              !!variant.colors?.length && !samePalette(variant.colors, p.colors),
+          }
+        : p;
+    }
   }
-  return { parts, isCx: !!parts.lockChip || !!parts.mainBlade };
+  const isCx = !!parts.lockChip || !!parts.mainBlade;
+  const compositeBlade = isCx ? parts.blade : undefined;
+  if (isCx) delete parts.blade;
+  const isExpandCx = isCx && !!parts.metalBlade && !!parts.overBlade;
+  const compositeMainBlade = isExpandCx ? parts.mainBlade : undefined;
+  if (isExpandCx) delete parts.mainBlade;
+  return { parts, isCx, compositeBlade, compositeMainBlade };
 }
 
 /** Validation: a legal combo is Blade+Ratchet+Bit, or the CX stack. */
 export function comboError(rc: ResolvedCombo): string | null {
   const p = rc.parts;
   if (!p.ratchet || !p.bit) return "missing-ratchet-or-bit";
+  const integratedRatchet = !!p.ratchet.integratedRatchet;
+  const integratedConsumer = p.bit.tipFamily === "integrated" || !!p.blade?.integratedRatchet;
+  if (integratedRatchet !== integratedConsumer) return "incompatible-integrated-ratchet";
   if (rc.isCx) {
-    if (!p.lockChip || !p.mainBlade || !p.assistBlade) return "incomplete-cx";
-    if (p.blade) return "blade-and-cx";
+    if (!!p.metalBlade !== !!p.overBlade) return "incomplete-cx";
+    const upperComplete = p.mainBlade || (p.metalBlade && p.overBlade);
+    if (!p.lockChip || !upperComplete || !p.assistBlade) return "incomplete-cx";
   } else if (!p.blade) {
     return "missing-blade";
   }
@@ -82,7 +118,7 @@ export function deriveBeyParams(
   }
   const massKg = Math.max(0.025, massG / 1000);
 
-  const bladeLike = p.blade ?? p.mainBlade;
+  const bladeLike = p.blade ?? p.mainBlade ?? p.metalBlade;
   const radiusM = ((bladeLike?.diameterMm ?? 49) / 2) / 1000;
 
   const attack = sumStat(rc, "attack");
@@ -102,10 +138,23 @@ export function deriveBeyParams(
   // tip behaviour from bit code + stats
   const code = p.bit?.code ?? "F";
   const tipAttack = p.bit?.stats.attack ?? 20;
-  const rubber = code.startsWith("R") || code === "RA" || code.includes("Rubber");
-  const flat = /F/.test(code) && !/^FB/.test(code);
-  const needle = /N/.test(code) && code !== "Nr";
-  const ball = /B/.test(code) && !/^BS/.test(code);
+  // Normalized catalogs carry the exact mold family. Keep a conservative
+  // fallback for older saves/synthetic fixtures which predate that field.
+  const family = p.bit?.tipFamily ?? (
+    code === "M" || code === "RA" || (/^R/.test(code) && code !== "R")
+      ? "rubberHybrid"
+      : code === "R" || (/F/.test(code) && !/^FB/.test(code))
+        ? "flat"
+        : /N/.test(code) && code !== "Nr"
+          ? "needle"
+          : /B/.test(code) && !/^BS/.test(code)
+            ? "ball"
+            : "special"
+  );
+  const rubber = family === "rubberFlat" || family === "rubberHybrid";
+  const flat = family === "flat";
+  const needle = family === "needle";
+  const ball = family === "ball";
   let grip = 0.25 + tipAttack / 90 + dash / 140;
   let muSpin = 0.05 + tipAttack / 700;
   let muMove = 0.75;
@@ -121,7 +170,10 @@ export function deriveBeyParams(
     muMove += 0.5;
   } else if (ball) {
     grip -= 0.04;
-    muSpin -= 0.012;
+    // The stamina stat already rewards low-loss Ball molds. A positive
+    // point-contact floor keeps modern high-stamina builds from coasting to
+    // the 180 s match cap while remaining far below Flat/Rubber friction.
+    muSpin += 0.03;
     muMove += 0.2;
   }
   muSpin = Math.max(0.02, muSpin - (p.bit?.stats.stamina ?? 20) / 2600);
@@ -151,7 +203,15 @@ export function deriveBeyParams(
     fixedBurst: p.ratchet?.fixedBurst ?? false,
     // the ratchet's protrusion count = its latch joints ("3-60" → 3):
     // bursts only advance when a hit lands on one of these joints
-    latchCount: Math.min(9, Math.max(1, Number.parseInt(p.ratchet?.code ?? "", 10) || 4)),
+    latchCount: ratchetLatchCount(p.ratchet),
     staminaFactor: 0.8 + stamina / 250,
   };
+}
+
+export function ratchetLatchCount(part: PartEntry | undefined): number {
+  if (!part) return 4;
+  if (part.integratedRatchet) return 0;
+  if (part.code.trim() === "M-85") return 5;
+  const match = /^(\d)-\d{2}$/.exec(part.code.trim());
+  return match ? Math.min(9, Number.parseInt(match[1]!, 10)) : 4;
 }

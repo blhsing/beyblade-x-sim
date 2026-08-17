@@ -14,9 +14,15 @@ import {
   buildRatchet,
   COLOR_NAMES,
   lockChipStickerUrl,
+  partRadiusM,
   ratchetSpec,
 } from "./parts";
-import { buildBeyMesh, lobedShape } from "./scene";
+import { buildBeyMesh } from "./scene";
+import {
+  buildCatalogUpperPart,
+  preloadUpperReference,
+  preloadUpperReferences,
+} from "./upper-parts";
 
 let renderer: THREE.WebGLRenderer | null = null;
 let scene: THREE.Scene | null = null;
@@ -54,24 +60,47 @@ function snapshot(group: THREE.Group): string {
   renderer!.render(scene!, camera!);
   const url = renderer!.domElement.toDataURL("image/png");
   scene!.remove(group);
+  const materials = new Set<THREE.Material>();
   group.traverse((o) => {
     const m = o as THREE.Mesh;
     if (m.geometry) m.geometry.dispose();
+    if (Array.isArray(m.material)) {
+      for (const material of m.material) materials.add(material);
+    } else if (m.material) {
+      materials.add(m.material);
+    }
   });
+  // Catalog image textures are deliberately shared by the global texture
+  // cache, but each thumbnail owns its materials/programs. Release those GPU
+  // resources after capture so browsing the whole catalog stays bounded.
+  for (const material of materials) material.dispose();
   return url;
 }
 
 /** Thumbnail of a full assembled combo. */
 export async function comboThumb(index: PartIndex, sel: ComboSelection, key: string): Promise<string> {
-  const hit = cache.get("c:" + key);
+  const selectionFingerprint = JSON.stringify(sel);
+  const cacheKey = `c:${key}:${selectionFingerprint}`;
+  const hit = cache.get(cacheKey);
   if (hit) return hit;
   try {
     const rc = resolveCombo(index, sel);
-    await preloadStickerImage(
-      rc.isCx ? lockChipStickerUrl(rc.parts.lockChip) : bladeStickerUrl(rc.parts.blade),
-    );
+    await Promise.all([
+      preloadStickerImage(
+        rc.isCx ? lockChipStickerUrl(rc.parts.lockChip) : bladeStickerUrl(rc.parts.blade),
+      ),
+      preloadUpperReferences([
+        rc.compositeBlade,
+        rc.parts.blade,
+        rc.parts.lockChip,
+        rc.parts.mainBlade,
+        rc.parts.assistBlade,
+        rc.parts.metalBlade,
+        rc.parts.overBlade,
+      ]),
+    ]);
     const url = snapshot(buildBeyMesh(rc, deriveBeyParams(rc), 0x5a70d6));
-    cache.set("c:" + key, url);
+    cache.set(cacheKey, url);
     return url;
   } catch {
     return "";
@@ -92,38 +121,16 @@ export async function partThumb(entry: PartEntry): Promise<string> {
   const g = new THREE.Group();
   const color = COLOR_NAMES[entry.color?.toLowerCase() ?? ""]
     ?? (entry.type ? PART_TYPE_COLORS[entry.type]! : 0x9aa4c8);
-  const metal = new THREE.MeshStandardMaterial({ color, metalness: 0.85, roughness: 0.3 });
-  const plastic = new THREE.MeshStandardMaterial({
-    color,
-    roughness: 0.35,
-    transparent: true,
-    opacity: 0.9,
-  });
   switch (entry.category) {
     case "blade":
-      await preloadStickerImage(bladeStickerUrl(entry));
-      g.add(buildBlade(entry, color, 0.024));
-      break;
-    case "mainBlade": {
-      g.add(buildBlade(entry, color, 0.024, 0, false));
-      break;
-    }
+    case "mainBlade":
+    case "assistBlade":
     case "metalBlade":
-    case "overBlade": {
-      const mesh = new THREE.Mesh(
-        new THREE.ExtrudeGeometry(lobedShape(0.024, 6 + (entry.stats.attack % 5), 0.09, 1.3), {
-          depth: 0.007,
-          bevelEnabled: true,
-          bevelSize: 0.0007,
-          bevelThickness: 0.0007,
-        }),
-        metal,
-      );
-      g.add(mesh);
-      break;
-    }
-    case "assistBlade": {
-      g.add(new THREE.Mesh(new THREE.ExtrudeGeometry(lobedShape(0.02, 8, 0.06, 1.1), { depth: 0.005, bevelEnabled: false }), plastic));
+    case "overBlade":
+    case "lockChip": {
+      await preloadUpperReference(entry);
+      const fallbackR = entry.category === "lockChip" ? 0.012 : 0.024;
+      g.add(buildCatalogUpperPart(entry, color, partRadiusM(entry, fallbackR)));
       break;
     }
     case "ratchet": {
@@ -133,16 +140,6 @@ export async function partThumb(entry: PartEntry): Promise<string> {
     }
     case "bit": {
       g.add(buildBit(entry));
-      break;
-    }
-    case "lockChip": {
-      const sourceUrl = lockChipStickerUrl(entry);
-      await preloadStickerImage(sourceUrl);
-      const top = sourceUrl
-        ? new THREE.MeshBasicMaterial({ map: (await preloadStickerImage(sourceUrl))!, transparent: true })
-        : metal;
-      g.add(new THREE.Mesh(new THREE.CylinderGeometry(0.012, 0.012, 0.004, 20), [metal, top, metal]));
-      g.children[0]!.rotation.x = Math.PI / 2;
       break;
     }
   }

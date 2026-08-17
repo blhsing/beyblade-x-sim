@@ -153,9 +153,12 @@ export function botBuildDeck(
       .sort((a, b) => b.s - a.s || a.p.key.localeCompare(b.p.key))
       .map((x) => x.p);
 
-  const blades = rank(db.parts.blade);
-  const ratchets = rank(db.parts.ratchet);
-  const bits = rank(db.parts.bit);
+  // This builder assembles three freely interchangeable pieces. Integrated
+  // Blade/Ratchet/Bit systems remain available through official presets but
+  // cannot be mixed independently here.
+  const blades = rank(db.parts.blade.filter((part) => !part.integratedRatchet));
+  const ratchets = rank(db.parts.ratchet.filter((part) => !part.integratedRatchet));
+  const bits = rank(db.parts.bit.filter((part) => part.tipFamily !== "integrated"));
 
   const usedGroups = new Set<string>();
   const deck: ComboSelection[] = [];

@@ -55,7 +55,11 @@ export function showGarage(app: GameApp, onBack?: () => void): void {
   // part picker: swipeable 3D gallery; a hidden <select> keeps the state so
   // the existing stat/refresh logic is untouched
   const mkSelect = (cat: PartCategory, optionalNone: boolean): HTMLElement => {
-    const opts = app.db.parts[cat].map((p) => ({ value: p.key, label: partLabel(p) }));
+    const standalone = app.db.parts[cat].filter((part) =>
+      !part.integratedRatchet && part.tipFamily !== "integrated",
+    );
+    const allowed = new Set(standalone.map((part) => part.key));
+    const opts = standalone.map((p) => ({ value: p.key, label: partLabel(p) }));
     if (optionalNone) opts.unshift({ value: "", label: "（無）" });
     const s = select(opts, optionalNone ? "" : opts[0]?.value);
     s.style.display = "none";
@@ -66,7 +70,7 @@ export function showGarage(app: GameApp, onBack?: () => void): void {
     const b = button(labelOf(), () => {
       openGallery(
         CAT_LABEL[cat],
-        partItems(app, cat, optionalNone),
+        partItems(app, cat, optionalNone).filter((item) => item.key === "" || allowed.has(item.key)),
         s.value,
         (key) => {
           s.value = key;

@@ -3,10 +3,16 @@ import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 
 import { datan2, dsin, dcos, hashFloats } from "../src/core/fxmath";
-import { PartIndex, deriveBeyParams, resolveCombo, comboError } from "../src/core/derive";
+import {
+  PartIndex,
+  deriveBeyParams,
+  resolveCombo,
+  comboError,
+  ratchetLatchCount,
+} from "../src/core/derive";
 import { STADIUM_BX10, type StadiumSpec } from "../src/core/stadium";
 import { createWorld, hashWorld, simulateBattle, step } from "../src/core/sim";
-import type { BeyParams, LaunchParams, PartsDb, WorldConfig } from "../src/core/types";
+import type { BeyParams, LaunchParams, PartCategory, PartsDb, WorldConfig } from "../src/core/types";
 import { MatchEngine, RULES_OFFICIAL, RULE_PRESETS, deckDuplicateError, pointsForFinish } from "../src/game/rules";
 import { BOT_ROSTER, botBuildDeck, botChooseLaunch } from "../src/game/bots";
 
@@ -365,6 +371,23 @@ describe("rules & match engine", () => {
 });
 
 describe("parts DB integration", () => {
+  it("contains no blank catalog artifacts and every source variant resolves", () => {
+    for (const entries of Object.values(db.parts)) {
+      for (const part of entries) {
+        expect(part.key.trim()).not.toBe("");
+        expect(part.code.trim() !== "" || part.key.endsWith("-integrated")).toBe(true);
+      }
+    }
+    for (const preset of db.combos) {
+      for (const [category, id] of Object.entries(preset.parts.variantIds ?? {})) {
+        const key = preset.parts[category as keyof typeof preset.parts];
+        expect(typeof key).toBe("string");
+        const part = index.get(category as PartCategory, key as string);
+        expect(part?.variants.some((variant) => variant.id === id)).toBe(true);
+      }
+    }
+  });
+
   it("official preset combos resolve and derive plausible physics", () => {
     const preset = db.combos.find((c) => c.code === "DRANSWORD")!;
     const rc = resolveCombo(index, preset.parts);
@@ -374,6 +397,51 @@ describe("parts DB integration", () => {
     expect(p.massKg).toBeLessThan(0.08);
     expect(p.radiusM).toBeGreaterThan(0.02);
     expect(p.spinDir).toBe(1);
+  });
+
+  it("every normalized official product is a legal, renderable assembly", () => {
+    for (const preset of db.combos) {
+      expect(comboError(resolveCombo(index, preset.parts)), preset.code).toBeNull();
+    }
+  });
+
+  it("uses physical Ratchet latch counts for exceptional molds", () => {
+    const byCode = (code: string) => db.parts.ratchet.find((part) => part.code === code);
+    expect(ratchetLatchCount(byCode("0-60"))).toBe(0);
+    expect(ratchetLatchCount(byCode("M-85"))).toBe(5);
+    expect(ratchetLatchCount(db.parts.ratchet.find((part) => part.integratedRatchet))).toBe(0);
+  });
+
+  it("restores each official preset's source palette", () => {
+    const preset = db.combos.find((c) => c.code === "DRANSWORD")!;
+    expect(preset.parts.variantIds?.blade).toBeTruthy();
+    const base = index.get("blade", preset.parts.blade)!;
+    const source = base.variants.find((v) => v.id === preset.parts.variantIds!.blade)!;
+    const rc = resolveCombo(index, preset.parts);
+    expect(rc.parts.blade?.colors).toEqual(source.colors);
+    expect(rc.parts.ratchet?.colors?.length).toBeGreaterThan(1);
+    expect(rc.parts.bit?.gearTeeth).toBe(12);
+  });
+
+  it("resolves classic and Expand CX as physical component stacks", () => {
+    const classicPreset = db.combos.find((c) => c.code === "PERSEUSDARKB")!;
+    const classic = resolveCombo(index, classicPreset.parts);
+    expect(comboError(classic)).toBeNull();
+    expect(classic.compositeBlade?.key).toBeTruthy();
+    expect(classic.parts.blade).toBeUndefined();
+    expect(classic.parts.mainBlade).toBeTruthy();
+
+    const expandPreset = db.combos.find((c) => c.code === "BAHAMUTBLITZBK")!;
+    const expand = resolveCombo(index, expandPreset.parts);
+    expect(comboError(expand)).toBeNull();
+    expect(expand.compositeMainBlade).toBeTruthy();
+    expect(expand.parts.mainBlade).toBeUndefined();
+    expect(expand.parts.metalBlade).toBeTruthy();
+    expect(expand.parts.overBlade).toBeTruthy();
+
+    const partial = resolveCombo(index, { ...expandPreset.parts, overBlade: null });
+    expect(comboError(partial)).toBe("incomplete-cx");
+    expect(partial.parts.mainBlade).toBeTruthy();
   });
 
   it("bots build legal decks deterministically", () => {
