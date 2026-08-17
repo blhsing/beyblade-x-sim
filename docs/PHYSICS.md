@@ -6,9 +6,11 @@ part stats, and *bit-exact determinism* across devices.
 
 ## Determinism contract
 
-Current deterministic replay/lockstep version: **2**. Version 2 introduces
-distinct-impact, signed discrete Ratchet detent slip; peers or archived
-replays produced by another physics version must not be hash-compared.
+Current deterministic replay/lockstep version: **3**. Version 3 replaces the
+sparse polygonal X-Line evaluator with a shared deterministic piecewise-cubic
+centerline while retaining authored linear release jogs. Version 2 introduced
+distinct-impact, signed discrete Ratchet detent slip. Peers or archived replays
+produced by another physics version must not be hash-compared.
 
 - Fixed timestep **1/240 s**; sim never reads wall-clock time.
 - Only IEEE-deterministic ops in the sim path (`+ − × ÷ sqrt abs floor`).
@@ -42,12 +44,14 @@ phase.
    stumble term when `ω < 120 rad/s`.
 4. **Spin decay**: `muSpin × (base + k·speed)` — travelling costs spin.
    Solo endurance lands in the real 60–180 s band depending on tip.
-5. **Xtreme Line (gear rack)**: each product owns a traced 2-D centerline used
-   by physics and rendering. A dash-capable Bit can mesh, accelerate along the
-   actual curve tangent and leave only on a traced inward ramp. Release keeps
-   the dogleg's inward tangent—there is no opponent-seeking or generic radial
-   sling. The low modeled rack profile can deflect a slow crossing without
-   acting as an invisible wall.
+5. **Xtreme Line (gear rack)**: each product owns one traced 2-D centerline
+   used by physics and rendering. Ordinary spans use cached XY cubic-Hermite
+   curves with a closed C1 seam; only explicitly authored near-radial release
+   jogs remain sharp and linear. A dash-capable Bit can mesh, accelerate along
+   the actual curve tangent and leave only on one of those inward ramps.
+   Release keeps the dogleg's inward tangent—there is no opponent-seeking or
+   generic radial sling. The low modeled rack profile can deflect a slow
+   crossing without acting as an invisible wall.
 6. **Wall & pockets**: wall bounce (restitution + spin-driven tangential
    kick). Each product opening is an explicit 2-D throat/catch union shared
    with rendering and debris. A Bey must cross the clearance-adjusted wall

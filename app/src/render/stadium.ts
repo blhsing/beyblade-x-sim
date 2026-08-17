@@ -342,6 +342,25 @@ function railArcSpan(arc: RailArc): number {
   return direct > 0 ? direct : direct + TAU;
 }
 
+/** Dense enough that an ordinary 140–180 mm-radius span has sub-0.3 mm
+ * centerline chords. Sparse authored knots are also injected exactly so the
+ * intentional molded release corners remain sharp. */
+export const RAIL_RENDER_MAX_ANGLE_STEP = 0.0015;
+
+function railArcSampleAngles(s: StadiumSpec, arc: RailArc, span: number): number[] {
+  const steps = Math.max(512, Math.ceil(span / RAIL_RENDER_MAX_ANGLE_STEP));
+  const end = arc.start + span;
+  const angles = Array.from({ length: steps + 1 }, (_, index) => arc.start + (span * index) / steps);
+  for (const control of s.railTrace ?? []) {
+    let angle = control.angle;
+    while (angle < arc.start - 1e-9) angle += TAU;
+    while (angle > end + 1e-9) angle -= TAU;
+    if (angle > arc.start + 1e-9 && angle < end - 1e-9) angles.push(angle);
+  }
+  angles.sort((a, b) => a - b);
+  return angles.filter((angle, index) => index === 0 || angle - angles[index - 1]! > 1e-9);
+}
+
 function createRailToothGeometry(): THREE.BufferGeometry {
   const { railToothBottomWidthM: bw, railToothTopWidthM: tw, railToothDepthM: d, railToothHeightM: h } =
     STADIUM_MODEL_DIMENSIONS;
@@ -386,7 +405,13 @@ function createRailToothGeometry(): THREE.BufferGeometry {
 
 function createRailRibbon(
   s: StadiumSpec,
-  points: { p: { x: number; y: number }; tangent: { x: number; y: number }; z: number }[],
+  points: {
+    p: { x: number; y: number };
+    tangent: { x: number; y: number };
+    z: number;
+    widthScale?: number;
+  }[],
+  closed = false,
 ): THREE.BufferGeometry {
   // `railHalfWidth` is the Bit capture tolerance in the sim, not solid mold
   // width. The visible rack stays the narrow product-scaled band.
@@ -394,18 +419,25 @@ function createRailRibbon(
   const zTop = STADIUM_MODEL_DIMENSIONS.railChannelThicknessM;
   const positions: number[] = [];
   const indices: number[] = [];
-  for (const point of points) {
+  // A closed arc includes a terminal centerline sample coincident with the
+  // first. Omit that duplicate cross-section and wrap indices back to the
+  // first four vertices so generated normals average across a real welded
+  // seam instead of exposing two glossy boundary-normal sets.
+  const crossSectionCount = closed ? Math.max(0, points.length - 1) : points.length;
+  for (let pointIndex = 0; pointIndex < crossSectionCount; pointIndex++) {
+    const point = points[pointIndex]!;
     const nx = -point.tangent.y;
     const ny = point.tangent.x;
-    positions.push(point.p.x + nx * halfWidth, point.p.y + ny * halfWidth, point.z + zTop);
-    positions.push(point.p.x - nx * halfWidth, point.p.y - ny * halfWidth, point.z + zTop);
-    positions.push(point.p.x + nx * halfWidth, point.p.y + ny * halfWidth, point.z);
-    positions.push(point.p.x - nx * halfWidth, point.p.y - ny * halfWidth, point.z);
+    const width = halfWidth * (point.widthScale ?? 1);
+    positions.push(point.p.x + nx * width, point.p.y + ny * width, point.z + zTop);
+    positions.push(point.p.x - nx * width, point.p.y - ny * width, point.z + zTop);
+    positions.push(point.p.x + nx * width, point.p.y + ny * width, point.z);
+    positions.push(point.p.x - nx * width, point.p.y - ny * width, point.z);
   }
-  const samples = points.length;
-  for (let i = 0; i < samples - 1; i++) {
+  const segmentCount = closed ? crossSectionCount : Math.max(0, crossSectionCount - 1);
+  for (let i = 0; i < segmentCount; i++) {
     const a = i * 4;
-    const b = (i + 1) * 4;
+    const b = ((i + 1) % crossSectionCount) * 4;
     // top, bottom, and both thickness-bearing channel edges
     indices.push(a, b, a + 1, a + 1, b, b + 1);
     indices.push(a + 2, a + 3, b + 2, a + 3, b + 3, b + 2);
@@ -420,8 +452,45 @@ function createRailRibbon(
     shape: "thickness-bearing-rack-channel",
     halfWidthM: halfWidth,
     thicknessM: zTop,
+    cornerJoin: "bounded-miter",
+    closedLoop: closed,
+    seamWelded: closed,
+    crossSectionCount,
   };
   return geometry;
+}
+
+function railRenderFrameAt(
+  s: StadiumSpec,
+  theta: number,
+): { tangent: { x: number; y: number }; widthScale: number; sharp: boolean } {
+  const tangent = railTangentAt(s, theta);
+  const trace = s.railTrace;
+  if (!trace || trace.length < 3) return { tangent, widthScale: 1, sharp: false };
+  const uniqueCount = trace.length - 1;
+  for (let index = 0; index < uniqueCount; index++) {
+    const point = trace[index]!;
+    const previous = trace[(index + uniqueCount - 1) % uniqueCount]!;
+    if (!point.linearToNext && !previous.linearToNext) continue;
+    const delta = Math.atan2(Math.sin(theta - point.angle), Math.cos(theta - point.angle));
+    if (Math.abs(delta) > 1e-8) continue;
+    const incoming = railTangentAt(s, theta - 1e-6);
+    const outgoing = railTangentAt(s, theta + 1e-6);
+    const sumX = incoming.x + outgoing.x;
+    const sumY = incoming.y + outgoing.y;
+    const sumLength = Math.hypot(sumX, sumY);
+    if (sumLength <= 1e-8) return { tangent, widthScale: 1, sharp: true };
+    const miterTangent = { x: sumX / sumLength, y: sumY / sumLength };
+    const incomingNormal = { x: -incoming.y, y: incoming.x };
+    const miterNormal = { x: -miterTangent.y, y: miterTangent.x };
+    const projection = Math.abs(miterNormal.x * incomingNormal.x + miterNormal.y * incomingNormal.y);
+    return {
+      tangent: miterTangent,
+      widthScale: Math.min(1.75, 1 / Math.max(0.58, projection)),
+      sharp: true,
+    };
+  }
+  return { tangent, widthScale: 1, sharp: false };
 }
 
 function createXtremeLine(s: StadiumSpec): THREE.Group {
@@ -432,6 +501,8 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
     toothHeightM: STADIUM_MODEL_DIMENSIONS.railToothHeightM,
     channelThicknessM: STADIUM_MODEL_DIMENSIONS.railChannelThicknessM,
     centerlineSource: "core:railTrace",
+    centerlineInterpolation: "xy-cubic-hermite-with-authored-linear-jogs",
+    maxAngularStepRad: RAIL_RENDER_MAX_ANGLE_STEP,
     releaseArcs: s.railReleaseArcs?.length ?? 0,
     resin: s.name === "bx10" ? "PA" : "product-plastic-unspecified",
   });
@@ -440,37 +511,85 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
     ? "stadium:material:xtreme-line-pa"
     : "stadium:material:xtreme-line-product-plastic";
   const toothGeometry = createRailToothGeometry();
-  const placements: { point: THREE.Vector3; angle: number }[] = [];
+  const placements: {
+    point: THREE.Vector3;
+    angle: number;
+    theta: number;
+    arcIndex: number;
+    arcDistanceM: number;
+  }[] = [];
+  const arcSpacings: number[] = [];
 
   for (let arcIndex = 0; arcIndex < s.railArcs.length; arcIndex++) {
     const arc = s.railArcs[arcIndex]!;
     const span = railArcSpan(arc);
-    const steps = Math.max(256, Math.ceil(span / 0.004));
-    const ribbonPoints: { p: { x: number; y: number }; tangent: { x: number; y: number }; z: number }[] = [];
-    let distanceSinceTooth = STADIUM_MODEL_DIMENSIONS.railToothPitchM;
-    let previous = railPointAt(s, arc.start);
-    for (let i = 0; i <= steps; i++) {
-      const theta = arc.start + (span * i) / steps;
+    const sampleAngles = railArcSampleAngles(s, arc, span);
+    const ribbonPoints: {
+      p: { x: number; y: number };
+      tangent: { x: number; y: number };
+      z: number;
+      theta: number;
+      distanceM: number;
+      widthScale: number;
+    }[] = [];
+    let cumulativeDistance = 0;
+    let previous: { x: number; y: number } | null = null;
+    for (const theta of sampleAngles) {
+      const p = railPointAt(s, theta);
+      const frame = railRenderFrameAt(s, theta);
+      const tangent = frame.tangent;
+      const z = surfaceZAt(s, p.x, p.y) + 0.0002;
+      if (previous) cumulativeDistance += Math.hypot(p.x - previous.x, p.y - previous.y);
+      ribbonPoints.push({ p, tangent, z, theta, distanceM: cumulativeDistance, widthScale: frame.widthScale });
+      previous = p;
+    }
+    const closed = span >= TAU - 1e-6;
+    const nominalPitch = STADIUM_MODEL_DIMENSIONS.railToothPitchM;
+    const toothCount = closed
+      ? Math.max(1, Math.round(cumulativeDistance / nominalPitch))
+      : Math.max(1, Math.floor(cumulativeDistance / nominalPitch) + 1);
+    const spacing = closed ? cumulativeDistance / toothCount : nominalPitch;
+    arcSpacings.push(spacing);
+    let sampleIndex = 1;
+    for (let toothIndex = 0; toothIndex < toothCount; toothIndex++) {
+      const targetDistance = toothIndex * spacing;
+      while (
+        sampleIndex < ribbonPoints.length - 1 &&
+        ribbonPoints[sampleIndex]!.distanceM < targetDistance
+      ) sampleIndex++;
+      const before = ribbonPoints[Math.max(0, sampleIndex - 1)]!;
+      const after = ribbonPoints[sampleIndex]!;
+      const interval = after.distanceM - before.distanceM;
+      const u = interval > 1e-12 ? (targetDistance - before.distanceM) / interval : 0;
+      const theta = before.theta + (after.theta - before.theta) * u;
       const p = railPointAt(s, theta);
       const tangent = railTangentAt(s, theta);
       const z = surfaceZAt(s, p.x, p.y) + 0.0002;
-      ribbonPoints.push({ p, tangent, z });
-      if (i > 0) distanceSinceTooth += Math.hypot(p.x - previous.x, p.y - previous.y);
-      if (distanceSinceTooth >= STADIUM_MODEL_DIMENSIONS.railToothPitchM) {
-        distanceSinceTooth %= STADIUM_MODEL_DIMENSIONS.railToothPitchM;
-        placements.push({
-          point: new THREE.Vector3(p.x, p.y, z + STADIUM_MODEL_DIMENSIONS.railChannelThicknessM),
-          angle: Math.atan2(tangent.y, tangent.x),
-        });
-      }
-      previous = p;
+      placements.push({
+        point: new THREE.Vector3(p.x, p.y, z + STADIUM_MODEL_DIMENSIONS.railChannelThicknessM),
+        angle: Math.atan2(tangent.y, tangent.x),
+        theta,
+        arcIndex,
+        arcDistanceM: targetDistance,
+      });
     }
-    const channel = configureMesh(new THREE.Mesh(createRailRibbon(s, ribbonPoints), railMat), false, true);
+    const channel = configureMesh(new THREE.Mesh(createRailRibbon(s, ribbonPoints, closed), railMat), false, true);
     setMeshName(channel, `stadium:xtreme-line-channel:${arcIndex}`, {
       arcStart: arc.start,
       arcEnd: arc.end,
       thicknessM: STADIUM_MODEL_DIMENSIONS.railChannelThicknessM,
       sampleCount: ribbonPoints.length,
+      maxAngularStepRad: sampleAngles.slice(1).reduce(
+        (maximum, angle, index) => Math.max(maximum, angle - sampleAngles[index]!),
+        0,
+      ),
+      interpolation: "core:xy-cubic-hermite-with-authored-linear-jogs",
+      cornerJoin: "bounded-miter",
+      authoredSharpKnots: (s.railTrace ?? []).filter((point, index, trace) =>
+        Boolean(point.linearToNext || trace[(index + trace.length - 2) % (trace.length - 1)]?.linearToNext)
+      ).length,
+      arcLengthM: cumulativeDistance,
+      toothSpacingM: spacing,
     });
     group.add(channel);
   }
@@ -491,6 +610,11 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
     shape: "trapezoidal-rack-prism",
     count: placements.length,
     pitchM: STADIUM_MODEL_DIMENSIONS.railToothPitchM,
+    spacingMethod: "closed-loop-arc-length",
+    actualPitchM: arcSpacings.length === 1 ? arcSpacings[0] : undefined,
+    placementAngles: placements.map((placement) => placement.theta),
+    placementArcIndices: placements.map((placement) => placement.arcIndex),
+    placementArcDistancesM: placements.map((placement) => placement.arcDistanceM),
     heightM: STADIUM_MODEL_DIMENSIONS.railToothHeightM,
     bottomWidthM: STADIUM_MODEL_DIMENSIONS.railToothBottomWidthM,
     topWidthM: STADIUM_MODEL_DIMENSIONS.railToothTopWidthM,

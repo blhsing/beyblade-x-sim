@@ -113,9 +113,12 @@ Lock Chip + Main + Assist, or Expand Lock Chip + Metal + Over + Assist.
   as **PP**. The pale battle tray and mostly transparent, faceted outer casing
   are shaded separately; no ABS or polycarbonate chemistry is inferred.
 - The continuous Xtreme Line follows a product-specific traced centerline,
-  including the asymmetric rear-right inward dogleg. Its 5.0 mm tooth pitch,
-  2.2 mm tooth height, 0.7 mm base channel and trapezoidal profile are
-  conservative photo/Bit-engagement model estimates, not published Takara
+  including the asymmetric rear-right inward dogleg. Ordinary spans are
+  smooth XY cubics sampled at no more than 0.0015 rad (over 4,000 sections per
+  loop); the authored release jogs remain sharp with bounded miter joins.
+  Teeth are spaced around the closed loop by arc length. The 5.0 mm nominal
+  tooth pitch, 2.2 mm tooth height, 0.7 mm base channel and trapezoidal profile
+  are conservative photo/Bit-engagement model estimates, not published Takara
   Tomy mold dimensions.
 - The official top-view play diagram has exactly three openings at the front:
   a broad center Xtreme Zone flanked by two Over Zones. Each is a real 2-D

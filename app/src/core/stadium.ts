@@ -50,11 +50,13 @@ export interface RailDip {
   depth: number;
 }
 
-/** Photo-traced periodic X-Line control point. Adjacent controls are joined
- * in the product's XY plane, not by a polar-radius interpolation. */
+/** Photo-traced periodic X-Line control point. Ordinary spans use a smooth
+ * cubic in the product's XY plane. `linearToNext` preserves the deliberately
+ * sharp, near-radial molded release jogs instead of rounding them away. */
 export interface RailTracePoint {
   angle: number;
   radius: number;
+  linearToNext?: boolean;
 }
 
 export interface StadiumSpec {
@@ -128,13 +130,13 @@ export const STADIUM_BX10: StadiumSpec = {
     { angle: -0.35, radius: 0.138 },
     { angle: 0, radius: 0.138 },
     { angle: 0.35, radius: 0.138 },
-    { angle: 0.56, radius: 0.138 },
+    { angle: 0.56, radius: 0.138, linearToNext: true },
     // Abrupt, near-radial molded jog into the bay. This segment—not a
     // target-seeking impulse—aims a clockwise X-Dash through the center.
     { angle: 0.64, radius: 0.105 },
     { angle: 0.78, radius: 0.104 },
     { angle: 0.92, radius: 0.104 },
-    { angle: 0.98, radius: 0.105 },
+    { angle: 0.98, radius: 0.105, linearToNext: true },
     // Mirrored outward jog supplies the counter-clockwise inward release.
     { angle: 1.06, radius: 0.138 },
     { angle: 1.4, radius: 0.139 },
@@ -237,13 +239,13 @@ export const STADIUM_BX32: StadiumSpec = {
     { angle: 0, radius: 0.178 },
     { angle: 0.46, radius: 0.173 },
     { angle: 0.73, radius: 0.161 },
-    { angle: 1.1, radius: 0.146 },
+    { angle: 1.1, radius: 0.146, linearToNext: true },
     // The Wide Stadium also uses sharp XY doglegs, not an elliptical cosine
     // depression. Its long inner run forms the rear-center attack bay.
     { angle: 1.16, radius: 0.119 },
     { angle: 1.4, radius: 0.118 },
     { angle: 1.7, radius: 0.118 },
-    { angle: 1.96, radius: 0.119 },
+    { angle: 1.96, radius: 0.119, linearToNext: true },
     { angle: 2.02, radius: 0.148 },
     { angle: 2.43, radius: 0.161 },
     { angle: 2.75, radius: 0.174 },
@@ -711,48 +713,135 @@ export function surfaceSlope(s: StadiumSpec, r: number): number {
 // ---- rail curve (deterministic — used by the sim) -------------------------
 
 interface RailTraceSegment {
+  segment: CompiledRailSegment;
+  index: number;
+  u: number;
+}
+
+interface CompiledRailSegment {
   a: RailTracePoint;
   b: RailTracePoint;
   pa: Point2;
   pb: Point2;
+  /** Chord, retained for exact linear jogs and nearest-point seeding. */
   dx: number;
   dy: number;
   length: number;
   length2: number;
-  u: number;
+  angleWidth: number;
+  linear: boolean;
+  /** Cubic-Hermite endpoint derivatives scaled from dP/dθ to dP/du. */
+  m0x: number;
+  m0y: number;
+  m1x: number;
+  m1y: number;
 }
 
-type CompiledRailSegment = Omit<RailTraceSegment, "u">;
 const COMPILED_RAIL_TRACES = new WeakMap<readonly RailTracePoint[], readonly CompiledRailSegment[]>();
+const COMPILED_LINEAR_RAIL_SEGMENTS = new WeakMap<readonly RailTracePoint[], readonly number[]>();
 
 function compiledRailTrace(trace: readonly RailTracePoint[]): readonly CompiledRailSegment[] {
   const cached = COMPILED_RAIL_TRACES.get(trace);
   if (cached) return cached;
+  const points = trace.map(traceControlPoint);
+  const segmentCount = trace.length - 1;
+  const fullTurn = PI * 2;
+  const linearSegment = (index: number): boolean => Boolean(trace[index]?.linearToNext);
+  const derivativeAt = (controlIndex: number): Point2 => {
+    // The final +π point duplicates -π. Use the same centered derivative on
+    // both sides so the molded loop closes without a shading/normal seam.
+    const index = controlIndex === segmentCount ? 0 : controlIndex;
+    const previousSegment = index === 0 ? segmentCount - 1 : index - 1;
+    const nextSegment = index;
+    const previousIsSmooth = !linearSegment(previousSegment);
+    const nextIsSmooth = !linearSegment(nextSegment);
+    const current = points[index]!;
+    const currentAngle = trace[index]!.angle;
+    const previousIndex = index === 0 ? segmentCount - 1 : index - 1;
+    const nextIndex = index + 1;
+    const previous = points[previousIndex]!;
+    const next = points[nextIndex]!;
+    const previousAngle = index === 0
+      ? trace[previousIndex]!.angle - fullTurn
+      : trace[previousIndex]!.angle;
+    const nextAngle = trace[nextIndex]!.angle;
+
+    if (previousIsSmooth && nextIsSmooth) {
+      const width = nextAngle - previousAngle;
+      return width > 1e-12
+        ? { x: (next.x - previous.x) / width, y: (next.y - previous.y) / width }
+        : { x: 0, y: 0 };
+    }
+    if (nextIsSmooth) {
+      const width = nextAngle - currentAngle;
+      return width > 1e-12
+        ? { x: (next.x - current.x) / width, y: (next.y - current.y) / width }
+        : { x: 0, y: 0 };
+    }
+    if (previousIsSmooth) {
+      const width = currentAngle - previousAngle;
+      return width > 1e-12
+        ? { x: (current.x - previous.x) / width, y: (current.y - previous.y) / width }
+        : { x: 0, y: 0 };
+    }
+    return { x: 0, y: 0 };
+  };
+
   const compiled: CompiledRailSegment[] = [];
-  for (let index = 0; index < trace.length - 1; index++) {
+  for (let index = 0; index < segmentCount; index++) {
     const a = trace[index]!;
     const b = trace[index + 1]!;
-    const pa = traceControlPoint(a);
-    const pb = traceControlPoint(b);
+    const pa = points[index]!;
+    const pb = points[index + 1]!;
     const dx = pb.x - pa.x;
     const dy = pb.y - pa.y;
     const length2 = dx * dx + dy * dy;
-    compiled.push({ a, b, pa, pb, dx, dy, length2, length: Math.sqrt(length2) });
+    const angleWidth = b.angle - a.angle;
+    const d0 = derivativeAt(index);
+    const d1 = derivativeAt(index + 1);
+    compiled.push({
+      a,
+      b,
+      pa,
+      pb,
+      dx,
+      dy,
+      length2,
+      length: Math.sqrt(length2),
+      angleWidth,
+      linear: linearSegment(index),
+      m0x: d0.x * angleWidth,
+      m0y: d0.y * angleWidth,
+      m1x: d1.x * angleWidth,
+      m1y: d1.y * angleWidth,
+    });
   }
   COMPILED_RAIL_TRACES.set(trace, compiled);
+  COMPILED_LINEAR_RAIL_SEGMENTS.set(
+    trace,
+    compiled.flatMap((segment, index) => segment.linear ? [index] : []),
+  );
   return compiled;
 }
 
 function railTraceSegmentAt(trace: readonly RailTracePoint[], theta: number): RailTraceSegment {
   const angle = wrapAngle(theta);
   const compiled = compiledRailTrace(trace);
-  for (const segment of compiled) {
-    if (angle < segment.a.angle || angle > segment.b.angle) continue;
-    const width = segment.b.angle - segment.a.angle;
-    return { ...segment, u: width > 1e-12 ? (angle - segment.a.angle) / width : 0 };
+  // Lower-bound on segment end preserves the old exact-knot convention: a
+  // sharp knot belongs to its incoming segment, while smooth knots are C1.
+  let low = 0;
+  let high = compiled.length - 1;
+  while (low < high) {
+    const middle = (low + high) >>> 1;
+    if (angle <= compiled[middle]!.b.angle) high = middle;
+    else low = middle + 1;
   }
-  const segment = angle <= trace[0]!.angle ? compiled[0]! : compiled[compiled.length - 1]!;
-  return { ...segment, u: angle <= trace[0]!.angle ? 0 : 1 };
+  const index = angle <= trace[0]!.angle ? 0 : low;
+  const segment = compiled[index]!;
+  const u = segment.angleWidth > 1e-12
+    ? Math.max(0, Math.min(1, (angle - segment.a.angle) / segment.angleWidth))
+    : 0;
+  return { segment, index, u };
 }
 
 function traceControlPoint(point: RailTracePoint): Point2 {
@@ -762,12 +851,50 @@ function traceControlPoint(point: RailTracePoint): Point2 {
   };
 }
 
-function tracedRailPointAt(trace: readonly RailTracePoint[], theta: number): Point2 {
-  const { pa, dx, dy, u } = railTraceSegmentAt(trace, theta);
+function pointOnRailSegment(segment: CompiledRailSegment, u: number): Point2 {
+  if (segment.linear) {
+    return { x: segment.pa.x + segment.dx * u, y: segment.pa.y + segment.dy * u };
+  }
+  const u2 = u * u;
+  const u3 = u2 * u;
+  const h00 = 2 * u3 - 3 * u2 + 1;
+  const h10 = u3 - 2 * u2 + u;
+  const h01 = -2 * u3 + 3 * u2;
+  const h11 = u3 - u2;
   return {
-    x: pa.x + dx * u,
-    y: pa.y + dy * u,
+    x: h00 * segment.pa.x + h10 * segment.m0x + h01 * segment.pb.x + h11 * segment.m1x,
+    y: h00 * segment.pa.y + h10 * segment.m0y + h01 * segment.pb.y + h11 * segment.m1y,
   };
+}
+
+function derivativeOnRailSegment(segment: CompiledRailSegment, u: number): Point2 {
+  if (segment.linear) return { x: segment.dx, y: segment.dy };
+  const u2 = u * u;
+  const h00 = 6 * u2 - 6 * u;
+  const h10 = 3 * u2 - 4 * u + 1;
+  const h01 = -6 * u2 + 6 * u;
+  const h11 = 3 * u2 - 2 * u;
+  return {
+    x: h00 * segment.pa.x + h10 * segment.m0x + h01 * segment.pb.x + h11 * segment.m1x,
+    y: h00 * segment.pa.y + h10 * segment.m0y + h01 * segment.pb.y + h11 * segment.m1y,
+  };
+}
+
+function secondDerivativeOnRailSegment(segment: CompiledRailSegment, u: number): Point2 {
+  if (segment.linear) return { x: 0, y: 0 };
+  const h00 = 12 * u - 6;
+  const h10 = 6 * u - 4;
+  const h01 = -12 * u + 6;
+  const h11 = 6 * u - 2;
+  return {
+    x: h00 * segment.pa.x + h10 * segment.m0x + h01 * segment.pb.x + h11 * segment.m1x,
+    y: h00 * segment.pa.y + h10 * segment.m0y + h01 * segment.pb.y + h11 * segment.m1y,
+  };
+}
+
+function tracedRailPointAt(trace: readonly RailTracePoint[], theta: number): Point2 {
+  const { segment, u } = railTraceSegmentAt(trace, theta);
+  return pointOnRailSegment(segment, u);
 }
 
 /** Radial distance of the Xtreme Line at polar parameter θ. */
@@ -803,8 +930,10 @@ export function railPointAt(s: StadiumSpec, theta: number): { x: number; y: numb
 /** Unit tangent of the rail curve (central difference — deterministic). */
 export function railTangentAt(s: StadiumSpec, theta: number): { x: number; y: number } {
   if (s.railTrace && s.railTrace.length >= 2) {
-    const { dx, dy, length } = railTraceSegmentAt(s.railTrace, theta);
-    if (length > 1e-12) return { x: dx / length, y: dy / length };
+    const { segment, u } = railTraceSegmentAt(s.railTrace, theta);
+    const derivative = derivativeOnRailSegment(segment, u);
+    const length = Math.sqrt(derivative.x * derivative.x + derivative.y * derivative.y);
+    if (length > 1e-12) return { x: derivative.x / length, y: derivative.y / length };
   }
   const h = 0.001;
   const p0 = railPointAt(s, theta - h);
@@ -826,6 +955,61 @@ export interface RailClosestPoint {
   distance: number;
 }
 
+interface RailSegmentNearest {
+  u: number;
+  point: Point2;
+  tangent: Point2;
+  distance2: number;
+}
+
+function nearestPointOnRailSegment(segment: CompiledRailSegment, x: number, y: number): RailSegmentNearest {
+  let u = segment.length2 > 1e-14
+    ? Math.max(0, Math.min(1, ((x - segment.pa.x) * segment.dx + (y - segment.pa.y) * segment.dy) / segment.length2))
+    : 0;
+  if (!segment.linear) {
+    // A few bounded Newton projections are enough for these low-curvature
+    // photo traces. This avoids scanning a dense LUT on every 240 Hz tick.
+    for (let iteration = 0; iteration < 3; iteration++) {
+      const point = pointOnRailSegment(segment, u);
+      const first = derivativeOnRailSegment(segment, u);
+      const second = secondDerivativeOnRailSegment(segment, u);
+      const rx = point.x - x;
+      const ry = point.y - y;
+      const numerator = rx * first.x + ry * first.y;
+      const denominator = first.x * first.x + first.y * first.y + rx * second.x + ry * second.y;
+      if (Math.abs(denominator) <= 1e-14) break;
+      const next = Math.max(0, Math.min(1, u - numerator / denominator));
+      if (Math.abs(next - u) <= 1e-8) {
+        u = next;
+        break;
+      }
+      u = next;
+    }
+  }
+  let point = pointOnRailSegment(segment, u);
+  let distance2 = (point.x - x) ** 2 + (point.y - y) ** 2;
+  // Newton may settle at a non-minimum on a very short transition. Endpoints
+  // make the local solve conservative without expanding the hot-path search.
+  const startDistance2 = (segment.pa.x - x) ** 2 + (segment.pa.y - y) ** 2;
+  if (startDistance2 < distance2) {
+    u = 0;
+    point = segment.pa;
+    distance2 = startDistance2;
+  }
+  const endDistance2 = (segment.pb.x - x) ** 2 + (segment.pb.y - y) ** 2;
+  if (endDistance2 < distance2) {
+    u = 1;
+    point = segment.pb;
+    distance2 = endDistance2;
+  }
+  const derivative = derivativeOnRailSegment(segment, u);
+  const tangentLength = Math.sqrt(derivative.x * derivative.x + derivative.y * derivative.y);
+  const tangent = tangentLength > 1e-12
+    ? { x: derivative.x / tangentLength, y: derivative.y / tangentLength }
+    : { x: 1, y: 0 };
+  return { u, point, tangent, distance2 };
+}
+
 /** Deterministic local closest-point solve on the shared traced centerline. */
 export function railClosestPoint(s: StadiumSpec, x: number, y: number): RailClosestPoint {
   let theta: number;
@@ -834,23 +1018,41 @@ export function railClosestPoint(s: StadiumSpec, x: number, y: number): RailClos
   let bestDistance2 = Infinity;
   if (s.railTrace && s.railTrace.length >= 2) {
     const compiled = compiledRailTrace(s.railTrace);
-    theta = compiled[0]!.a.angle;
-    point = compiled[0]!.pa;
+    const local = railTraceSegmentAt(s.railTrace, datan2(y, x));
+    theta = local.segment.a.angle;
+    point = local.segment.pa;
     tangent = { x: 1, y: 0 };
-    for (const segment of compiled) {
-      const u = segment.length2 > 1e-14
-        ? Math.max(0, Math.min(1, ((x - segment.pa.x) * segment.dx + (y - segment.pa.y) * segment.dy) / segment.length2))
-        : 0;
-      const candidate = { x: segment.pa.x + segment.dx * u, y: segment.pa.y + segment.dy * u };
-      const distance2 = (candidate.x - x) ** 2 + (candidate.y - y) ** 2;
-      if (distance2 < bestDistance2) {
-        bestDistance2 = distance2;
-        theta = segment.a.angle + (segment.b.angle - segment.a.angle) * u;
-        point = candidate;
-        tangent = segment.length > 1e-12
-          ? { x: segment.dx / segment.length, y: segment.dy / segment.length }
-          : { x: 1, y: 0 };
-      }
+    // The authored rails are star-shaped. Ordinary contact resolves on the
+    // polar span (plus an endpoint neighbour); cached direct checks of the two
+    // authored linear jogs cover their larger angular normal offsets.
+    const accept = (index: number, nearest: RailSegmentNearest): void => {
+      if (nearest.distance2 >= bestDistance2) return;
+      const segment = compiled[index]!;
+      bestDistance2 = nearest.distance2;
+      theta = segment.a.angle + segment.angleWidth * nearest.u;
+      point = nearest.point;
+      tangent = nearest.tangent;
+    };
+    const nearest = nearestPointOnRailSegment(local.segment, x, y);
+    accept(local.index, nearest);
+    // Ordinary points solve on their polar span alone. Only a projection at
+    // a span endpoint can belong to a neighbour; this keeps terrain builds
+    // and the 240 Hz contact path bounded to one cubic in the common case.
+    if (nearest.u <= 0.02) {
+      const previous = (local.index + compiled.length - 1) % compiled.length;
+      accept(previous, nearestPointOnRailSegment(compiled[previous]!, x, y));
+    }
+    if (nearest.u >= 0.98) {
+      const next = (local.index + 1) % compiled.length;
+      accept(next, nearestPointOnRailSegment(compiled[next]!, x, y));
+    }
+    // A normal offset from a near-radial jog can change polar angle by more
+    // than one sparse control span. There are only two authored jogs per
+    // product, so test those cached straight segments directly rather than
+    // widening every query into a dense/global scan.
+    for (const index of COMPILED_LINEAR_RAIL_SEGMENTS.get(s.railTrace) ?? []) {
+      if (index === local.index) continue;
+      accept(index, nearestPointOnRailSegment(compiled[index]!, x, y));
     }
   } else {
     theta = datan2(y, x);

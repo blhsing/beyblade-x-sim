@@ -52,7 +52,13 @@ import {
 } from "./launcher";
 import { RT_PRESETS, RayMarchComposer, markReflective } from "./rt";
 import { buildStadiumModel, disposeStadiumModel } from "./stadium";
-import { applyStopTopplePose, persistentStopToppleDwell, pocketToppleDwell } from "./topple";
+import {
+  applyBalanceTopplePose,
+  applyStopTopplePose,
+  balanceTopplePose,
+  persistentStopToppleDwell,
+  pocketToppleDwell,
+} from "./topple";
 
 export { buildBeyMesh } from "./parts";
 
@@ -120,10 +126,6 @@ function disposeModel(root: THREE.Object3D): void {
   for (const geometry of geometries) geometry.dispose();
   for (const material of materials) material.dispose();
 }
-
-/** |ω| where a bey starts visibly wobbling, well above OMEGA_STOP so the
- * wind-down is watchable rather than an abrupt stop. */
-const WOBBLE_OMEGA = 55;
 
 export type CameraMode = "orbit" | "gyro" | "launch" | "cinema";
 
@@ -1242,6 +1244,11 @@ export class BattleView {
           Math.max(b.stopDwell, pocketToppleDwell(b.pocketDwell)),
         );
         this.stopToppleDwell[i] = visualStopDwell;
+        const balancePose = balanceTopplePose(
+          absOmega,
+          visualStopDwell,
+          this.beyRadius[i] ?? 0.024,
+        );
         const blurMesh = m.getObjectByName("blurRing") as THREE.Mesh | undefined;
         if (blurMesh) {
           const bm = blurMesh.material as THREE.ShaderMaterial;
@@ -1251,11 +1258,12 @@ export class BattleView {
         if (b.airborne || preservesLaunchAxis) {
           // Preserve the full tilted top axis composed above until touchdown.
         } else if (!b.alive) {
-          // If a zero-spin Bey was already falling when the terminal latch
-          // hit arrived, release from that real side-lying pose.
-          if (visualStopDwell > 0) {
-            applyStopTopplePose(
+          // Release from the real low-RPM precession/fall pose rather than
+          // snapping the assembly upright at the terminal latch hit.
+          if (balancePose.angleRad > 0) {
+            applyBalanceTopplePose(
               m,
+              absOmega,
               visualStopDwell,
               this.beyRadius[i] ?? 0.024,
               visualSpin,
@@ -1263,22 +1271,17 @@ export class BattleView {
             );
           }
           this.separateBurstBey(i, b);
-        } else if (visualStopDwell > 0 || b.stoppedTick >= 0) {
-          // The core now requires exactly zero spin plus a 0.6 s static dwell.
-          // Use that same progress, so the finish never freezes an upright Bey
-          // and render-frame rate cannot change how far it has toppled.
-          applyStopTopplePose(
+        } else if (balancePose.angleRad > 0 || b.stoppedTick >= 0) {
+          // Gyroscopic balance visibly fails before exact zero. Gravity then
+          // completes the fall early in the core's longer confirmation dwell.
+          applyBalanceTopplePose(
             m,
+            absOmega,
             visualStopDwell,
             this.beyRadius[i] ?? 0.024,
             visualSpin,
             groundHeight,
           );
-        } else if (absOmega < WOBBLE_OMEGA) {
-          // wobble grows as the bey winds down, so the moment it is called
-          // stopped it has visibly been dying for a while (not a sudden cut)
-          const t = 1 - absOmega / WOBBLE_OMEGA;
-          m.rotation.x = Math.sin(b.phase * 0.23) * t * t * 0.5;
         } else {
           m.rotation.x = 0;
         }

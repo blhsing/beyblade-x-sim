@@ -75,7 +75,7 @@ const FLAT: StadiumSpec = {
 
 describe("physical Ratchet detent slip", () => {
   it("publishes the incompatible deterministic-physics version", () => {
-    expect(PHYSICS_VERSION).toBe(2);
+    expect(PHYSICS_VERSION).toBe(3);
   });
 
   it("uses a fixed-resistance Ratchet's stat independently of the selected Bit", () => {

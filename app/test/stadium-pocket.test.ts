@@ -10,11 +10,13 @@ import {
   railClosestPoint,
   railPointAt,
   railReleaseDirectionAt,
+  railTangentAt,
   stadiumBoundaryRadiusAt,
   stadiumBoundarySignedDistance,
   stadiumBodyRadiusAt,
   STADIUM_BX10,
   STADIUM_BX32,
+  STADIUM_GEOMETRY,
   type StadiumSpec,
 } from "../src/core/stadium";
 import {
@@ -80,6 +82,21 @@ function groundBey(cfg: WorldConfig, stadium: StadiumSpec, pocketIndex: number, 
     railTicks: -1,
   });
   return { world, bey, pocket, target };
+}
+
+function properSegmentsCross(
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+  c: { x: number; y: number },
+  d: { x: number; y: number },
+): boolean {
+  const side = (p: typeof a, q: typeof a, r: typeof a) =>
+    (q.x - p.x) * (r.y - p.y) - (q.y - p.y) * (r.x - p.x);
+  const abC = side(a, b, c);
+  const abD = side(a, b, d);
+  const cdA = side(c, d, a);
+  const cdB = side(c, d, b);
+  return abC * abD < -1e-14 && cdA * cdB < -1e-14;
 }
 
 describe("product-accurate stadium openings", () => {
@@ -170,6 +187,86 @@ describe("product-accurate stadium openings", () => {
       // of maximum authored Beys (2 × 26.25 mm), before bowl gravity helps.
       expect(Math.abs(first!.x), `${stadium.name} direction ${direction} first release at ${first!.angle}`)
         .toBeLessThanOrEqual(params.radiusM * 2);
+    }
+  });
+
+  it.each([STADIUM_BX10, STADIUM_BX32])("smooths ordinary X-Line knots but preserves only the authored sharp release jogs in %s", (stadium) => {
+    const trace = stadium.railTrace!;
+    const uniqueCount = trace.length - 1;
+    expect(trace.filter((point) => point.linearToNext)).toHaveLength(2);
+    expect(trace.filter((point) => point.linearToNext).map((point) => point.angle)).toEqual(
+      stadium.railReleaseArcs!.map((arc) => arc.start),
+    );
+    let sharpKnots = 0;
+    for (let index = 0; index < uniqueCount; index++) {
+      const point = trace[index]!;
+      const previous = trace[(index + uniqueCount - 1) % uniqueCount]!;
+      const sharp = Boolean(point.linearToNext || previous.linearToNext);
+      const incoming = railTangentAt(stadium, point.angle - 1e-6);
+      const outgoing = railTangentAt(stadium, point.angle + 1e-6);
+      const tangentDot = incoming.x * outgoing.x + incoming.y * outgoing.y;
+      if (sharp) {
+        sharpKnots++;
+        expect(tangentDot, `rounded authored jog at ${point.angle}`).toBeLessThan(0.9);
+      } else {
+        expect(tangentDot, `faceted ordinary knot at ${point.angle}`).toBeGreaterThan(0.9999);
+      }
+    }
+    expect(sharpKnots).toBe(4);
+    const start = railPointAt(stadium, -Math.PI);
+    const end = railPointAt(stadium, Math.PI - 1e-9);
+    expect(Math.hypot(start.x - end.x, start.y - end.y)).toBeLessThan(1e-7);
+    const seamBefore = railTangentAt(stadium, Math.PI - 1e-6);
+    const seamAfter = railTangentAt(stadium, -Math.PI + 1e-6);
+    expect(seamBefore.x * seamAfter.x + seamBefore.y * seamAfter.y).toBeGreaterThan(0.9999);
+  });
+
+  it.each([STADIUM_BX10, STADIUM_BX32])("keeps the dense shared X-Line simple, inside the bowl, and clear of pocket apertures in %s", (stadium) => {
+    const sampleCount = 480;
+    const points = Array.from({ length: sampleCount }, (_, index) =>
+      railPointAt(stadium, -Math.PI + (Math.PI * 2 * index) / sampleCount)
+    );
+    for (const point of points) {
+      expect(stadiumBoundarySignedDistance(stadium, point.x, point.y))
+        .toBeLessThan(-STADIUM_GEOMETRY.railPhysicalHalfWidthM);
+      expect(pocketAtPoint(stadium, point.x, point.y)).toBeNull();
+    }
+    let intersection: [number, number] | null = null;
+    for (let first = 0; first < sampleCount && !intersection; first++) {
+      const firstNext = (first + 1) % sampleCount;
+      for (let second = first + 2; second < sampleCount; second++) {
+        const secondNext = (second + 1) % sampleCount;
+        if (first === 0 && secondNext === 0) continue;
+        if (properSegmentsCross(points[first]!, points[firstNext]!, points[second]!, points[secondNext]!)) {
+          intersection = [first, second];
+          break;
+        }
+      }
+    }
+    expect(intersection).toBeNull();
+  });
+
+  it.each([STADIUM_BX10, STADIUM_BX32])("matches a dense closest-point reference across the full physical rack width in %s", (stadium) => {
+    const angleSamples = 72;
+    for (let index = 0; index < angleSamples; index++) {
+      const angle = -Math.PI + (Math.PI * 2 * index) / angleSamples;
+      const point = railPointAt(stadium, angle);
+      const tangent = railTangentAt(stadium, angle);
+      let normal = { x: -tangent.y, y: tangent.x };
+      if (normal.x * point.x + normal.y * point.y < 0) normal = { x: -normal.x, y: -normal.y };
+      for (const offset of [-stadium.railHalfWidth, 0, stadium.railHalfWidth]) {
+        const x = point.x + normal.x * offset;
+        const y = point.y + normal.y * offset;
+        let reference = Infinity;
+        for (let stepIndex = -240; stepIndex <= 240; stepIndex++) {
+          const candidate = railPointAt(stadium, angle + stepIndex * 0.000625);
+          reference = Math.min(reference, Math.hypot(candidate.x - x, candidate.y - y));
+        }
+        const actual = railClosestPoint(stadium, x, y);
+        expect(Math.abs(actual.distance - reference), `closest mismatch at ${angle}/${offset}`)
+          .toBeLessThan(0.0002);
+        expect(Math.abs(Math.hypot(actual.normal.x, actual.normal.y) - 1)).toBeLessThan(1e-9);
+      }
     }
   });
 });

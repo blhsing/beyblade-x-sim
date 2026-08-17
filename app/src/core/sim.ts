@@ -34,7 +34,7 @@ import type {
 export const DT = 1 / 240;
 export const TICKS_PER_SECOND = 240;
 /** Increment whenever deterministic state evolution changes incompatibly. */
-export const PHYSICS_VERSION = 2;
+export const PHYSICS_VERSION = 3;
 
 const G = 9.81;
 // Stop means visually and mechanically settled, not merely crossing a low-

@@ -5,6 +5,8 @@ import {
   pocketCatchPolygon,
   pocketPolygon,
   pointInConvexPolygon,
+  railPointAt,
+  railTangentAt,
   stadiumBoundarySignedDistance,
   STADIUM_BX10,
   STADIUM_BX32,
@@ -13,6 +15,7 @@ import {
 import {
   buildStadiumModel,
   disposeStadiumModel,
+  RAIL_RENDER_MAX_ANGLE_STEP,
   STADIUM_MODEL_DIMENSIONS,
   stadiumTriangleCount,
 } from "../src/render/stadium";
@@ -120,7 +123,88 @@ describe("reference-driven stadium models", () => {
     expect(channel.geometry.userData).toMatchObject({
       shape: "thickness-bearing-rack-channel",
       thicknessM: STADIUM_MODEL_DIMENSIONS.railChannelThicknessM,
+      cornerJoin: "bounded-miter",
+      closedLoop: true,
+      seamWelded: true,
     });
+    expect(line.userData).toMatchObject({
+      centerlineInterpolation: "xy-cubic-hermite-with-authored-linear-jogs",
+      maxAngularStepRad: RAIL_RENDER_MAX_ANGLE_STEP,
+    });
+    expect(channel.userData).toMatchObject({
+      interpolation: "core:xy-cubic-hermite-with-authored-linear-jogs",
+      cornerJoin: "bounded-miter",
+      authoredSharpKnots: 4,
+    });
+    expect(channel.userData.sampleCount).toBeGreaterThan(4_000);
+    expect(channel.userData.maxAngularStepRad).toBeLessThanOrEqual(RAIL_RENDER_MAX_ANGLE_STEP + 1e-12);
+    const channelPosition = channel.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const channelNormal = channel.geometry.getAttribute("normal") as THREE.BufferAttribute;
+    const channelIndex = channel.geometry.index!;
+    const crossSectionCount = channel.geometry.userData.crossSectionCount as number;
+    const closingFaceOffset = (crossSectionCount - 1) * 24;
+    const wrappedSeamVertex = channelIndex.getX(closingFaceOffset + 1);
+    expect(wrappedSeamVertex).toBe(0);
+    expect(Math.hypot(
+      channelPosition.getX(wrappedSeamVertex) - channelPosition.getX(0),
+      channelPosition.getY(wrappedSeamVertex) - channelPosition.getY(0),
+      channelPosition.getZ(wrappedSeamVertex) - channelPosition.getZ(0),
+    )).toBeLessThan(1e-9);
+    let minimumSeamNormalDot = 1;
+    for (let vertex = 0; vertex < 4; vertex++) {
+      const before = (crossSectionCount - 1) * 4 + vertex;
+      minimumSeamNormalDot = Math.min(
+        minimumSeamNormalDot,
+        channelNormal.getX(before) * channelNormal.getX(vertex) +
+          channelNormal.getY(before) * channelNormal.getY(vertex) +
+          channelNormal.getZ(before) * channelNormal.getZ(vertex),
+      );
+    }
+    expect(minimumSeamNormalDot).toBeGreaterThan(0.99999);
+    let minimumTriangleArea2 = Infinity;
+    const edgeA = new THREE.Vector3();
+    const edgeB = new THREE.Vector3();
+    const cross = new THREE.Vector3();
+    for (let triangle = 0; triangle < channelIndex.count; triangle += 3) {
+      const a = channelIndex.getX(triangle);
+      const b = channelIndex.getX(triangle + 1);
+      const c = channelIndex.getX(triangle + 2);
+      edgeA.set(
+        channelPosition.getX(b) - channelPosition.getX(a),
+        channelPosition.getY(b) - channelPosition.getY(a),
+        channelPosition.getZ(b) - channelPosition.getZ(a),
+      );
+      edgeB.set(
+        channelPosition.getX(c) - channelPosition.getX(a),
+        channelPosition.getY(c) - channelPosition.getY(a),
+        channelPosition.getZ(c) - channelPosition.getZ(a),
+      );
+      minimumTriangleArea2 = Math.min(minimumTriangleArea2, cross.crossVectors(edgeA, edgeB).length());
+    }
+    expect(minimumTriangleArea2).toBeGreaterThan(1e-14);
+    const placementAngles = teeth.userData.placementAngles as number[];
+    const placementDistances = teeth.userData.placementArcDistancesM as number[];
+    expect(teeth.userData.spacingMethod).toBe("closed-loop-arc-length");
+    expect(placementAngles).toHaveLength(teeth.count);
+    expect(placementDistances).toHaveLength(teeth.count);
+    expect(teeth.userData.actualPitchM).toBeCloseTo(channel.userData.arcLengthM / teeth.count, 12);
+    for (let index = 1; index < placementDistances.length; index++) {
+      expect(placementDistances[index]! - placementDistances[index - 1]!)
+        .toBeCloseTo(teeth.userData.actualPitchM, 10);
+    }
+    const instanceMatrix = new THREE.Matrix4();
+    const instancePosition = new THREE.Vector3();
+    const instanceTangent = new THREE.Vector3();
+    for (let index = 0; index < teeth.count; index += 11) {
+      teeth.getMatrixAt(index, instanceMatrix);
+      instancePosition.setFromMatrixPosition(instanceMatrix);
+      instanceTangent.set(1, 0, 0).transformDirection(instanceMatrix);
+      const theta = placementAngles[index]!;
+      const corePoint = railPointAt(spec, theta);
+      const coreTangent = railTangentAt(spec, theta);
+      expect(Math.hypot(instancePosition.x - corePoint.x, instancePosition.y - corePoint.y)).toBeLessThan(1e-7);
+      expect(instanceTangent.x * coreTangent.x + instanceTangent.y * coreTangent.y).toBeGreaterThan(0.999999);
+    }
     expect(materialOf(channel).name).toBe(
       spec.name === "bx10"
         ? "stadium:material:xtreme-line-pa"
