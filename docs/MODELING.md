@@ -115,11 +115,16 @@ Lock Chip + Main + Assist, or Expand Lock Chip + Metal + Over + Assist.
 - The continuous Xtreme Line follows a product-specific traced centerline,
   including the asymmetric rear-right inward dogleg. Ordinary spans are
   smooth XY cubics sampled at no more than 0.0015 rad (over 4,000 sections per
-  loop); the authored release jogs remain sharp with bounded miter joins.
-  Teeth are spaced around the closed loop by arc length. The 5.0 mm nominal
-  tooth pitch, 2.2 mm tooth height, 0.7 mm base channel and trapezoidal profile
-  are conservative photo/Bit-engagement model estimates, not published Takara
-  Tomy mold dimensions.
+  loop) and subdivided again when the tangent turns by more than 0.001 rad;
+  the authored release jogs remain sharp with bounded miter joins. Teeth are
+  spaced around the closed loop by arc length. The guide uses a 2.4 mm molded
+  shoulder plus 2.2 mm teeth, for a nominal 4.6 mm local peak. The defensible
+  photo/patent-scaled interval is about 4.3–5.0 mm: Takara Tomy does not publish
+  the mold cross-section, so the 5.0 mm pitch and these vertical dimensions are
+  Bit-engagement calibration estimates, not factory specifications. The
+  primary mechanical basis is [Tomy's patent JP7349003B1](https://patents.google.com/patent/JP7349003B1/en),
+  which identifies Bit gear 23 meshing with guide 93/teeth 93a and supplies
+  same-object Bit geometry in Fig. 11.
 - The official top-view play diagram has exactly three openings at the front:
   a broad center Xtreme Zone flanked by two Over Zones. Each is a real 2-D
   sloped throat joined to a recessed catch tray, cheeks and backstop; there are
@@ -131,6 +136,9 @@ Lock Chip + Main + Assist, or Expand Lock Chip + Metal + Over + Assist.
   official public page confirms the three-player role but does not state its
   dimensions). Its bowl, wall, launch aperture and traced indigo Xtreme Line
   are obround rather than circular.
+- Its two long outer X-Line sides are dense fitted semicircles joined by a
+  C1-smooth front connector. Only the two rear molded ramp/jog spans remain
+  deliberately sharp; physics and rendering sample the same curve.
 - The official diagram shows exactly two narrow, rounded and tangential rear
   Xtreme openings plus one broad front-center trapezoidal Over opening. The
   cover has two red triangular shoot marks and a distinct rear molded shoot
@@ -208,6 +216,7 @@ lighting probe generated from a procedural studio environment.
 - [Takara Tomy — BX-10 official product page](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/bx10.html)
 - [Takara Tomy — BX-10 official assembly/package sheet](https://www.takaratomy.co.jp/support/manual/beyblade/2023071913472.html)
 - [Takara Tomy — BX-32 official product page](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/bx32.html)
+- [Tomy patent JP7349003B1 — Bit gear 23 and guide 93/teeth 93a](https://patents.google.com/patent/JP7349003B1/en)
 - [Takara Tomy — BX-37 official product page and powered-center description](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/bx37.html)
 - [Takara Tomy — BX-46 official product page and Infinity Dash description](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/bx46.html)
 - [Beyblade Wiki — Xtreme Stadium](https://beyblade.wiki/xtreme-stadium/)

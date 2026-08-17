@@ -59,6 +59,22 @@ export interface RailTracePoint {
   linearToNext?: boolean;
 }
 
+/** Audited near-semicircular product span. The dense deterministic trace is
+ * still the source used by physics/rendering; this retains its fitted circle
+ * for curvature and source-of-truth regressions. */
+export interface RailRoundSide {
+  id: string;
+  start: number;
+  end: number;
+  startRadius: number;
+  endRadius: number;
+  centerX: number;
+  centerY: number;
+  radius: number;
+  sweepRadians: number;
+  controlSamples: number;
+}
+
 export interface StadiumSpec {
   name: string;
   labelZh: string;
@@ -80,6 +96,8 @@ export interface StadiumSpec {
   railDips?: RailDip[];
   /** Product-specific centerline; supersedes ellipse/dip approximations. */
   railTrace?: RailTracePoint[];
+  /** Photo-fitted round side spans represented densely in `railTrace`. */
+  railRoundSides?: RailRoundSide[];
   railColor: number; // render hint
   pockets: PocketSpec[];
   wallRestitution: number;
@@ -203,6 +221,111 @@ export const STADIUM_BX10: StadiumSpec = {
   coverHeight: 0.09,
 };
 
+const BX32_RIGHT_ROUND_SIDE: RailRoundSide = {
+  id: "right-long-semicircle",
+  start: -1.52182369385743,
+  end: 1.1,
+  startRadius: 0.146907257293108,
+  endRadius: 0.146,
+  centerX: 0.0367082967510313,
+  centerY: -0.00830742635643844,
+  radius: 0.141535715420746,
+  sweepRadians: PI,
+  controlSamples: 192,
+};
+
+const BX32_LEFT_ROUND_SIDE: RailRoundSide = {
+  id: "left-long-semicircle",
+  start: 2.02,
+  end: -1.61391183320248,
+  startRadius: 0.148,
+  endRadius: 0.146595313503218,
+  centerX: -0.0352936641654428,
+  centerY: -0.00657084290654358,
+  radius: 0.142857531351441,
+  sweepRadians: PI,
+  controlSamples: 192,
+};
+
+function pointFromPolar(angle: number, radius: number): Point2 {
+  return { x: radius * dcos(angle), y: radius * dsin(angle) };
+}
+
+/** Deterministically sample the fitted circle between its exact audited polar
+ * endpoints. Endpoints are supplied by the trace so release arc angles remain
+ * byte-for-byte stable; this helper emits only dense interior controls. */
+function roundSideInteriorControls(side: RailRoundSide): RailTracePoint[] {
+  const start = pointFromPolar(side.start, side.startRadius);
+  const end = pointFromPolar(side.end, side.endRadius);
+  const startPhase = datan2(start.y - side.centerY, start.x - side.centerX);
+  let endPhase = datan2(end.y - side.centerY, end.x - side.centerX);
+  while (endPhase <= startPhase) endPhase += PI * 2;
+  const controls: RailTracePoint[] = [];
+  for (let index = 1; index < side.controlSamples; index++) {
+    const phase = startPhase + (endPhase - startPhase) * index / side.controlSamples;
+    const x = side.centerX + side.radius * dcos(phase);
+    const y = side.centerY + side.radius * dsin(phase);
+    controls.push({ angle: datan2(y, x), radius: Math.sqrt(x * x + y * y) });
+  }
+  return controls;
+}
+
+function circleTangentAt(side: RailRoundSide, angle: number, radius: number): Point2 {
+  const point = pointFromPolar(angle, radius);
+  const dx = point.x - side.centerX;
+  const dy = point.y - side.centerY;
+  const length = Math.sqrt(dx * dx + dy * dy);
+  return length > 1e-12 ? { x: -dy / length, y: dx / length } : { x: 1, y: 0 };
+}
+
+/** Dense cubic connector with authored endpoint tangents. It keeps the broad
+ * front run and cap transitions smooth without inventing extra sharp ramps. */
+function bezierInteriorControls(
+  start: Point2,
+  end: Point2,
+  startTangent: Point2,
+  endTangent: Point2,
+  startHandle: number,
+  endHandle: number,
+  samples: number,
+): RailTracePoint[] {
+  const control1 = {
+    x: start.x + startTangent.x * startHandle,
+    y: start.y + startTangent.y * startHandle,
+  };
+  const control2 = {
+    x: end.x - endTangent.x * endHandle,
+    y: end.y - endTangent.y * endHandle,
+  };
+  const controls: RailTracePoint[] = [];
+  for (let index = 1; index < samples; index++) {
+    const u = index / samples;
+    const v = 1 - u;
+    const x = v * v * v * start.x + 3 * v * v * u * control1.x +
+      3 * v * u * u * control2.x + u * u * u * end.x;
+    const y = v * v * v * start.y + 3 * v * v * u * control1.y +
+      3 * v * u * u * control2.y + u * u * u * end.y;
+    controls.push({ angle: datan2(y, x), radius: Math.sqrt(x * x + y * y) });
+  }
+  return controls;
+}
+
+const BX32_RIGHT_SIDE_CONTROLS = roundSideInteriorControls(BX32_RIGHT_ROUND_SIDE);
+const BX32_LEFT_SIDE_CONTROLS = roundSideInteriorControls(BX32_LEFT_ROUND_SIDE);
+const BX32_LEFT_LOWER_CONTROLS = BX32_LEFT_SIDE_CONTROLS.filter((point) => point.angle < 0);
+const BX32_LEFT_UPPER_CONTROLS = BX32_LEFT_SIDE_CONTROLS.filter((point) => point.angle >= 0);
+const BX32_FRONT_LEFT = pointFromPolar(BX32_LEFT_ROUND_SIDE.end, BX32_LEFT_ROUND_SIDE.endRadius);
+const BX32_FRONT_RIGHT = pointFromPolar(BX32_RIGHT_ROUND_SIDE.start, BX32_RIGHT_ROUND_SIDE.startRadius);
+const BX32_FRONT_CONTROLS = bezierInteriorControls(
+  BX32_FRONT_LEFT,
+  BX32_FRONT_RIGHT,
+  circleTangentAt(BX32_LEFT_ROUND_SIDE, BX32_LEFT_ROUND_SIDE.end, BX32_LEFT_ROUND_SIDE.endRadius),
+  circleTangentAt(BX32_RIGHT_ROUND_SIDE, BX32_RIGHT_ROUND_SIDE.start, BX32_RIGHT_ROUND_SIDE.startRadius),
+  0.0048,
+  0.0048,
+  32,
+);
+
 /** BX-32 Wide Xtreme Stadium — the official 3-player stadium (600 × 440 mm),
  * which is exactly what the free-for-all mode wants. Bowl/rail proportions
  * are scaled from photos; the body size is the published figure. */
@@ -226,19 +349,22 @@ export const STADIUM_BX32: StadiumSpec = {
     { start: 1.1, end: 1.16 },
     { start: 1.96, end: 2.02 },
   ],
+  railRoundSides: [BX32_RIGHT_ROUND_SIDE, BX32_LEFT_ROUND_SIDE],
   // Photo-traced obround loop and deep rear-center dogleg. The trace is the
   // shared simulation/render centerline; it is not a stretched circle.
   railTrace: [
     { angle: -PI, radius: 0.178 },
-    { angle: -2.7, radius: 0.175 },
-    { angle: -2.43, radius: 0.166 },
-    { angle: -2.02, radius: 0.151 },
-    { angle: -1.57, radius: 0.145 },
-    { angle: -1.12, radius: 0.151 },
-    { angle: -0.71, radius: 0.166 },
-    { angle: 0, radius: 0.178 },
-    { angle: 0.46, radius: 0.173 },
-    { angle: 0.73, radius: 0.161 },
+    ...BX32_LEFT_LOWER_CONTROLS,
+    {
+      angle: BX32_LEFT_ROUND_SIDE.end,
+      radius: BX32_LEFT_ROUND_SIDE.endRadius,
+    },
+    ...BX32_FRONT_CONTROLS,
+    {
+      angle: BX32_RIGHT_ROUND_SIDE.start,
+      radius: BX32_RIGHT_ROUND_SIDE.startRadius,
+    },
+    ...BX32_RIGHT_SIDE_CONTROLS,
     { angle: 1.1, radius: 0.146, linearToNext: true },
     // The Wide Stadium also uses sharp XY doglegs, not an elliptical cosine
     // depression. Its long inner run forms the rear-center attack bay.
@@ -247,8 +373,7 @@ export const STADIUM_BX32: StadiumSpec = {
     { angle: 1.7, radius: 0.118 },
     { angle: 1.96, radius: 0.119, linearToNext: true },
     { angle: 2.02, radius: 0.148 },
-    { angle: 2.43, radius: 0.161 },
-    { angle: 2.75, radius: 0.174 },
+    ...BX32_LEFT_UPPER_CONTROLS,
     { angle: PI, radius: 0.178 },
   ],
   railColor: 0x5246c9,
@@ -325,12 +450,14 @@ export const STADIUMS: Record<string, StadiumSpec> = {
  * they are photo-scaled model dimensions rather than claimed factory specs. */
 export const STADIUM_GEOMETRY = Object.freeze({
   railToothPitchM: 0.005,
-  // Photo/Bit-engagement calibrated: TT does not publish rack dimensions.
+  // Patent/Bit-engagement calibrated: TT does not publish rack dimensions.
+  // The molded shoulder supplies most of the required gear-band overlap;
+  // tooth rise stays comparable to the Bit's own tooth depth.
   railToothHeightM: 0.0022,
   railToothBottomWidthM: 0.004,
   railToothTopWidthM: 0.0024,
   railToothDepthM: 0.0048,
-  railChannelThicknessM: 0.0007,
+  railChannelThicknessM: 0.0024,
   railPhysicalHalfWidthM: 0.0036,
   casingThicknessM: 0.002,
   pocketFloorThicknessM: 0.0035,

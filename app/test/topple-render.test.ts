@@ -64,10 +64,20 @@ describe("zero-spin topple presentation", () => {
       .toBeCloseTo(radius, 12);
   });
 
-  it("maps the shorter pocket confirmation to the same side-resting pose", () => {
+  it("maps the shorter zero-spin pocket confirmation to the same side-resting pose", () => {
     const finished = stopTopplePose(pocketToppleDwell(POCKET_DWELL_TICKS), 0.0245);
     expect(finished.progress).toBe(1);
     expect(finished.angleRad).toBeCloseTo(Math.PI / 2, 12);
+  });
+
+  it("does not topple a retained pocket Bey merely because its scoring dwell completed", () => {
+    const stillSpinning = balanceTopplePose(
+      BALANCE_LOSS_OMEGA + 1,
+      pocketToppleDwell(POCKET_DWELL_TICKS),
+      0.0245,
+    );
+    expect(stillSpinning.angleRad).toBe(0);
+    expect(stillSpinning.tipPivotLiftM).toBe(0);
   });
 
   it("uses state progress rather than accumulating render delta", () => {

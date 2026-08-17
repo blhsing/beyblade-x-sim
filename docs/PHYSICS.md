@@ -6,11 +6,16 @@ part stats, and *bit-exact determinism* across devices.
 
 ## Determinism contract
 
-Current deterministic replay/lockstep version: **3**. Version 3 replaces the
+Current deterministic replay/lockstep version: **4**. Version 4 replaces the
+pocket capture brake with reversible catch-tray dynamics and retained-zone
+scoring based on secure translational rest rather than zero spin. It also
+calibrates the shared rack envelope to a nominal inferred 4.6 mm, debits climb
+energy at swept crossings, and replaces BX-32's faceted sides with dense round
+lobes while retaining its two authored release jogs. Version 3 replaced the
 sparse polygonal X-Line evaluator with a shared deterministic piecewise-cubic
-centerline while retaining authored linear release jogs. Version 2 introduced
-distinct-impact, signed discrete Ratchet detent slip. Peers or archived replays
-produced by another physics version must not be hash-compared.
+centerline while retaining authored linear release jogs.
+Peers or archived replays produced by another physics version must not be
+hash-compared.
 
 - Fixed timestep **1/240 s**; sim never reads wall-clock time.
 - Only IEEE-deterministic ops in the sim path (`+ − × ÷ sqrt abs floor`).
@@ -27,8 +32,8 @@ produced by another physics version must not be hash-compared.
 `x y vx vy` (m, m/s in the stadium plane), signed spin `ω` (rad/s, sign =
 spin direction), discrete `burstDamage` detents, last distinct latch-impact
 tick, deterministic terminal `burstRelease` snapshot, rail state, live-pocket
-identity and settle dwell, contact flag (for the own-finish rule), visual
-phase.
+identity, settle dwell and last disturbance tick, contact flag (for the
+own-finish rule), visual phase.
 
 ## Forces & behaviours per tick
 
@@ -41,7 +46,8 @@ phase.
    attack types with grippy flat/rubber tips orbit hard; needle tips barely
    drift. This produces the characteristic circling + flower patterns.
 3. **Damping**: translational drag `muMove` (tip-type dependent), plus a
-   stumble term when `ω < 120 rad/s`.
+   stumble term when `ω < 120 rad/s`. Recessed trays add only mild polymer-on-
+   plastic loss, so they do not erase entry momentum.
 4. **Spin decay**: `muSpin × (base + k·speed)` — travelling costs spin.
    Solo endurance lands in the real 60–180 s band depending on tip.
 5. **Xtreme Line (gear rack)**: each product owns one traced 2-D centerline
@@ -50,15 +56,21 @@ phase.
    jogs remain sharp and linear. A dash-capable Bit can mesh, accelerate along
    the actual curve tangent and leave only on one of those inward ramps.
    Release keeps the dogleg's inward tangent—there is no opponent-seeking or
-   generic radial sling. The low modeled rack profile can deflect a slow
-   crossing without acting as an invisible wall.
+   generic radial sling. The modeled guide is a 2.4 mm shoulder plus 2.2 mm
+   tooth rise (4.6 mm nominal local peak, inferred from patent/Bit engagement;
+   not a published factory dimension). A normal crossing needs approximately
+   0.50 m/s and pays the corresponding climb energy exactly once; slower
+   crossings deflect instead of leaking through or treating the rack as an
+   invisible full-height wall.
 6. **Wall & pockets**: wall bounce (restitution + spin-driven tangential
    kick). Each product opening is an explicit 2-D throat/catch union shared
    with rendering and debris. A Bey must cross the clearance-adjusted wall
    outward through the real throat with sufficient speed to enter the live,
-   recessed tray. It can collide there, rebound from cheeks/backstop and
-   return through the throat; entry alone is not a finish. Official stadiums
-   have no invented angular side gaps.
+   recessed sloped tray. Incoming linear and angular momentum continue across
+   the throat; the Bey can circulate, collide with another Bey, rebound with
+   low tangential loss from the cheeks/backstop, and return through the open
+   mouth when it carries enough momentum uphill. Entry alone is not a finish.
+   Official stadiums have no invented angular side gaps.
 7. **Collisions** (circle-circle): normal impulse (restitution 0.25,
    mass-weighted) + two directed "smash" impulses derived from **rim slip**
    `|ω₁r₁ + ω₂r₂|/2` — same-direction spins collide hardest, opposite-spin
@@ -87,19 +99,18 @@ frame-rate-dependent scatter.
 ## Finishes (official scoring, stricter simulation authorization)
 
 Takara Tomy's retained-zone standard is that the complete Bey remains in the
-Over/Xtreme Zone and cannot return. At the user's direction, this simulation
-applies a deliberately stricter presentation gate: it waits for a literal
-zero-spin, physically settled confirmation in the tray before announcing the
-same official Over/Xtreme score. This is a simulation policy, not a claim that
-the printed tournament rule itself requires zero spin.
+Over/Xtreme Zone and cannot return. The simulation confirms this from the
+complete circular footprint and a short uninterrupted translational-rest
+dwell. Spin does not prevent retention: a Bey may remain upright and rotating
+in a catch tray after its center of mass and Bit contact have come to rest.
 
 `spin` requires ω = 0 (the decay integrator clamps exactly) **and** speed
 < 0.005 m/s continuously for 0.6 s; static friction sleeps that zero-spin,
 low-speed contact so the qualifying dwell cannot visibly slide · `over` (2
 pts) / `xtreme` (3 pts) require the complete Bey footprint to be securely
-inside the same catch tray, ω = 0, negligible linear/vertical motion, and 24
-post-collision ticks of uninterrupted confirmation; motion, impact, leaving
-or changing a pocket resets that dwell ·
+inside the same catch tray with exactly slept planar/vertical motion for 24
+uninterrupted ticks; ω is not part of this test. Motion, wall/Bey impact,
+leaving or changing a pocket resets that dwell ·
 `burst` (2 pts) · own-finish flag when a bey exits
 without ever touching the opponent (1 pt to opponent). Simultaneous terminal
 events in one tick ⇒ draw (no points, re-battle). Over-the-top ⇒ replay.

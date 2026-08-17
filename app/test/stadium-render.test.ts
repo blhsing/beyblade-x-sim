@@ -16,6 +16,7 @@ import {
   buildStadiumModel,
   disposeStadiumModel,
   RAIL_RENDER_MAX_ANGLE_STEP,
+  RAIL_RENDER_MAX_TANGENT_STEP,
   STADIUM_MODEL_DIMENSIONS,
   stadiumTriangleCount,
 } from "../src/render/stadium";
@@ -90,7 +91,10 @@ describe("reference-driven stadium models", () => {
     });
     expect(materialOf(mesh(model, "stadium:deck-sector:0")).transparent).toBe(true);
     expect(model.userData.triangleCount).toBe(stadiumTriangleCount(model));
-    expect(model.userData.triangleCount).toBeGreaterThan(200_000);
+    // Dense enough for close launch cameras, but kept below the budget that
+    // would make two live stadium previews impractical on midrange hardware.
+    expect(model.userData.triangleCount).toBeGreaterThan(600_000);
+    expect(model.userData.triangleCount).toBeLessThan(800_000);
     for (let i = 0; i < panelCount; i++) object(model, `stadium:casing-panel:${i}`);
     expect(model.getObjectByName(`stadium:casing-panel:${panelCount}`)).toBeUndefined();
   });
@@ -102,6 +106,8 @@ describe("reference-driven stadium models", () => {
       toothPitchM: STADIUM_MODEL_DIMENSIONS.railToothPitchM,
       toothHeightM: STADIUM_MODEL_DIMENSIONS.railToothHeightM,
       channelThicknessM: STADIUM_MODEL_DIMENSIONS.railChannelThicknessM,
+      localPeakHeightM: 0.0046,
+      baseSurfaceOffsetM: 0,
     });
     const teeth = object(model, "stadium:xtreme-line-teeth") as THREE.InstancedMesh;
     expect(teeth).toBeInstanceOf(THREE.InstancedMesh);
@@ -126,11 +132,14 @@ describe("reference-driven stadium models", () => {
       cornerJoin: "bounded-miter",
       closedLoop: true,
       seamWelded: true,
+      normalSource: "area-weighted-centered-ribbon-frame",
     });
     expect(line.userData).toMatchObject({
       centerlineInterpolation: "xy-cubic-hermite-with-authored-linear-jogs",
       maxAngularStepRad: RAIL_RENDER_MAX_ANGLE_STEP,
+      roundSideCount: spec.name === "wide" ? 2 : 0,
     });
+    expect(line.userData.roundSideControlSamples).toEqual(spec.name === "wide" ? [192, 192] : []);
     expect(channel.userData).toMatchObject({
       interpolation: "core:xy-cubic-hermite-with-authored-linear-jogs",
       cornerJoin: "bounded-miter",
@@ -138,6 +147,8 @@ describe("reference-driven stadium models", () => {
     });
     expect(channel.userData.sampleCount).toBeGreaterThan(4_000);
     expect(channel.userData.maxAngularStepRad).toBeLessThanOrEqual(RAIL_RENDER_MAX_ANGLE_STEP + 1e-12);
+    expect(channel.userData.maxSmoothTangentStepRad)
+      .toBeLessThanOrEqual(RAIL_RENDER_MAX_TANGENT_STEP + 1e-9);
     const channelPosition = channel.geometry.getAttribute("position") as THREE.BufferAttribute;
     const channelNormal = channel.geometry.getAttribute("normal") as THREE.BufferAttribute;
     const channelIndex = channel.geometry.index!;
@@ -153,11 +164,15 @@ describe("reference-driven stadium models", () => {
     let minimumSeamNormalDot = 1;
     for (let vertex = 0; vertex < 4; vertex++) {
       const before = (crossSectionCount - 1) * 4 + vertex;
+      const after = 4 + vertex;
       minimumSeamNormalDot = Math.min(
         minimumSeamNormalDot,
         channelNormal.getX(before) * channelNormal.getX(vertex) +
           channelNormal.getY(before) * channelNormal.getY(vertex) +
           channelNormal.getZ(before) * channelNormal.getZ(vertex),
+        channelNormal.getX(after) * channelNormal.getX(vertex) +
+          channelNormal.getY(after) * channelNormal.getY(vertex) +
+          channelNormal.getZ(after) * channelNormal.getZ(vertex),
       );
     }
     expect(minimumSeamNormalDot).toBeGreaterThan(0.99999);
@@ -182,6 +197,9 @@ describe("reference-driven stadium models", () => {
       minimumTriangleArea2 = Math.min(minimumTriangleArea2, cross.crossVectors(edgeA, edgeB).length());
     }
     expect(minimumTriangleArea2).toBeGreaterThan(1e-14);
+    expect(
+      STADIUM_MODEL_DIMENSIONS.railChannelThicknessM + STADIUM_MODEL_DIMENSIONS.railToothHeightM,
+    ).toBeCloseTo(0.0046, 7);
     const placementAngles = teeth.userData.placementAngles as number[];
     const placementDistances = teeth.userData.placementArcDistancesM as number[];
     expect(teeth.userData.spacingMethod).toBe("closed-loop-arc-length");

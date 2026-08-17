@@ -14,13 +14,16 @@ import {
   stadiumBoundaryRadiusAt,
   stadiumBoundarySignedDistance,
   stadiumBodyRadiusAt,
+  stadiumTerrainAt,
   STADIUM_BX10,
   STADIUM_BX32,
   STADIUM_GEOMETRY,
+  surfaceZAt,
   type StadiumSpec,
 } from "../src/core/stadium";
 import {
   createWorld,
+  hashWorld,
   POCKET_DWELL_TICKS,
   step,
 } from "../src/core/sim";
@@ -221,6 +224,61 @@ describe("product-accurate stadium openings", () => {
     expect(seamBefore.x * seamAfter.x + seamBefore.y * seamAfter.y).toBeGreaterThan(0.9999);
   });
 
+  it("uses two densely traced genuine round side lobes on BX-32", () => {
+    expect(STADIUM_BX32.railRoundSides).toHaveLength(2);
+    expect(STADIUM_BX32.railTrace!.length).toBeGreaterThan(250);
+    for (const side of STADIUM_BX32.railRoundSides!) {
+      expect(side.controlSamples).toBeGreaterThanOrEqual(128);
+      expect(Math.abs(side.sweepRadians - Math.PI)).toBeLessThan(0.08);
+      expect(side.radius).toBeGreaterThan(0.14);
+      const span = side.end > side.start
+        ? side.end - side.start
+        : side.end + Math.PI * 2 - side.start;
+      let maximumRadiusError = 0;
+      let maximumTangentStep = 0;
+      let maximumTangentStepAngle = side.start;
+      let previousTangent: { x: number; y: number } | null = null;
+      for (let index = 0; index < 512; index++) {
+        // Half-step samples exclude the intentionally sharp release boundary.
+        const theta = side.start + span * (index + 0.5) / 512;
+        const point = railPointAt(STADIUM_BX32, theta);
+        maximumRadiusError = Math.max(
+          maximumRadiusError,
+          Math.abs(Math.hypot(point.x - side.centerX, point.y - side.centerY) - side.radius),
+        );
+        const tangent = railTangentAt(STADIUM_BX32, theta);
+        if (previousTangent) {
+          const tangentStep = Math.acos(
+            Math.max(-1, Math.min(1, previousTangent.x * tangent.x + previousTangent.y * tangent.y)),
+          );
+          if (tangentStep > maximumTangentStep) {
+            maximumTangentStep = tangentStep;
+            maximumTangentStepAngle = theta;
+          }
+        }
+        previousTangent = tangent;
+      }
+      expect(maximumRadiusError, `${side.id} departed from its fitted circle`).toBeLessThan(0.0002);
+      expect(maximumTangentStep, `${side.id} contains a faceted tangent join near ${maximumTangentStepAngle}`)
+        .toBeLessThan(0.02);
+    }
+    const frontPoint = railPointAt(STADIUM_BX32, -Math.PI / 2);
+    expect(Math.abs(frontPoint.x)).toBeLessThan(0.0002);
+    expect(frontPoint.y).toBeLessThan(-0.145);
+    const frontBefore = railTangentAt(STADIUM_BX32, -Math.PI / 2 - 0.0001);
+    const frontAfter = railTangentAt(STADIUM_BX32, -Math.PI / 2 + 0.0001);
+    expect(frontBefore.x * frontAfter.x + frontBefore.y * frontAfter.y).toBeGreaterThan(0.99999);
+  });
+
+  it.each([STADIUM_BX10, STADIUM_BX32])("uses the shared inferred 4.6 mm guide/tooth envelope in %s", (stadium) => {
+    const point = railPointAt(stadium, 0);
+    const terrain = stadiumTerrainAt(stadium, point.x, point.y);
+    expect(terrain.region).toBe("rail");
+    expect(terrain.height - surfaceZAt(stadium, point.x, point.y)).toBeCloseTo(0.0046, 7);
+    expect(STADIUM_GEOMETRY.railChannelThicknessM).toBeCloseTo(0.0024, 7);
+    expect(STADIUM_GEOMETRY.railToothHeightM).toBeCloseTo(0.0022, 7);
+  });
+
   it.each([STADIUM_BX10, STADIUM_BX32])("keeps the dense shared X-Line simple, inside the bowl, and clear of pocket apertures in %s", (stadium) => {
     const sampleCount = 480;
     const points = Array.from({ length: sampleCount }, (_, index) =>
@@ -339,6 +397,11 @@ describe("reversible live pocket simulation", () => {
     for (let i = 0; i < 8 && bey.pocketIndex < 0; i++) step(world, cfg, STADIUM_BX10, true);
     expect(bey.pocketIndex).toBe(1);
     expect(bey.exited).toBeNull();
+    // Crossing the throat changes the active terrain/constraints, not the
+    // Bey's momentum. The former capture brake erased almost half of this
+    // speed in the first tenth of a second.
+    expect(Math.hypot(bey.vx, bey.vy)).toBeGreaterThan(0.9);
+    expect(bey.omega).toBeGreaterThan(239);
   });
 
   it("lets a realistic hit cross the low rack and continue into the BX-10 center throat", () => {
@@ -384,33 +447,129 @@ describe("reversible live pocket simulation", () => {
     expect(bey.vx * rail.normal.x + bey.vy * rail.normal.y).toBeLessThanOrEqual(0);
   });
 
+  it.each([
+    ["BX-10", STADIUM_BX10, 0.49, false],
+    ["BX-10", STADIUM_BX10, 0.55, true],
+    ["BX-32", STADIUM_BX32, 0.49, false],
+    ["BX-32", STADIUM_BX32, 0.55, true],
+  ] as const)("requires guide-climb energy in %s", (_label, stadium, normalSpeed, clears) => {
+    const cfg = { ...config(), xtremeDashEnabled: true };
+    const world = createWorld(cfg);
+    const bey = world.beys[0]!;
+    const rail = railClosestPoint(stadium, 0, -stadium.rRail);
+    const inner = -stadium.railHalfWidth * 0.75;
+    Object.assign(bey, {
+      x: rail.point.x + rail.normal.x * (inner - 0.0002),
+      y: rail.point.y + rail.normal.y * (inner - 0.0002),
+      vx: rail.normal.x * normalSpeed,
+      vy: rail.normal.y * normalSpeed,
+      airborne: false,
+      pendingTicks: 0,
+      omega: 240,
+    });
+    step(world, cfg, stadium, true);
+    const after = railClosestPoint(stadium, bey.x, bey.y);
+    const afterNormalSpeed = bey.vx * after.normal.x + bey.vy * after.normal.y;
+    if (clears) {
+      expect(after.signedDistance).toBeGreaterThan(inner);
+      expect(afterNormalSpeed).toBeGreaterThan(0.15);
+      expect(afterNormalSpeed).toBeLessThan(0.3);
+      expect(world.events.filter((event) => event.kind === "gear")).toHaveLength(1);
+      // One 0.98 tooth graze plus the ordinary per-tick spin decay. A second
+      // pre-probe graze would push this below 233 rad/s.
+      expect(bey.omega).toBeGreaterThan(233);
+    } else {
+      expect(afterNormalSpeed).toBeLessThanOrEqual(0);
+    }
+  });
+
   it("allows a fast entry to rebound and escape back through the open throat", () => {
     const cfg = config();
     const { world, bey, pocket } = groundBey(cfg, STADIUM_BX10, 1, 250);
     const path = pocketPath(STADIUM_BX10, pocket);
+    bey.pocketDwell = POCKET_DWELL_TICKS - 1;
     bey.x = path.boundary.x + path.axis.x * 0.008;
     bey.y = path.boundary.y + path.axis.y * 0.008;
     bey.vx = -path.axis.x * 1.2;
     bey.vy = -path.axis.y * 1.2;
     for (let i = 0; i < 120 && bey.pocketIndex >= 0; i++) step(world, cfg, STADIUM_BX10, true);
     expect(bey.pocketIndex).toBe(-1);
+    expect(bey.pocketDwell).toBe(0);
     expect(bey.exited).toBeNull();
     expect(bey.alive).toBe(true);
   });
 
-  it("keeps a securely trapped but spinning Bey live", () => {
+  it("redirects momentum at a molded backstop instead of capture-braking", () => {
+    const cfg = config();
+    const { world, bey, pocket } = groundBey(cfg, STADIUM_BX10, 1, 250);
+    const path = pocketPath(STADIUM_BX10, pocket);
+    bey.x = path.boundary.x + path.axis.x * 0.012;
+    bey.y = path.boundary.y + path.axis.y * 0.012;
+    bey.vx = path.axis.x * 1.25 + path.across.x * 0.35;
+    bey.vy = path.axis.y * 1.25 + path.across.y * 0.35;
+    let rebounded = false;
+    let retainedTangentialSpeed = 0;
+    for (let i = 0; i < 80 && bey.pocketIndex >= 0; i++) {
+      step(world, cfg, STADIUM_BX10, true);
+      const outwardSpeed = bey.vx * path.axis.x + bey.vy * path.axis.y;
+      if (outwardSpeed < -0.15) {
+        rebounded = true;
+        retainedTangentialSpeed = Math.abs(bey.vx * path.across.x + bey.vy * path.across.y);
+        break;
+      }
+    }
+    expect(rebounded).toBe(true);
+    expect(retainedTangentialSpeed).toBeGreaterThan(0.15);
+    expect(bey.omega).toBeGreaterThan(240);
+  });
+
+  it("crosses the BX-32 throat/catch overlap seam without an invisible impulse", () => {
+    const cfg = config();
+    const { world, bey, pocket } = groundBey(cfg, STADIUM_BX32, 0, 260);
+    const path = pocketPath(STADIUM_BX32, pocket);
+    bey.x = path.boundary.x + path.axis.x * 0.008;
+    bey.y = path.boundary.y + path.axis.y * 0.008;
+    bey.vx = path.axis.x * 1.3 + path.across.x * 0.1;
+    bey.vy = path.axis.y * 1.3 + path.across.y * 0.1;
+    const entrySpeed = Math.hypot(bey.vx, bey.vy);
+
+    // The expanded catch begins 10.1 mm beyond the wall and overlaps the
+    // rounded throat. Crossing that internal union seam must not look like a
+    // collision with an imaginary narrow-slot edge.
+    for (let tick = 0; tick < 3; tick++) step(world, cfg, STADIUM_BX32, true);
+    expect(Math.hypot(bey.vx, bey.vy)).toBeGreaterThan(entrySpeed * 0.95);
+    expect(bey.vx * path.axis.x + bey.vy * path.axis.y).toBeGreaterThan(1.2);
+
+    let backstopRebound = false;
+    for (let tick = 0; tick < 80 && bey.pocketIndex >= 0; tick++) {
+      step(world, cfg, STADIUM_BX32, true);
+      if (bey.vx * path.axis.x + bey.vy * path.axis.y < -0.2) {
+        backstopRebound = true;
+        break;
+      }
+    }
+    expect(backstopRebound).toBe(true);
+    expect(bey.pocketDisturbedTick).toBeGreaterThan(0);
+    expect(bey.exited).toBeNull();
+  });
+
+  it("scores a securely retained Bey after translation settles even while it spins", () => {
     const cfg = config();
     const { world, bey } = groundBey(cfg, STADIUM_BX32, 0, 80);
-    for (let i = 0; i < POCKET_DWELL_TICKS * 3; i++) step(world, cfg, STADIUM_BX32, true);
+    for (let i = 0; i < POCKET_DWELL_TICKS - 1; i++) step(world, cfg, STADIUM_BX32, true);
     expect(bey.exited).toBeNull();
-    expect(bey.pocketDwell).toBe(0);
-    expect(bey.alive).toBe(true);
+    expect(bey.pocketDwell).toBe(POCKET_DWELL_TICKS - 1);
+    expect(Math.abs(bey.omega)).toBeGreaterThan(70);
+    step(world, cfg, STADIUM_BX32, true);
+    expect(bey.exited).toBe("xtreme");
+    expect(bey.alive).toBe(false);
+    expect(Math.abs(bey.omega)).toBeGreaterThan(70);
   });
 
   it.each([
     [STADIUM_BX10, 1, "xtreme"],
     [STADIUM_BX32, 2, "over"],
-  ] as const)("scores %s only after a literal full stop and 24 post-collision ticks", (stadium, pocketIndex, kind) => {
+  ] as const)("scores %s only after 24 secure post-collision rest ticks", (stadium, pocketIndex, kind) => {
     const cfg = config();
     const { world, bey } = groundBey(cfg, stadium, pocketIndex);
     for (let i = 0; i < POCKET_DWELL_TICKS - 1; i++) step(world, cfg, stadium, true);
@@ -447,9 +606,65 @@ describe("reversible live pocket simulation", () => {
     expect(bey.pocketIndex).toBe(1);
   });
 
-  it("authorizes a stopped zone loss before the longer global Spin dwell", () => {
+  it("resets a nearly complete zone dwell as soon as planar motion resumes", () => {
+    const cfg = config();
+    const { world, bey, pocket } = groundBey(cfg, STADIUM_BX32, 0, 180);
+    const path = pocketPath(STADIUM_BX32, pocket);
+    bey.pocketDwell = POCKET_DWELL_TICKS - 1;
+    bey.vx = path.across.x * 0.03;
+    bey.vy = path.across.y * 0.03;
+    step(world, cfg, STADIUM_BX32, true);
+    expect(bey.exited).toBeNull();
+    expect(bey.pocketDwell).toBe(0);
+    expect(Math.hypot(bey.vx, bey.vy)).toBeGreaterThan(0);
+  });
+
+  it("does not score while only the center, not the whole footprint, is retained", () => {
+    const cfg = config();
+    const { world, bey, pocket } = groundBey(cfg, STADIUM_BX10, 1, 180);
+    const path = pocketPath(STADIUM_BX10, pocket);
+    bey.x = path.boundary.x + path.axis.x * (pocket.throat.outwardDepth - 0.004);
+    bey.y = path.boundary.y + path.axis.y * (pocket.throat.outwardDepth - 0.004);
+    bey.pocketDwell = POCKET_DWELL_TICKS - 1;
+    expect(pocketAtPoint(STADIUM_BX10, bey.x, bey.y)).toBe(pocket);
+    expect(pocketSecureAtPoint(STADIUM_BX10, pocket, bey.x, bey.y, params.radiusM)).toBe(false);
+    step(world, cfg, STADIUM_BX10, true);
+    expect(bey.exited).toBeNull();
+    expect(bey.pocketDwell).toBe(0);
+    expect(bey.pocketDisturbedTick).toBe(world.tick);
+  });
+
+  it("resets a nearly complete zone dwell while vertical motion remains", () => {
+    const cfg = config();
+    const { world, bey } = groundBey(cfg, STADIUM_BX32, 0, 180);
+    bey.pocketDwell = POCKET_DWELL_TICKS - 1;
+    bey.vz = 0.01;
+    step(world, cfg, STADIUM_BX32, true);
+    expect(bey.exited).toBeNull();
+    expect(bey.pocketDwell).toBe(0);
+  });
+
+  it("keeps reversible tray motion and disturbance state deterministic and hashed", () => {
+    const cfg = config();
+    const first = groundBey(cfg, STADIUM_BX32, 0, 210);
+    const second = groundBey(cfg, STADIUM_BX32, 0, 210);
+    const path = pocketPath(STADIUM_BX32, first.pocket);
+    for (const bey of [first.bey, second.bey]) {
+      bey.vx = path.axis.x * 0.7 + path.across.x * 0.25;
+      bey.vy = path.axis.y * 0.7 + path.across.y * 0.25;
+    }
+    for (let tick = 0; tick < 180; tick++) {
+      step(first.world, cfg, STADIUM_BX32, true);
+      step(second.world, cfg, STADIUM_BX32, true);
+    }
+    expect(hashWorld(first.world)).toBe(hashWorld(second.world));
+    second.bey.pocketDisturbedTick++;
+    expect(hashWorld(first.world)).not.toBe(hashWorld(second.world));
+  });
+
+  it("authorizes a retained spinning zone loss before the global Spin dwell", () => {
     const cfg = config(2);
-    const { world, bey } = groundBey(cfg, STADIUM_BX10, 1);
+    const { world, bey } = groundBey(cfg, STADIUM_BX10, 1, 300);
     bey.pocketDwell = POCKET_DWELL_TICKS - 1;
     const rival = world.beys[1]!;
     Object.assign(rival, {
@@ -466,5 +681,6 @@ describe("reversible live pocket simulation", () => {
     step(world, cfg, STADIUM_BX10);
     expect(world.finish?.type).toBe("xtreme");
     expect(world.finish?.winner).toBe(1);
+    expect(Math.abs(bey.omega)).toBeGreaterThan(290);
   });
 });

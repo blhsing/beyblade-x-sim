@@ -12,7 +12,7 @@ import {
   type StadiumSpec,
 } from "../core/stadium";
 import { normalizeLauncherForSpin } from "../core/launcher";
-import { launchKinematics, STOP_DWELL_TICKS } from "../core/sim";
+import { launchKinematics } from "../core/sim";
 import type { BeyParams, BeyState, LauncherKind, LaunchParams, WorldState } from "../core/types";
 import type { ResolvedCombo } from "../core/derive";
 import { gyro } from "../sensors/gyro";
@@ -54,7 +54,6 @@ import { RT_PRESETS, RayMarchComposer, markReflective } from "./rt";
 import { buildStadiumModel, disposeStadiumModel } from "./stadium";
 import {
   applyBalanceTopplePose,
-  applyStopTopplePose,
   balanceTopplePose,
   persistentStopToppleDwell,
   pocketToppleDwell,
@@ -161,6 +160,7 @@ export class BattleView {
     from: THREE.Vector3;
     to: THREE.Vector3;
     spin: number;
+    angularVelocity: number;
     pocket: boolean;
     orientation: THREE.Quaternion;
   } | null)[] = [];
@@ -1151,17 +1151,6 @@ export class BattleView {
           let ko = this.koFlights[i];
           if (!ko) {
             const pocket = pocketAtPoint(s, b.x, b.y);
-            if (pocket) {
-              // The authoritative pocket dwell has completed, so capture a
-              // genuinely side-resting zero-spin pose before freezing it.
-              applyStopTopplePose(
-                m,
-                STOP_DWELL_TICKS,
-                this.beyRadius[i] ?? 0.024,
-                b.phase + (this.launchPhaseOffsets[i] ?? 0),
-                stadiumTerrainAt(s, b.x, b.y).height,
-              );
-            }
             let target: { x: number; y: number };
             let targetZ: number;
             if (pocket) {
@@ -1185,7 +1174,8 @@ export class BattleView {
               t: 0,
               from: m.position.clone(),
               to: new THREE.Vector3(target.x, target.y, targetZ),
-              spin: m.rotation.z,
+              spin: pocket ? 0 : m.rotation.z,
+              angularVelocity: pocket ? b.omega : 0,
               pocket: Boolean(pocket),
               orientation: m.quaternion.clone(),
             };
@@ -1194,14 +1184,34 @@ export class BattleView {
           ko.t = Math.min(1, ko.t + dt * 1.6);
           const k = ko.t;
           if (ko.pocket) {
-            // A pocket result is authorized only after the core has observed
-            // zero spin and a fully settled footprint for its complete dwell.
-            // Preserve that exact pose: replaying a flight/tumble here made a
-            // stopped Bey visibly re-spin after the result was announced.
+            // Retained-zone scoring depends on the footprint and translation,
+            // not spin. Preserve the live balance pose and continue rotating
+            // about that axis with ordinary Bit friction after the call.
+            ko.spin += ko.angularVelocity * dt;
+            const spinDecay = (this.beyParams[i]?.muSpin ?? 0.05) * 130 * dt;
+            if (Math.abs(ko.angularVelocity) > spinDecay) {
+              ko.angularVelocity -= Math.sign(ko.angularVelocity) * spinDecay;
+            } else {
+              ko.angularVelocity = 0;
+            }
             m.position.copy(ko.from);
             m.quaternion.copy(ko.orientation);
+            m.rotateZ(ko.spin);
+            const blurMesh = m.getObjectByName("blurRing") as THREE.Mesh | undefined;
+            if (blurMesh) {
+              const blurMaterial = blurMesh.material as THREE.ShaderMaterial;
+              blurMaterial.uniforms.uPhase!.value = -ko.spin * 3;
+              blurMaterial.uniforms.uIntensity!.value =
+                Math.min(1, Math.max(0, (Math.abs(ko.angularVelocity) - 140) / 650)) * 0.5;
+            }
             this.lastBeyPos[i]?.copy(m.position);
-            sfx.updateHum(i, 0, 0, 0);
+            const pan = Math.max(-1, Math.min(1, b.x / (s.rWall * 1.2)));
+            sfx.updateHum(
+              i,
+              this.audioMuted ? 0 : (Math.abs(ko.angularVelocity) * 60) / (2 * Math.PI),
+              pan,
+              0,
+            );
             continue;
           }
           m.position.lerpVectors(ko.from, ko.to, k);

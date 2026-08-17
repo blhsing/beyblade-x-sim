@@ -238,8 +238,12 @@ export interface BeyState {
   exited: "over" | "xtreme" | "top" | "launchMiss" | null;
   /** Index of the live catch zone currently occupied; -1 while in the bowl. */
   pocketIndex: number;
-  /** Consecutive fully-stopped ticks securely inside the same catch zone. */
+  /** Consecutive translationally-settled ticks securely inside the same catch zone. */
   pocketDwell: number;
+  /** Last fixed tick on which entry, a tray-wall contact, or another Bey
+   * disturbed this pocket occupant. It prevents an impact tick itself from
+   * counting toward the retained-zone confirmation. */
+  pocketDisturbedTick: number;
   stoppedTick: number; // tick when fully settled (-1 = still in play)
   /** consecutive ticks with zero spin AND settled linear motion */
   stopDwell: number;

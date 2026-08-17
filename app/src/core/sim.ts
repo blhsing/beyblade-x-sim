@@ -34,7 +34,7 @@ import type {
 export const DT = 1 / 240;
 export const TICKS_PER_SECOND = 240;
 /** Increment whenever deterministic state evolution changes incompatibly. */
-export const PHYSICS_VERSION = 3;
+export const PHYSICS_VERSION = 4;
 
 const G = 9.81;
 // Stop means visually and mechanically settled, not merely crossing a low-
@@ -43,7 +43,8 @@ export const OMEGA_STOP = 2; // low-spin regime; finish still requires exactly 0
 export const STOP_LINEAR_SPEED = 0.005; // m/s: ≤3 mm over the full dwell
 /** all stop conditions must remain true this long before a Spin Finish */
 export const STOP_DWELL_TICKS = 144; // 0.6 s at 240 Hz
-/** Zone loss needs a short confirmation after a literal full stop. */
+/** Zone loss needs a short confirmation after translational rest. Spin is
+ * deliberately irrelevant: a retained Bey can still rotate in the tray. */
 export const POCKET_DWELL_TICKS = 24; // 0.1 s, evaluated after collisions
 
 const T = {
@@ -84,16 +85,24 @@ const T = {
   railFlingRadial: 0.4,
   dipSlingSpeed: 1.3, // riding a dip faster than this slings the bey inward
   dipSlingBoost: 0.55,
-  railTripSpeed: 0.24, // modeled 2.9 mm rack: low-energy tooth clash band
+  // Only a near-threshold tooth clash trips the Bit. Lower-energy contact is
+  // held by the swept molded-ridge rebound without random lateral injection.
+  railTripSpeed: 0.47,
   tripSpinKeep: 0.82,
   gearEventEvery: 10,
-  // The physical envelope is 0.7 + 2.2 mm. Its ideal gravity-equivalent
-  // crossing speed is sqrt(2gh)≈0.24 m/s; 0.38 includes tooth/Bit losses
-  // without turning this low rack into an invisible stadium wall.
-  railBreakSpeed: 0.38,
+  // The inferred local envelope is 2.4 + 2.2 = 4.6 mm. Its ideal
+  // gravity-equivalent crossing speed is sqrt(2gh)≈0.30 m/s; 0.50 models
+  // tooth/guide climb loss. A successful swept crossing pays that energy.
+  railBreakSpeed: 0.50,
   railBumpRestitution: 0.42,
   railBarrierInner: 0.75, // barrier sits at railR - halfWidth×this
   pocketEntrySpeed: 0.45, // committed outward crossing, above a slow wall graze
+  // Recessed catch trays retain most incoming momentum. Molded plastic and
+  // a polymer Bit dissipate energy gradually; cheeks/backstops redirect a
+  // Bey instead of acting like the former invisible capture brake.
+  pocketLinearDrag: 0.7,
+  pocketWallRestitution: 0.38,
+  pocketWallFriction: 0.08,
   // collisions (rim slip ≈ 16 m/s at full spin → smash impulse ~0.01–0.02
   // kg·m/s → Δv ~0.3–0.5 m/s and spin loss ~15–40 rad/s per solid hit)
   restitution: 0.28,
@@ -353,6 +362,7 @@ function makeBey(
     exited: null,
     pocketIndex: -1,
     pocketDwell: 0,
+    pocketDisturbedTick: -999,
     stoppedTick: -1,
     stopDwell: 0,
     contacted: false,
@@ -453,6 +463,7 @@ function constrainPocket(
   b: BeyState,
   pocket: PocketSpec,
   clearance: number,
+  tick: number,
 ): boolean {
   const path = pocketPath(s, pocket);
   const dx = b.x - path.boundary.x;
@@ -485,10 +496,22 @@ function constrainPocket(
   const inwardY = inside ? towardCurrentY : -towardCurrentY;
   const inwardVelocity = b.vx * inwardX + b.vy * inwardY;
   if (inwardVelocity < 0) {
-    const restitution = 0.2;
-    b.vx -= (1 + restitution) * inwardVelocity * inwardX;
-    b.vy -= (1 + restitution) * inwardVelocity * inwardY;
+    const normalDelta = (1 + T.pocketWallRestitution) * inwardVelocity;
+    b.vx -= normalDelta * inwardX;
+    b.vy -= normalDelta * inwardY;
+
+    // Coulomb-like tangential loss at the molded cheek. Cap it by the normal
+    // impact so a glancing Bey keeps circulating instead of sticking dead.
+    const tangentX = -inwardY;
+    const tangentY = inwardX;
+    const tangentVelocity = b.vx * tangentX + b.vy * tangentY;
+    const maxTangentDelta = -inwardVelocity * T.pocketWallFriction;
+    const tangentDelta = clamp(tangentVelocity, -maxTangentDelta, maxTangentDelta);
+    b.vx -= tangentDelta * tangentX;
+    b.vy -= tangentDelta * tangentY;
   }
+  b.pocketDwell = 0;
+  b.pocketDisturbedTick = tick;
   const inset = inside ? Math.max(0.0002, clearance) : 0.0002;
   b.x = nearest.point.x + inwardX * inset;
   b.y = nearest.point.y + inwardY * inset;
@@ -559,11 +582,12 @@ function stepBey(
       }
     : surfaceGradientAt(s, b.x, b.y);
   const slope = Math.sqrt(gradient.x * gradient.x + gradient.y * gradient.y);
-  // Once spin is exactly zero, low-speed contact on an ordinary bowl slope
-  // enters static friction instead of endlessly micro-sliding. A subsequent
-  // real hit raises speed above the gate and wakes the body immediately.
+  // Low-speed contact enters static friction instead of endlessly micro-
+  // sliding. The bowl still requires zero spin before sleeping; a retained
+  // tray occupant may sleep translationally while its Bit keeps rotating.
+  // A subsequent real hit raises speed above the gate and wakes it immediately.
   const staticRest =
-    absOmega === 0 &&
+    (absOmega === 0 || activePocket !== null) &&
     Math.sqrt(b.vx * b.vx + b.vy * b.vy) < STOP_LINEAR_SPEED &&
     Math.abs(slope) < 0.25;
   if (staticRest) {
@@ -598,7 +622,9 @@ function stepBey(
 
   // translational damping (+ stumbling when spin is nearly gone)
   const drag =
-    p.muMove + (absOmega < T.lowSpinThreshold ? T.lowSpinDrag : 0) + (activePocket ? 4.5 : 0);
+    p.muMove +
+    (absOmega < T.lowSpinThreshold ? T.lowSpinDrag : 0) +
+    (activePocket ? T.pocketLinearDrag : 0);
   const dampen = Math.max(0, 1 - drag * DT);
   b.vx = (b.vx + ax * DT) * dampen;
   b.vy = (b.vy + ay * DT) * dampen;
@@ -635,9 +661,9 @@ function stepBey(
         b.railDir = vt >= 0 ? 1 : -1;
         pushEvent(w, "dashStart", i, speed);
       } else if (vr >= T.railBreakSpeed) {
-        // Enough normal energy to climb the real low rack; teeth just graze.
-        b.omega *= 0.98;
-        pushEvent(w, "gear", i, vr);
+        // This early contact probe only decides that the Bey is eligible to
+        // climb. The swept resolver below owns the energy debit, spin graze
+        // and single gear event at the actual crossing.
         break;
       }
       if (vr > T.railTripSpeed) {
@@ -735,7 +761,16 @@ function stepBey(
       // wall as normal speed decayed.
       if (crossedRack) {
         const vrB = b.vx * nx + b.vy * ny;
-        if (vrB > 0 && vrB < T.railBreakSpeed) {
+        if (vrB >= T.railBreakSpeed) {
+          // Pay the guide-climb energy once, at the actual swept crossing.
+          // Debiting during the earlier contact probe would lower vr before
+          // this resolver and incorrectly reflect a legitimate hop.
+          const retainedNormalSpeed = Math.sqrt(Math.max(0, vrB * vrB - T.railBreakSpeed * T.railBreakSpeed));
+          b.vx += (retainedNormalSpeed - vrB) * nx;
+          b.vy += (retainedNormalSpeed - vrB) * ny;
+          b.omega *= 0.98;
+          pushEvent(w, "gear", i, vrB);
+        } else if (vrB > 0) {
           b.vx -= (1 + T.railBumpRestitution) * vrB * nx;
           b.vy -= (1 + T.railBumpRestitution) * vrB * ny;
           const over = signedDistance - inner;
@@ -767,13 +802,15 @@ function stepBey(
   ) {
     b.pocketIndex = s.pockets.indexOf(pocketHere);
     b.pocketDwell = 0;
+    b.pocketDisturbedTick = w.tick;
     b.stopDwell = 0;
     b.railTicks = -T.railCooldownTicks;
     activePocket = pocketHere;
   }
-  if (activePocket && !constrainPocket(s, b, activePocket, p.radiusM)) {
+  if (activePocket && !constrainPocket(s, b, activePocket, p.radiusM, w.tick)) {
     b.pocketIndex = -1;
     b.pocketDwell = 0;
+    b.pocketDisturbedTick = w.tick;
     activePocket = null;
   }
 
@@ -830,8 +867,9 @@ function updateStopStates(w: WorldState): void {
       b.stopDwell = 0;
       continue;
     }
-    // A stopped Bey inside a live Over/Xtreme tray is authorized by the
-    // shorter zone dwell first; it must never become an ordinary Spin Finish.
+    // A translationally retained Bey inside a live Over/Xtreme tray is
+    // authorized by the shorter zone dwell (even while spinning); it must
+    // never become an ordinary Spin Finish.
     if (b.pocketIndex >= 0) {
       b.stopDwell = 0;
       continue;
@@ -866,7 +904,6 @@ function updatePocketStates(w: WorldState, cfg: WorldConfig, s: StadiumSpec): vo
       b.pocketDwell = 0;
       continue;
     }
-    const speed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
     const params = cfg.beys[i]!;
     const secure = pocketSecureAtPoint(
       s,
@@ -875,12 +912,13 @@ function updatePocketStates(w: WorldState, cfg: WorldConfig, s: StadiumSpec): vo
       b.y,
       params.radiusM,
     );
-    const fullyStopped =
-      b.omega === 0 &&
-      speed < STOP_LINEAR_SPEED &&
-      Math.abs(b.vz) < 1e-6 &&
+    const translationallySettled =
+      b.vx === 0 &&
+      b.vy === 0 &&
+      b.vz === 0 &&
       b.railTicks <= 0;
-    if (!secure || !fullyStopped) {
+    const uninterrupted = b.pocketDisturbedTick < w.tick;
+    if (!secure || !translationallySettled || !uninterrupted) {
       b.pocketDwell = 0;
       continue;
     }
@@ -903,9 +941,10 @@ function resolvePocketConstraints(w: WorldState, cfg: WorldConfig, s: StadiumSpe
       b.pocketDwell = 0;
       continue;
     }
-    if (!constrainPocket(s, b, pocket, cfg.beys[i]!.radiusM)) {
+    if (!constrainPocket(s, b, pocket, cfg.beys[i]!.radiusM, w.tick)) {
       b.pocketIndex = -1;
       b.pocketDwell = 0;
+      b.pocketDisturbedTick = w.tick;
     }
   }
 }
@@ -931,6 +970,18 @@ function collidePair(w: WorldState, cfg: WorldConfig, i: number, j: number): voi
   const dist = Math.sqrt(dx * dx + dy * dy);
   const minDist = p1.radiusM + p2.radiusM;
   if (dist >= minDist || dist < 1e-9) return;
+
+  // Even a low-speed overlap requires positional correction. Treat that as
+  // a real tray disturbance so a collision tick cannot complete a retained-
+  // zone dwell merely because its post-impact speed falls under the sleep gate.
+  if (b1.pocketIndex >= 0) {
+    b1.pocketDwell = 0;
+    b1.pocketDisturbedTick = w.tick;
+  }
+  if (b2.pocketIndex >= 0) {
+    b2.pocketDwell = 0;
+    b2.pocketDisturbedTick = w.tick;
+  }
 
   const n = { x: dx / dist, y: dy / dist };
   const t = { x: -n.y, y: n.x };
@@ -1267,6 +1318,7 @@ export function hashWorld(w: WorldState): string {
       exitCode,
       b.pocketIndex,
       b.pocketDwell,
+      b.pocketDisturbedTick,
       b.stoppedTick,
       b.stopDwell,
       b.contacted ? 1 : 0,

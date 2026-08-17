@@ -346,19 +346,107 @@ function railArcSpan(arc: RailArc): number {
  * centerline chords. Sparse authored knots are also injected exactly so the
  * intentional molded release corners remain sharp. */
 export const RAIL_RENDER_MAX_ANGLE_STEP = 0.0015;
+/** Smooth spans are subdivided again when an off-centre circular lobe turns
+ * faster than its polar angle. This keeps glossy channel normals continuous
+ * without rounding the explicitly authored release elbows. */
+export const RAIL_RENDER_MAX_TANGENT_STEP = 0.001;
 
 function railArcSampleAngles(s: StadiumSpec, arc: RailArc, span: number): number[] {
   const steps = Math.max(512, Math.ceil(span / RAIL_RENDER_MAX_ANGLE_STEP));
   const end = arc.start + span;
   const angles = Array.from({ length: steps + 1 }, (_, index) => arc.start + (span * index) / steps);
-  for (const control of s.railTrace ?? []) {
+  const trace = s.railTrace ?? [];
+  const sharpControls = trace.filter((point, index) => {
+    const previous = trace[(index + trace.length - 2) % (trace.length - 1)];
+    return Boolean(point.linearToNext || previous?.linearToNext);
+  });
+  // The cubic evaluator already passes through ordinary controls. Injecting
+  // every one into an otherwise uniform mesh creates tiny uneven triangles;
+  // only the four real molded elbows need an exact render cross-section.
+  for (const control of sharpControls) {
     let angle = control.angle;
     while (angle < arc.start - 1e-9) angle += TAU;
     while (angle > end + 1e-9) angle -= TAU;
     if (angle > arc.start + 1e-9 && angle < end - 1e-9) angles.push(angle);
   }
   angles.sort((a, b) => a - b);
-  return angles.filter((angle, index) => index === 0 || angle - angles[index - 1]! > 1e-9);
+  const uniqueAngles = angles.filter(
+    (angle, index) => index === 0 || angle - angles[index - 1]! > 1e-9,
+  );
+  const sharpAngles = sharpControls.map((point) => point.angle);
+  const isSharp = (angle: number): boolean => sharpAngles.some((sharpAngle) => {
+    let delta = angle - sharpAngle;
+    while (delta > Math.PI) delta -= TAU;
+    while (delta < -Math.PI) delta += TAU;
+    return Math.abs(delta) <= 1e-9;
+  });
+  const refined = [uniqueAngles[0]!];
+  const tangentTurn = (before: number, after: number): number => {
+    const beforeTangent = railTangentAt(s, before);
+    const afterTangent = railTangentAt(s, after);
+    return Math.acos(Math.max(-1, Math.min(1,
+      beforeTangent.x * afterTangent.x + beforeTangent.y * afterTangent.y,
+    )));
+  };
+  const appendSmoothInterval = (before: number, after: number, depth: number): void => {
+    const middle = (before + after) / 2;
+    const maximumTurn = Math.max(
+      tangentTurn(before, after),
+      tangentTurn(before, middle),
+      tangentTurn(middle, after),
+    );
+    if (maximumTurn <= RAIL_RENDER_MAX_TANGENT_STEP || depth >= 12) {
+      refined.push(after);
+      return;
+    }
+    appendSmoothInterval(before, middle, depth + 1);
+    appendSmoothInterval(middle, after, depth + 1);
+  };
+  for (let index = 1; index < uniqueAngles.length; index++) {
+    const before = uniqueAngles[index - 1]!;
+    const after = uniqueAngles[index]!;
+    if (isSharp(before) || isSharp(after)) refined.push(after);
+    else appendSmoothInterval(before, after, 0);
+  }
+
+  if (span >= TAU - 1e-6 && refined.length >= 4) {
+    // `computeVertexNormals()` weights the two triangles meeting the welded
+    // seam by their areas. Match the physical chord on either side so that
+    // asymmetric polar parameter speed cannot bias the shared glossy normal.
+    const startAngle = refined[0]!;
+    const endAngle = refined[refined.length - 1]!;
+    const nextAngle = refined[1]!;
+    const beforeAngle = refined[refined.length - 2]!;
+    const startPoint = railPointAt(s, startAngle);
+    const endPoint = railPointAt(s, endAngle);
+    const chord = (angle: number, point: { x: number; y: number }): number => {
+      const candidate = railPointAt(s, angle);
+      return Math.hypot(candidate.x - point.x, candidate.y - point.y);
+    };
+    const firstChord = chord(nextAngle, startPoint);
+    const lastChord = chord(beforeAngle, endPoint);
+    const targetChord = Math.min(firstChord, lastChord);
+    if (firstChord > targetChord * 1.01) {
+      let low = startAngle;
+      let high = nextAngle;
+      for (let iteration = 0; iteration < 28; iteration++) {
+        const middle = (low + high) / 2;
+        if (chord(middle, startPoint) < targetChord) low = middle;
+        else high = middle;
+      }
+      refined.splice(1, 0, high);
+    } else if (lastChord > targetChord * 1.01) {
+      let low = beforeAngle;
+      let high = endAngle;
+      for (let iteration = 0; iteration < 28; iteration++) {
+        const middle = (low + high) / 2;
+        if (chord(middle, endPoint) > targetChord) low = middle;
+        else high = middle;
+      }
+      refined.splice(refined.length - 1, 0, high);
+    }
+  }
+  return refined;
 }
 
 function createRailToothGeometry(): THREE.BufferGeometry {
@@ -447,7 +535,58 @@ function createRailRibbon(
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setIndex(indices);
-  geometry.computeVertexNormals();
+  if (crossSectionCount >= 2) {
+    // Area-weighted analytic frame normals avoid the diagonal bias produced
+    // by `computeVertexNormals()` on a very dense quad strip. They follow the
+    // same centered ribbon frame on both sides of the welded C1 seam while
+    // leaving the authored miter geometry at the two real jogs untouched.
+    const position = geometry.getAttribute("position") as THREE.BufferAttribute;
+    const normal = new THREE.Float32BufferAttribute(new Float32Array(positions.length), 3);
+    const vertex = (section: number, corner: number): THREE.Vector3 => new THREE.Vector3(
+      position.getX(section * 4 + corner),
+      position.getY(section * 4 + corner),
+      position.getZ(section * 4 + corner),
+    );
+    const center = (section: number): THREE.Vector3 => {
+      const plus = vertex(section, 2);
+      const minus = vertex(section, 3);
+      return plus.add(minus).multiplyScalar(0.5);
+    };
+    for (let section = 0; section < crossSectionCount; section++) {
+      const previousSection = section > 0 ? section - 1 : closed ? crossSectionCount - 1 : section;
+      const nextSection = section + 1 < crossSectionCount ? section + 1 : closed ? 0 : section;
+      const along = center(nextSection).sub(center(previousSection)).normalize();
+      const topPlus = vertex(section, 0);
+      const topMinus = vertex(section, 1);
+      const bottomPlus = vertex(section, 2);
+      const sectionCenter = center(section);
+      const across = topMinus.clone().sub(topPlus);
+      const up = topPlus.clone().sub(bottomPlus);
+      const top = new THREE.Vector3().crossVectors(across, along).normalize();
+      if (top.z < 0) top.multiplyScalar(-1);
+      const plusSide = new THREE.Vector3().crossVectors(up, along).normalize();
+      if (plusSide.dot(topPlus.clone().sub(sectionCenter)) < 0) plusSide.multiplyScalar(-1);
+      const topWeight = across.length();
+      const sideWeight = up.length();
+      const write = (
+        corner: number,
+        topSign: number,
+        sideSign: number,
+      ): void => {
+        const value = top.clone().multiplyScalar(topWeight * topSign)
+          .addScaledVector(plusSide, sideWeight * sideSign)
+          .normalize();
+        normal.setXYZ(section * 4 + corner, value.x, value.y, value.z);
+      };
+      write(0, 1, 1);
+      write(1, 1, -1);
+      write(2, -1, 1);
+      write(3, -1, -1);
+    }
+    geometry.setAttribute("normal", normal);
+  } else {
+    geometry.computeVertexNormals();
+  }
   geometry.userData = {
     shape: "thickness-bearing-rack-channel",
     halfWidthM: halfWidth,
@@ -455,6 +594,7 @@ function createRailRibbon(
     cornerJoin: "bounded-miter",
     closedLoop: closed,
     seamWelded: closed,
+    normalSource: "area-weighted-centered-ribbon-frame",
     crossSectionCount,
   };
   return geometry;
@@ -500,9 +640,14 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
     toothPitchM: STADIUM_MODEL_DIMENSIONS.railToothPitchM,
     toothHeightM: STADIUM_MODEL_DIMENSIONS.railToothHeightM,
     channelThicknessM: STADIUM_MODEL_DIMENSIONS.railChannelThicknessM,
+    localPeakHeightM:
+      STADIUM_MODEL_DIMENSIONS.railChannelThicknessM + STADIUM_MODEL_DIMENSIONS.railToothHeightM,
+    baseSurfaceOffsetM: 0,
     centerlineSource: "core:railTrace",
     centerlineInterpolation: "xy-cubic-hermite-with-authored-linear-jogs",
     maxAngularStepRad: RAIL_RENDER_MAX_ANGLE_STEP,
+    roundSideCount: s.railRoundSides?.length ?? 0,
+    roundSideControlSamples: s.railRoundSides?.map((side) => side.controlSamples) ?? [],
     releaseArcs: s.railReleaseArcs?.length ?? 0,
     resin: s.name === "bx10" ? "PA" : "product-plastic-unspecified",
   });
@@ -531,6 +676,7 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
       theta: number;
       distanceM: number;
       widthScale: number;
+      sharp: boolean;
     }[] = [];
     let cumulativeDistance = 0;
     let previous: { x: number; y: number } | null = null;
@@ -538,9 +684,17 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
       const p = railPointAt(s, theta);
       const frame = railRenderFrameAt(s, theta);
       const tangent = frame.tangent;
-      const z = surfaceZAt(s, p.x, p.y) + 0.0002;
+      const z = surfaceZAt(s, p.x, p.y);
       if (previous) cumulativeDistance += Math.hypot(p.x - previous.x, p.y - previous.y);
-      ribbonPoints.push({ p, tangent, z, theta, distanceM: cumulativeDistance, widthScale: frame.widthScale });
+      ribbonPoints.push({
+        p,
+        tangent,
+        z,
+        theta,
+        distanceM: cumulativeDistance,
+        widthScale: frame.widthScale,
+        sharp: frame.sharp,
+      });
       previous = p;
     }
     const closed = span >= TAU - 1e-6;
@@ -564,7 +718,7 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
       const theta = before.theta + (after.theta - before.theta) * u;
       const p = railPointAt(s, theta);
       const tangent = railTangentAt(s, theta);
-      const z = surfaceZAt(s, p.x, p.y) + 0.0002;
+      const z = surfaceZAt(s, p.x, p.y);
       placements.push({
         point: new THREE.Vector3(p.x, p.y, z + STADIUM_MODEL_DIMENSIONS.railChannelThicknessM),
         angle: Math.atan2(tangent.y, tangent.x),
@@ -574,6 +728,18 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
       });
     }
     const channel = configureMesh(new THREE.Mesh(createRailRibbon(s, ribbonPoints, closed), railMat), false, true);
+    let maximumSmoothTangentStepRad = 0;
+    for (let index = 1; index < ribbonPoints.length; index++) {
+      const before = ribbonPoints[index - 1]!;
+      const after = ribbonPoints[index]!;
+      if (before.sharp || after.sharp) continue;
+      maximumSmoothTangentStepRad = Math.max(
+        maximumSmoothTangentStepRad,
+        Math.acos(Math.max(-1, Math.min(1,
+          before.tangent.x * after.tangent.x + before.tangent.y * after.tangent.y,
+        ))),
+      );
+    }
     setMeshName(channel, `stadium:xtreme-line-channel:${arcIndex}`, {
       arcStart: arc.start,
       arcEnd: arc.end,
@@ -583,6 +749,7 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
         (maximum, angle, index) => Math.max(maximum, angle - sampleAngles[index]!),
         0,
       ),
+      maxSmoothTangentStepRad: maximumSmoothTangentStepRad,
       interpolation: "core:xy-cubic-hermite-with-authored-linear-jogs",
       cornerJoin: "bounded-miter",
       authoredSharpKnots: (s.railTrace ?? []).filter((point, index, trace) =>
