@@ -193,7 +193,7 @@ def save_texture(image: Image.Image, filename: str) -> str:
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     path = OUT_DIR / filename
     image.save(path, "WEBP", quality=92, method=6, exact=True)
-    return "/assets/stickers/" + filename
+    return "assets/stickers/" + filename
 
 
 def preferred_lookup(images: dict[str, dict], prefix: str) -> dict[str, dict]:
@@ -237,7 +237,7 @@ def main() -> None:
         url = written.get(info["name"])
         if url is None:
             path = OUT_DIR / filename
-            url = "/assets/stickers/" + filename
+            url = "assets/stickers/" + filename
             if not path.exists():
                 url = save_texture(blade_sticker(download(info["url"])), filename)
             written[info["name"]] = url
@@ -263,7 +263,7 @@ def main() -> None:
         url = written.get(info["name"])
         if url is None:
             path = OUT_DIR / filename
-            url = "/assets/stickers/" + filename
+            url = "assets/stickers/" + filename
             if not path.exists():
                 url = save_texture(lock_chip_sticker(download(info["url"])), filename)
             written[info["name"]] = url

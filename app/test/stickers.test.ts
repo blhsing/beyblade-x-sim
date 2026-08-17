@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import type { PartsDb } from "../src/core/types";
+import { publicAssetUrl } from "../src/render/materials";
 import { COLOR_NAMES } from "../src/render/parts";
 import stickerManifest from "../src/render/sticker-manifest.json";
 
@@ -19,6 +20,15 @@ describe("catalog sticker assets", () => {
     ];
     const missing = urls.filter((url) => !existsSync(join(process.cwd(), "public", url)));
     expect(missing).toEqual([]);
+  });
+
+  it("resolves sticker paths beneath a deployed virtual-app base", () => {
+    expect(
+      publicAssetUrl("assets/stickers/blade-dransword.webp", "https://example.test/beyblade/"),
+    ).toBe("https://example.test/beyblade/assets/stickers/blade-dransword.webp");
+    expect(
+      publicAssetUrl("/assets/stickers/blade-dransword.webp", "https://example.test/beyblade/"),
+    ).toBe("https://example.test/beyblade/assets/stickers/blade-dransword.webp");
   });
 
   it("covers every CX Lock Chip in the parts catalog", () => {

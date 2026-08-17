@@ -14,6 +14,14 @@ import * as THREE from "three";
 const texCache = new Map<string, THREE.Texture>();
 const imageLoads = new Map<string, Promise<THREE.Texture>>();
 
+/** Resolve public assets relative to the page, including virtual-app paths
+ * such as production's `/beyblade/`. Leading slashes in generated manifests
+ * are treated as app-relative rather than origin-relative for compatibility
+ * with older manifests. */
+export function publicAssetUrl(url: string, baseUri = document.baseURI): string {
+  return new URL(url.replace(/^\/+/, ""), baseUri).href;
+}
+
 function cached(key: string, make: () => THREE.Texture): THREE.Texture {
   let t = texCache.get(key);
   if (!t) {
@@ -46,7 +54,8 @@ function texture(cv: HTMLCanvasElement, opts: { srgb?: boolean; repeat?: number 
  * which must wait before taking its one-frame canvas snapshot.
  */
 export function stickerImageTexture(url: string): THREE.Texture {
-  const key = `sticker-image:${url}`;
+  const resolvedUrl = publicAssetUrl(url);
+  const key = `sticker-image:${resolvedUrl}`;
   let t = texCache.get(key);
   if (!t) {
     t = new THREE.Texture();
@@ -55,19 +64,30 @@ export function stickerImageTexture(url: string): THREE.Texture {
     t.anisotropy = 8;
     texCache.set(key, t);
     const target = t;
-    const pending = new Promise<THREE.Texture>((resolve, reject) => {
+    const pending = new Promise<THREE.Texture>((resolve) => {
       new THREE.ImageLoader().load(
-        url,
+        resolvedUrl,
         (image) => {
           target.image = image;
           target.needsUpdate = true;
           resolve(target);
         },
         undefined,
-        reject,
+        () => {
+          // A missing/deferred network asset must never suppress the entire
+          // Bey mesh or permanently blank a cached gallery thumbnail.
+          const fallback = document.createElement("canvas");
+          fallback.width = fallback.height = 1;
+          const context = fallback.getContext("2d")!;
+          context.fillStyle = "#ffffff";
+          context.fillRect(0, 0, 1, 1);
+          target.image = fallback;
+          target.needsUpdate = true;
+          resolve(target);
+        },
       );
     });
-    imageLoads.set(url, pending);
+    imageLoads.set(resolvedUrl, pending);
   }
   return t;
 }
@@ -76,7 +96,7 @@ export function stickerImageTexture(url: string): THREE.Texture {
 export function preloadStickerImage(url: string | null | undefined): Promise<THREE.Texture | null> {
   if (!url) return Promise.resolve(null);
   const t = stickerImageTexture(url);
-  return imageLoads.get(url) ?? Promise.resolve(t);
+  return imageLoads.get(publicAssetUrl(url)) ?? Promise.resolve(t);
 }
 
 /** Height field → tangent-space normal map (Sobel), the honest way to get
