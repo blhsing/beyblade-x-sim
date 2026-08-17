@@ -76,10 +76,16 @@ events in one tick ⇒ draw (no points, re-battle). Over-the-top ⇒ replay.
 ## Launch mapping
 
 SP (shoot power, 0–11000, Beybattle-Pass-like) → entry speed
-`0.45 + SP·1.25/11000` m/s (× launcher curve: winder 0.9 / string 1.05 /
-hold 1.0) and `ω₀ = 250 + 0.055·SP` rad/s (× hold 1.12 × staminaFactor);
-aim ±25° rotates the entry direction; tilt shifts entry radius. Typical
-7000 SP ⇒ ~6100 RPM, consistent with community measurements.
+`0.45 + SP·1.25/11000` m/s (× launcher curve: entry 0.82 / winder 0.9 /
+long-winder 0.98 / string 1.05 / hold 1.0) and
+`ω₀ = 250 + 0.055·SP` rad/s (× entry 0.86 / long-winder 1.08 / hold 1.12 /
+other launchers 1.0 × staminaFactor). L versions use the corresponding
+winder/string curve after spin-direction compatibility is enforced. Each
+side has a fixed physical launcher mount; aim rotates the horizontal release
+velocity and outward tilt adds a radial component, so a sufficiently crooked
+gesture can land outside the casing instead of being corrected toward a safe
+entry point. Typical 7000 SP ⇒ ~6100 RPM, consistent with community
+measurements.
 
 ## Tuning
 

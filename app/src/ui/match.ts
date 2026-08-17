@@ -3,13 +3,15 @@
 // mislaunch handling, hot-seat pass-the-phone, and bot fast-forward.
 
 import { deriveBeyParams, resolveCombo, type ResolvedCombo } from "../core/derive";
+import { normalizeLauncherForSpin } from "../core/launcher";
 import type { BeyParams } from "../core/types";
 import { DT, createWorld, simulateBattle, step } from "../core/sim";
-import type { LaunchParams, WorldConfig, WorldState } from "../core/types";
+import type { LauncherKind, LaunchParams, WorldConfig, WorldState } from "../core/types";
 import { MatchEngine, pointsForFinish, type PlayerSetup } from "../game/rules";
 import { botChooseLaunch, botChooseLaunchAdaptive } from "../game/bots";
 import { bumpProfile, launchStats, recordLaunch, recordMatch, type ReplayBattle } from "../game/persist";
 import { captureLaunch, LAUNCH_WINDOWS } from "../input/launcher";
+import { LAUNCHER_MODELS, launcherAimTiltFromGesture } from "../render/launcher";
 import { ZH, fmt } from "../i18n/zh";
 import { button, el, overlay } from "./dom";
 import { sfx } from "../audio/sfx";
@@ -93,26 +95,31 @@ export async function humanLaunch(
   launcher: LaunchParams["launcher"] = "string",
   rc: ResolvedCombo | null = null,
   beyParams: BeyParams | null = null,
-  opp: { rc: ResolvedCombo; params: BeyParams; side: 0 | 1 } | null = null,
+  opp: { rc: ResolvedCombo; params: BeyParams; side: 0 | 1; launcher?: LauncherKind } | null = null,
   abortSignal?: Promise<unknown>,
 ): Promise<{
   launch: LaunchParams | null;
   mislaunch: "early" | "late" | "weak" | null;
   aborted?: boolean;
+  cancelled?: boolean;
 }> {
   app.view.mode = app.view.mode === "gyro" ? "gyro" : "launch";
   app.view.launchSide = side;
   sfx.setScore("launch"); // tense hold through the countdown
+  const physicalLauncher = normalizeLauncherForSpin(launcher, beyParams?.spinDir ?? 1);
+  const pullInstruction = LAUNCHER_MODELS[physicalLauncher].mechanism === "string"
+    ? ZH.pullStringToLaunch
+    : ZH.pullWinderToLaunch;
   if (rc && beyParams) {
     // the player's real launcher type, held in both hands at screen bottom
     app.view.attachLauncher(rc, beyParams, side === 0 ? 0x3f7bff : 0xff5b4d, launcher);
   }
   // the opponent launches at the countdown too — their launcher hovers over
   // their corner and releases exactly on GO SHOOT
-  if (opp) app.view.attachOpponentLauncher(opp.rc, opp.params, opp.side, launcher);
+  if (opp) app.view.attachOpponentLauncher(opp.rc, opp.params, opp.side, opp.launcher ?? "string");
 
   const zone = el("div", { class: "launchzone" });
-  const hint = el("div", { class: "banner-big", style: "font-size:20px" }, `${playerName}｜${ZH.pullToLaunch}`);
+  const hint = el("div", { class: "banner-big", style: "font-size:20px" }, `${playerName}｜${pullInstruction}`);
   const calHint = el("div", { class: "label", style: "text-align:center" }, ZH.calibrateHint);
   const count = el("div", { class: "countdown" }, "");
   const meter = el("div", { class: "spmeter" }, el("div", { class: "spfill" }));
@@ -159,16 +166,36 @@ export async function humanLaunch(
     timers.length = 0;
   };
 
+  // One physical rack/string length maps to one usable screen stroke. Short
+  // Entry winders reach their stop sooner; UX long winders travel farther.
+  const product = LAUNCHER_MODELS[physicalLauncher];
+  const maxTravelPx = Math.max(
+    120,
+    Math.min(window.innerHeight * 0.62, 520) * (product.maxPullM / LAUNCHER_MODELS.string.maxPullM),
+  );
   const result = await captureLaunch(zone, {
     shootAtMs: shootAt,
     ...LAUNCH_WINDOWS,
+    pullAxis: { x: 0, y: 1 },
+    maxTravelPx,
     abortSignal,
-    onProgress: (sp, _pullPx, dx, dy) => {
-      fill.style.width = `${Math.min(100, (sp / 11000) * 100)}%`;
-      app.view.setLauncherPointer(dx, dy); // string follows the finger live
+    onProgress: (progress) => {
+      fill.style.width = `${Math.min(100, (progress.sp / 11000) * 100)}%`;
+      app.view.setLauncherGesture(progress);
     },
   });
 
+  if (result.cancelled) {
+    // OS/browser pointer cancellation is not a match abort. Cleanly remove
+    // the preview and let the normal mislaunch/retry loop restart the shoot.
+    stopTimers();
+    app.view.removeLauncher();
+    app.view.removeOpponentLauncher();
+    zone.remove();
+    meter.remove();
+    activeLaunchTeardown = null;
+    return { launch: null, mislaunch: null, cancelled: true };
+  }
   if (result.aborted) {
     // gave up mid-gesture: tear the rig down and unwind, never launch
     stopTimers();
@@ -189,20 +216,25 @@ export async function humanLaunch(
     activeLaunchTeardown = null;
     return { launch: null, mislaunch: result.mislaunch };
   }
-  await app.view.releaseLauncher(); // bey rips off, launcher lifts away
+  const { aimDeg, tiltDeg } = launcherAimTiltFromGesture(result);
+  const delayTicks = Math.max(0, Math.round((result.releaseOffsetMs / 1000) * 240));
+  const launch: LaunchParams = {
+    sp: result.sp,
+    aimDeg,
+    tiltDeg,
+    launcher,
+    spinDir: beyParams?.spinDir ?? 1,
+    delayTicks,
+  };
+  await app.view.releaseLauncher();
   stopTimers();
   app.view.removeLauncher();
   app.view.removeOpponentLauncher();
   zone.remove();
   meter.remove();
   activeLaunchTeardown = null;
-  const aimDeg = Math.max(-12, Math.min(12, result.releaseOffsetMs / 50));
-  // A late release really does enter late. Nobody lets go on the exact same
-  // frame, so the sim holds this bey out of play for the difference instead
-  // of pretending every top appears at once.
-  const delayTicks = Math.max(0, Math.round((result.releaseOffsetMs / 1000) * 240));
   return {
-    launch: { sp: result.sp, aimDeg, tiltDeg: 0, launcher, spinDir: 1, delayTicks },
+    launch,
     mislaunch: null,
   };
 }
@@ -246,7 +278,12 @@ async function collectLaunches(
       // the opponent's launcher shows + fires during my countdown
       const oppSide = (1 - side) as 0 | 1;
       const oppRc = resolveCombo(app.index, engine.deckOf(oppSide));
-      const opp = { rc: oppRc, params: deriveBeyParams(oppRc), side: oppSide };
+      const opp = {
+        rc: oppRc,
+        params: deriveBeyParams(oppRc),
+        side: oppSide,
+        launcher: slots[oppSide].launcher,
+      };
       let launched: LaunchParams | null = null;
       while (!launched) {
         if (abort?.flag.requested) return "aborted";
@@ -254,6 +291,7 @@ async function collectLaunches(
           app, names[side], side, s.launcher, rc, deriveBeyParams(rc), opp, abort?.signal,
         );
         if (r.aborted || abort?.flag.requested) return "aborted";
+        if (r.cancelled) continue;
         if (r.launch) {
           const spinDir =
             rotation === "left" || rotation === "both-left-origin" ? -1 : 1;
@@ -291,6 +329,16 @@ export function playBattle(
   return new Promise((resolve) => {
     const stadium = app.stadium();
     const world = createWorld(cfg);
+    app.view.primeStagedLaunches(world);
+    const stepWithLauncherHandoff = (): boolean => {
+      const pendingBefore = world.beys.map((bey) => bey.pendingTicks);
+      step(world, cfg, stadium);
+      const released = world.beys.some(
+        (bey, index) => pendingBefore[index]! > 0 && bey.pendingTicks === 0,
+      );
+      if (released) app.view.primeStagedLaunches(world);
+      return released;
+    };
     let acc = 0;
     // Fast-forward is available in EVERY battle, not just bot-vs-bot: once
     // both beys are launched there is no further input, so skipping ahead
@@ -306,7 +354,7 @@ export function playBattle(
             !world.finish && !world.draw && world.ffaWinner === null &&
             world.tick < cfg.maxTicks && guard++ < cfg.maxTicks
           ) {
-            step(world, cfg, stadium);
+            if (stepWithLauncherHandoff()) break;
           }
         }, "btn small"),
       );
@@ -316,9 +364,12 @@ export function playBattle(
       acc += dt;
       let steps = 0;
       while (acc > DT && !world.finish && !world.draw && world.ffaWinner === null && steps < 2400) {
-        step(world, cfg, stadium);
+        const released = stepWithLauncherHandoff();
         acc -= DT;
         steps++;
+        // Detach at the exact pendingTicks 1→0 state. Physics resumes next
+        // frame only after the canonical mesh owns that world transform.
+        if (released) break;
       }
       app.view.consumeEvents(world);
       app.view.update(world, dt);
@@ -347,6 +398,7 @@ export async function collectLocalLaunch(
   const opp = { rc: oppRc, params: deriveBeyParams(oppRc), side: oppSide };
   for (;;) {
     const r = await humanLaunch(app, name, side, launcher, rc, deriveBeyParams(rc), opp);
+    if (r.cancelled) continue;
     if (r.launch) {
       const spinDir = rotation === "left" || rotation === "both-left-origin" ? -1 : 1;
       recordLaunch(r.launch.sp, r.launch.aimDeg);
@@ -461,6 +513,7 @@ export async function runMatch(
     if (launches === "matchOver") break;
 
     app.view.setBeys({ rc: rc0, params: p0 }, { rc: rc1, params: p1 });
+    await app.view.stageLaunchers(launches);
     // the score follows the matchup: what is on the dish sets the mood
     sfx.setScore(
       mode === "錦標賽"

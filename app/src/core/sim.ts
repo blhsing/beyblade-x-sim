@@ -4,6 +4,7 @@
 // depends on wall-clock time.
 
 import { clamp, datan2, dsin, dcos, hashFloats, rngNext, wrapAngle, PI } from "./fxmath";
+import { normalizeLauncherForSpin } from "./launcher";
 import type { StadiumSpec } from "./stadium";
 import { inArc, pocketAt, railRadiusAt, railTangentAt, surfaceSlope, surfaceZ } from "./stadium";
 import type {
@@ -102,10 +103,121 @@ const T = {
 };
 
 const LAUNCHER: Record<LaunchParams["launcher"], { v: number; w: number }> = {
+  entry: { v: 0.82, w: 0.86 },
   winder: { v: 0.9, w: 1.0 },
+  longWinder: { v: 0.98, w: 1.08 },
   string: { v: 1.05, w: 1.0 },
   hold: { v: 1.0, w: 1.12 },
+  winderL: { v: 0.9, w: 1.0 },
+  stringL: { v: 1.05, w: 1.0 },
 };
+
+/**
+ * The complete deterministic ballistic hand-off shared by simulation and
+ * presentation. Render code stages the mounted bey at `x/y/z` and follows
+ * WorldState after release; the fixed-step simulation consumes these exact
+ * same initial values in makeBey(). `flightSeconds` and `landingX/Y` are the
+ * analytic centre-plane crossing, useful for miss prediction. The raised
+ * bowl can touch a normal launch earlier, at a stadium-specific fixed tick.
+ */
+export interface LaunchKinematics {
+  x: number;
+  y: number;
+  z: number;
+  vx: number;
+  vy: number;
+  vz: number;
+  omega: number;
+  /** nominal shoot-position angle around the stadium */
+  baseAngle: number;
+  /** horizontal velocity heading after the player's aim error */
+  heading: number;
+  /** analytic time to the stadium's centre plane (z=0), not raised bowl */
+  flightSeconds: number;
+  landingX: number;
+  landingY: number;
+}
+
+/** Positive root of z(t) = height + vz*t - g*t^2/2. */
+function fallTime(height: number, vz: number): number {
+  return (vz + Math.sqrt(vz * vz + 2 * G * height)) / G;
+}
+
+/**
+ * Compute the release pose and flight of one bey.
+ *
+ * The launcher mount is deliberately fixed for each shoot side/direction.
+ * Earlier code back-solved the spawn from a desired landing point, which
+ * made every gesture magically converge on the same safe patch of floor.
+ * Here power, aim and tilt change where the bey actually lands.  Ordinary
+ * launch ranges still enter the bowl, while a badly side-pulled or outward-
+ * tilted launcher can throw the bey outside the casing for an own finish.
+ */
+export function launchKinematics(
+  params: BeyParams,
+  launch: LaunchParams,
+  side: number,
+  total: number,
+): LaunchKinematics {
+  // 2 players keep the familiar opposing shoot positions; free-for-all
+  // distributes physical mounts evenly around the casing.
+  const baseAngle =
+    total <= 2 ? (side === 0 ? PI - 0.55 : 0.55) : PI / 2 + (side * 6.283185307179586) / total;
+  const launcher = normalizeLauncherForSpin(launch.launcher, launch.spinDir);
+  const lk = LAUNCHER[launcher];
+  const sp = clamp(launch.sp, 0, 11000);
+  const speed = (T.v0Base + sp * T.v0PerSp) * lk.v;
+
+  // The mount is calibrated once from a clean 9,250-SP tournament pull. It
+  // depends on the shoot side and drive direction, never on this gesture's
+  // power/aim/tilt. That preserves the former balanced entry for a clean
+  // pull without forcing bad pulls back to the same target.
+  const nominalHeading =
+    baseAngle + PI + (launch.spinDir * T.entryTangentDeg * PI) / 180;
+  const referenceSpeed =
+    (T.v0Base + 9250 * T.v0PerSp) * LAUNCHER.string.v;
+  const referenceTravel = referenceSpeed * fallTime(T.launchHeight, T.launchVz);
+  const targetX = T.entryRadius * dcos(baseAngle);
+  const targetY = T.entryRadius * dsin(baseAngle);
+  const x = targetX - referenceTravel * dcos(nominalHeading);
+  const y = targetY - referenceTravel * dsin(nominalHeading);
+
+  const heading = nominalHeading + (clamp(launch.aimDeg, -150, 150) * PI) / 180;
+  // tiltDeg is the launcher leaning toward (+) or into (-) the nearby rim.
+  // Its horizontal component is radial from the real mount, so extreme
+  // positive lean visibly sends the released bey outside instead of being
+  // treated as a harmless change to a preselected entry radius.
+  const tiltDeg = clamp(launch.tiltDeg, -30, 70);
+  const tilt = (tiltDeg * PI) / 180;
+  const radialLength = Math.sqrt(x * x + y * y);
+  const radialX = radialLength > 1e-12 ? x / radialLength : dcos(baseAngle);
+  const radialY = radialLength > 1e-12 ? y / radialLength : dsin(baseAngle);
+  const tiltRatio = clamp((dsin(tilt) / Math.max(0.01, dcos(tilt))) * 0.72, -0.35, 2.2);
+  const vx = speed * dcos(heading) + speed * tiltRatio * radialX;
+  const vy = speed * dsin(heading) + speed * tiltRatio * radialY;
+  const vz = T.launchVz + tiltDeg * 0.0045;
+  const flightSeconds = fallTime(T.launchHeight, vz);
+  const omega =
+    launch.spinDir *
+    (T.omega0Base + sp * T.omega0PerSp) *
+    lk.w *
+    params.staminaFactor;
+
+  return {
+    x,
+    y,
+    z: T.launchHeight,
+    vx,
+    vy,
+    vz,
+    omega,
+    baseAngle,
+    heading,
+    flightSeconds,
+    landingX: x + vx * flightSeconds,
+    landingY: y + vy * flightSeconds,
+  };
+}
 
 function makeBey(
   params: BeyParams,
@@ -113,39 +225,16 @@ function makeBey(
   side: number,
   total: number,
 ): BeyState {
-  // 2 players keep the classic corners (byte-identical with old replays);
-  // free-for-all spreads entries evenly around the bowl
-  const baseAngle =
-    total <= 2 ? (side === 0 ? PI - 0.55 : 0.55) : PI / 2 + (side * 6.283185307179586) / total;
-  const r0 = T.entryRadius + launch.tiltDeg * 0.0008;
-  const x = r0 * dcos(baseAngle);
-  const y = r0 * dsin(baseAngle);
-  const lk = LAUNCHER[launch.launcher];
-  const sp = clamp(launch.sp, 0, 11000);
-  const speed = (T.v0Base + sp * T.v0PerSp) * lk.v;
-  // aim: velocity points inward, rotated by spin-handed tangent bias + aim
-  const inward = baseAngle + PI;
-  const bias =
-    ((launch.spinDir * T.entryTangentDeg + launch.aimDeg) * PI) / 180;
-  const dir = inward + bias;
-  const omega =
-    launch.spinDir *
-    (T.omega0Base + sp * T.omega0PerSp) *
-    lk.w *
-    params.staminaFactor;
-  // spawn back along the flight path so the fall lands at the entry point
-  const vx = speed * dcos(dir);
-  const vy = speed * dsin(dir);
-  const tFall = Math.sqrt((2 * T.launchHeight) / 9.81);
+  const kinematics = launchKinematics(params, launch, side, total);
   return {
-    x: x - vx * tFall,
-    y: y - vy * tFall,
-    vx,
-    vy,
-    z: T.launchHeight,
-    vz: T.launchVz,
+    x: kinematics.x,
+    y: kinematics.y,
+    vx: kinematics.vx,
+    vy: kinematics.vy,
+    z: kinematics.z,
+    vz: kinematics.vz,
     airborne: true,
-    omega,
+    omega: kinematics.omega,
     burstDamage: 0,
     alive: true,
     exited: null,
@@ -216,9 +305,21 @@ function stepBey(
     b.z += b.vz * DT;
     b.phase += b.omega * DT;
     const r2 = Math.sqrt(b.x * b.x + b.y * b.y);
-    const floor = surfaceZ(s, Math.min(r2, s.rWall));
+    // Outside the wall there is no imaginary continuation of the bowl. A
+    // poor launch really falls beside the stadium and is an untouched over
+    // finish instead of being clamped/teleported through the wall next tick.
+    const outside = r2 > s.rWall;
+    const floor = outside ? 0 : surfaceZ(s, r2);
     if (b.z <= floor) {
       b.z = floor;
+      if (outside) {
+        b.vz = 0;
+        b.airborne = false;
+        b.exited = "launchMiss";
+        b.alive = false;
+        pushEvent(w, "exit", i, Math.sqrt(b.vx * b.vx + b.vy * b.vy));
+        return;
+      }
       if (b.vz < -T.landBounceMinVz) {
         b.vz = -b.vz * T.landBounceKeep; // hard landing: one small hop
         pushEvent(w, "land", i, -b.vz);

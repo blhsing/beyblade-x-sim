@@ -692,6 +692,7 @@ async function ffaSession(
           abortSignal,
         );
         if (r.aborted || aborted) return;
+        if (r.cancelled) continue;
         if (r.launch) {
           recordLaunch(r.launch.sp, r.launch.aimDeg);
           const spinDir = rot === "left" || rot === "both-left-origin" ? -1 : 1;
@@ -715,6 +716,7 @@ async function ffaSession(
       if (aborted) return;
 
       app.view.setBeysList(order.map((_, i) => ({ rc: rcs[i]!, params: params[i]! })));
+      await app.view.stageLaunchers(order.map((s) => launches.get(s)!));
       app.view.beginCameraEase(0.9);
       app.view.mode = app.view.mode === "gyro" ? "gyro" : "orbit";
       const wcfg: WorldConfig = {

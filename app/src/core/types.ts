@@ -129,12 +129,31 @@ export interface BeyParams {
   staminaFactor: number; // scales effective spin energy
 }
 
-export type LauncherKind = "winder" | "string" | "hold";
+/**
+ * Every mechanically distinct Takara Tomy BEYBLADE X launcher sold through
+ * the current catalog.  Colour-only editions (BX-28, BX-51, prize colours)
+ * reuse the matching mechanism here; L launchers remain distinct because
+ * their housing, prongs and gear train are mirrored for left spin.
+ */
+export const LAUNCHER_KINDS = [
+  "entry",
+  "winder",
+  "longWinder",
+  "hold",
+  "string",
+  "winderL",
+  "stringL",
+] as const;
+
+export type LauncherKind = (typeof LAUNCHER_KINDS)[number];
 
 export interface LaunchParams {
   sp: number; // shoot power, 0..11000 (Beybattle-Pass-like units)
-  aimDeg: number; // -30..30 aim offset from default entry direction
-  tiltDeg: number; // -20..20 launcher tilt (affects entry radius)
+  /** horizontal pull error; normal UI range ±30°, accepted/clamped to ±150°
+   * so a severely crooked real-time gesture can visibly miss the stadium */
+  aimDeg: number;
+  /** outward launcher lean; normal UI range ±20°, accepted -30°..70° */
+  tiltDeg: number;
   launcher: LauncherKind;
   spinDir: SpinDir; // effective direction (dual-spin blades choose)
   /** ticks this bey enters AFTER the countdown — players do not release in
@@ -186,7 +205,7 @@ export interface BeyState {
   omega: number; // signed rad/s (sign = spin direction)
   burstDamage: number; // accumulated clicks (bursts at clicksMax)
   alive: boolean;
-  exited: "over" | "xtreme" | "top" | null;
+  exited: "over" | "xtreme" | "top" | "launchMiss" | null;
   stoppedTick: number; // tick when spin finished (-1 = spinning)
   /** consecutive ticks under OMEGA_STOP — the spin finish needs a dwell so
    * the result is announced only once the bey has really wound down */

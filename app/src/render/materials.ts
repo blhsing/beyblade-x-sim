@@ -624,18 +624,22 @@ export function pomTranslucent(color = 0xf4f4fa): THREE.MeshPhysicalMaterial {
 /** Clear polycarbonate — stadium casing panels. */
 export function clearPanel(): THREE.MeshPhysicalMaterial {
   return new THREE.MeshPhysicalMaterial({
-    color: 0xeaf2ff,
+    color: 0xf6fbff,
     metalness: 0,
-    roughness: 0.06,
-    transmission: 0.92,
-    thickness: 0.0016,
+    roughness: 0.045,
+    transmission: 0.96,
+    thickness: 0.002,
+    attenuationDistance: 0.8,
+    attenuationColor: new THREE.Color(0xeaf4ff),
     ior: 1.585, // polycarbonate
     clearcoat: 1,
     clearcoatRoughness: 0.04,
     transparent: true,
-    opacity: 0.42,
+    // Transmission already supplies the physically-correct transparency.
+    // Lowering opacity as well makes solid PC read like a faded ghost plane.
+    opacity: 1,
     side: THREE.DoubleSide,
-    depthWrite: false,
+    depthWrite: true,
   });
 }
 

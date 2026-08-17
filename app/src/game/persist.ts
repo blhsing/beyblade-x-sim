@@ -5,6 +5,7 @@
 // and retry on next boot.
 
 import { getToken, isGuest } from "./auth";
+import { LAUNCHER_KINDS, type LauncherKind } from "../core/types";
 
 export interface ReplayBattle {
   seed: number;
@@ -224,7 +225,7 @@ export const localMatches = (): MatchRecord[] => readJson("beyblade.matches", []
 
 export interface Prefs {
   name: string;
-  launcher: "winder" | "string" | "hold";
+  launcher: LauncherKind;
   rulesPreset: string;
   pointsToWin: number;
   stadium: string;
@@ -249,7 +250,11 @@ const DEFAULT_PREFS: Prefs = {
 };
 
 export function getPrefs(): Prefs {
-  return { ...DEFAULT_PREFS, ...readJson<Partial<Prefs>>("beyblade.prefs", {}) };
+  const stored = readJson<Partial<Prefs>>("beyblade.prefs", {});
+  const launcher = LAUNCHER_KINDS.includes(stored.launcher as LauncherKind)
+    ? stored.launcher as LauncherKind
+    : DEFAULT_PREFS.launcher;
+  return { ...DEFAULT_PREFS, ...stored, launcher };
 }
 
 export function savePrefs(patch: Partial<Prefs>): Prefs {

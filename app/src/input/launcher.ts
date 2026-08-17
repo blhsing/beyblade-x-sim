@@ -5,13 +5,47 @@
 
 import { sfx } from "../audio/sfx";
 
-export interface LaunchGestureResult {
+export interface PullAxis {
+  /** screen-right component */
+  x: number;
+  /** screen-down component */
+  y: number;
+}
+
+/** The default physical pull is straight down the screen. */
+export const DEFAULT_PULL_AXIS: Readonly<PullAxis> = Object.freeze({ x: 0, y: 1 });
+
+export interface PullProjection {
+  dxPx: number;
+  dyPx: number;
+  /** signed extension along the launcher's declared pull guide */
+  axialPx: number;
+  /** signed screen-right error perpendicular to that guide */
+  perpendicularPx: number;
+  /** signed error angle from the pull axis; positive is its screen-right side */
+  gestureAngleDeg: number;
+  /** 0..1 alignment with the valid outward pull direction */
+  pullQuality: number;
+}
+
+export interface LaunchGestureProgress extends PullProjection {
   sp: number;
+  /** unique, forward axial travel; reversal/oscillation never increases it */
+  pullPx: number;
+  maxTravelPx: number;
+}
+
+export interface LaunchGestureResult extends PullProjection {
+  sp: number;
+  /** furthest valid axial extension reached during this pull */
+  peakAxialPx: number;
   /** ms relative to the "SHOOT" instant (negative = released early) */
   releaseOffsetMs: number;
   mislaunch: "early" | "late" | "weak" | null;
   /** the match was given up mid-gesture; nothing was launched */
   aborted?: boolean;
+  /** the active OS/browser pointer was cancelled; never treat as release */
+  cancelled?: boolean;
 }
 
 export interface LaunchGestureOptions {
@@ -20,35 +54,139 @@ export interface LaunchGestureOptions {
   earlyWindowMs: number; // released earlier than this before shootAt = early
   lateWindowMs: number; // no release this long after shootAt = late
   minSp: number; // below this = weak launch (發射失誤)
-  /** dx/dy = live pointer offset from where the finger touched down (px),
-   * so the string/winder can track the actual touch in real time */
-  onProgress?: (sp: number, pullPx: number, dx: number, dy: number) => void;
+  /** launcher-specific screen-space pull guide; defaults to screen-down */
+  pullAxis?: PullAxis;
+  /** physical travel available to this product's string/rack on this screen */
+  maxTravelPx?: number;
+  /** Complete live gesture state for the hand, string/winder and meter. */
+  onProgress?: (progress: LaunchGestureProgress) => void;
   /** resolves when the player gives up — the gesture then resolves as
    * `aborted` instead of hanging until the late-launch timeout, which is
    * what used to leave a "finished" match still running in the background */
   abortSignal?: Promise<unknown>;
 }
 
+export interface PullGestureAccumulator {
+  sp: number;
+  peakAxialPx: number;
+  lastAxialPx: number;
+  lastSampleAtMs: number;
+}
+
 const CLICK_EVERY_PX = 26; // winder ratchet click spacing
-const SP_PER_PX_SPEED = 2.6; // px/ms → SP contribution
+const SP_PER_PX_SPEED = 16; // (px/ms) * new physical extension -> SP
+export const DEFAULT_MAX_PULL_PX = 480;
 
 /**
- * Attaches to an element for ONE launch. Resolves on release (or late
- * timeout). The drag may be multi-stroke for winder launchers — SP keeps the
- * best continuous stroke.
+ * Project a screen displacement onto a launcher's real pull guide. This is
+ * pure so touch, mouse and replay input all use identical geometry.
+ */
+export function projectPullGesture(
+  dxPx: number,
+  dyPx: number,
+  pullAxis: PullAxis = DEFAULT_PULL_AXIS,
+): PullProjection {
+  const axisLength = Math.sqrt(pullAxis.x * pullAxis.x + pullAxis.y * pullAxis.y);
+  const axisX = axisLength > 1e-9 ? pullAxis.x / axisLength : DEFAULT_PULL_AXIS.x;
+  const axisY = axisLength > 1e-9 ? pullAxis.y / axisLength : DEFAULT_PULL_AXIS.y;
+  const axialPx = dxPx * axisX + dyPx * axisY;
+  // Right-hand normal in screen coordinates. For the default down axis this
+  // is simply +screen-X, making the sign intuitive to renderer and aiming.
+  const perpendicularPx = dxPx * axisY - dyPx * axisX;
+  const magnitude = Math.sqrt(dxPx * dxPx + dyPx * dyPx);
+  const gestureAngleDeg =
+    magnitude > 1e-9 ? (Math.atan2(perpendicularPx, axialPx) * 180) / Math.PI : 0;
+  // No displacement is a neutral held pose, not a maximally crooked pull.
+  // This prevents pointerdown from snapping the live launcher to its
+  // 70-degree miss pose before the finger has moved at all.
+  const pullQuality =
+    magnitude > 1e-9 ? Math.max(0, Math.min(1, axialPx / magnitude)) : 1;
+  return { dxPx, dyPx, axialPx, perpendicularPx, gestureAngleDeg, pullQuality };
+}
+
+export function createPullGestureAccumulator(sampleAtMs = 0): PullGestureAccumulator {
+  return { sp: 0, peakAxialPx: 0, lastAxialPx: 0, lastSampleAtMs: sampleAtMs };
+}
+
+/**
+ * Add one projected sample. Only extension beyond the all-time axial peak
+ * can add travel or SP, so reversing and pulling the same section again can
+ * animate naturally but cannot farm power. Perpendicular motion contributes
+ * no travel and reduces power according to alignment quality.
+ */
+export function accumulatePullGesture(
+  state: PullGestureAccumulator,
+  sample: PullProjection,
+  sampleAtMs: number,
+  maxTravelPx = DEFAULT_MAX_PULL_PX,
+): PullGestureAccumulator {
+  const limit = Number.isFinite(maxTravelPx) ? Math.max(1, maxTravelPx) : DEFAULT_MAX_PULL_PX;
+  const cappedAxial = Math.max(0, Math.min(limit, sample.axialPx));
+  const peakAxialPx = Math.max(state.peakAxialPx, cappedAxial);
+  const novelTravel = peakAxialPx - state.peakAxialPx;
+  const dt = Math.max(1, sampleAtMs - state.lastSampleAtMs);
+  const forwardSpeed = Math.max(0, sample.axialPx - state.lastAxialPx) / dt;
+  const quality = sample.pullQuality * sample.pullQuality;
+  const sp = Math.min(
+    11000,
+    state.sp + novelTravel * Math.min(12, forwardSpeed) * SP_PER_PX_SPEED * quality,
+  );
+  return {
+    sp,
+    peakAxialPx,
+    lastAxialPx: sample.axialPx,
+    lastSampleAtMs: sampleAtMs,
+  };
+}
+
+function progressFor(
+  projection: PullProjection,
+  state: PullGestureAccumulator,
+  maxTravelPx: number,
+): LaunchGestureProgress {
+  return {
+    ...projection,
+    sp: state.sp,
+    pullPx: state.peakAxialPx,
+    maxTravelPx,
+  };
+}
+
+/**
+ * Attach to an element for exactly one launch. One pointer owns the launch;
+ * secondary touches are ignored, and pointercancel is never mistaken for a
+ * release. The visual callback receives raw displacement plus its physical
+ * axis projection on every move.
  */
 export function captureLaunch(
   el: HTMLElement,
   opts: LaunchGestureOptions,
 ): Promise<LaunchGestureResult> {
   return new Promise((resolve) => {
-    let active = false;
-    let lastY = 0;
-    let lastT = 0;
-    let travel = 0;
-    let clickAcc = 0;
-    let sp = 0;
+    const pullAxis = opts.pullAxis ?? DEFAULT_PULL_AXIS;
+    const maxTravelPx = Number.isFinite(opts.maxTravelPx)
+      ? Math.max(1, opts.maxTravelPx!)
+      : DEFAULT_MAX_PULL_PX;
+    let pointerId: number | null = null;
+    let originX = 0;
+    let originY = 0;
+    let projection = projectPullGesture(0, 0, pullAxis);
+    let accumulator = createPullGestureAccumulator();
+    let clickCount = 0;
     let done = false;
+
+    const resultFrom = (
+      releaseOffsetMs: number,
+      mislaunch: LaunchGestureResult["mislaunch"],
+      extra: Pick<LaunchGestureResult, "aborted" | "cancelled"> = {},
+    ): LaunchGestureResult => ({
+      ...projection,
+      sp: accumulator.sp,
+      peakAxialPx: accumulator.peakAxialPx,
+      releaseOffsetMs,
+      mislaunch,
+      ...extra,
+    });
 
     const finish = (result: LaunchGestureResult): void => {
       if (done) return;
@@ -56,73 +194,92 @@ export function captureLaunch(
       el.removeEventListener("pointerdown", onDown);
       el.removeEventListener("pointermove", onMove);
       el.removeEventListener("pointerup", onUp);
-      el.removeEventListener("pointercancel", onUp);
+      el.removeEventListener("pointercancel", onCancel);
+      if (pointerId !== null) {
+        const capturedPointer = pointerId;
+        try {
+          el.releasePointerCapture(capturedPointer);
+        } catch {
+          /* synthetic or already-released pointer */
+        }
+        pointerId = null;
+      }
       window.clearTimeout(lateTimer);
       resolve(result);
     };
 
     const lateTimer = window.setTimeout(() => {
-      finish({ sp: 0, releaseOffsetMs: opts.lateWindowMs, mislaunch: "late" });
+      finish(resultFrom(opts.lateWindowMs, "late"));
     }, Math.max(0, opts.shootAtMs - Date.now()) + opts.lateWindowMs);
 
-    let originX = 0;
-    let originY = 0;
     const onDown = (e: PointerEvent): void => {
-      active = true;
-      lastY = e.clientY;
-      lastT = performance.now();
+      if (pointerId !== null) return; // a second finger cannot steal/farm this pull
+      pointerId = e.pointerId;
       originX = e.clientX;
       originY = e.clientY;
+      projection = projectPullGesture(0, 0, pullAxis);
+      accumulator = createPullGestureAccumulator(performance.now());
+      opts.onProgress?.(progressFor(projection, accumulator, maxTravelPx));
       try {
         el.setPointerCapture(e.pointerId);
       } catch {
         /* synthetic events have no capturable pointer */
       }
     };
-    const onMove = (e: PointerEvent): void => {
-      if (!active) return;
+
+    const updatePointerSample = (e: PointerEvent): void => {
       const now = performance.now();
-      const dy = e.clientY - lastY; // downward pull = positive
-      const dt = Math.max(1, now - lastT);
-      if (dy > 0) {
-        travel += dy;
-        clickAcc += dy;
-        const speed = dy / dt; // px per ms
-        sp = Math.min(11000, sp + speed * SP_PER_PX_SPEED * dy * 0.55);
-        while (clickAcc >= CLICK_EVERY_PX) {
-          clickAcc -= CLICK_EVERY_PX;
-          sfx.click(0.8);
-          if (navigator.vibrate) navigator.vibrate(8);
-        }
+      projection = projectPullGesture(e.clientX - originX, e.clientY - originY, pullAxis);
+      accumulator = accumulatePullGesture(accumulator, projection, now, maxTravelPx);
+      const nextClickCount = Math.floor(accumulator.peakAxialPx / CLICK_EVERY_PX);
+      while (clickCount < nextClickCount) {
+        clickCount++;
+        sfx.click(0.8);
+        if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate(8);
       }
-      // the winder tracks the finger every move, in ANY direction
-      opts.onProgress?.(sp, travel, e.clientX - originX, e.clientY - originY);
-      lastY = e.clientY;
-      lastT = now;
+      opts.onProgress?.(progressFor(projection, accumulator, maxTravelPx));
     };
-    const onUp = (): void => {
-      if (!active) return;
-      active = false;
+
+    const onMove = (e: PointerEvent): void => {
+      if (e.pointerId !== pointerId) return;
+      e.preventDefault();
+      updatePointerSample(e);
+    };
+
+    const onUp = (e: PointerEvent): void => {
+      if (e.pointerId !== pointerId) return;
+      // Some touch stacks coalesce the fastest final part of the pull into
+      // pointerup. Consume its coordinates before scoring or releasing the
+      // capture so that real motion is not silently discarded.
+      updatePointerSample(e);
       const offset = Date.now() - opts.shootAtMs;
       if (offset < -opts.earlyWindowMs) {
-        finish({ sp, releaseOffsetMs: offset, mislaunch: "early" });
+        finish(resultFrom(offset, "early"));
         return;
       }
-      if (sp < opts.minSp) {
-        finish({ sp, releaseOffsetMs: offset, mislaunch: "weak" });
+      if (accumulator.sp < opts.minSp) {
+        finish(resultFrom(offset, "weak"));
         return;
       }
-      sfx.launch(sp);
-      if (navigator.vibrate) navigator.vibrate([10, 20, 40]);
-      finish({ sp, releaseOffsetMs: offset, mislaunch: null });
+      sfx.launch(accumulator.sp);
+      if (typeof navigator !== "undefined" && navigator.vibrate) navigator.vibrate([10, 20, 40]);
+      finish(resultFrom(offset, null));
+    };
+
+    const onCancel = (e: PointerEvent): void => {
+      if (e.pointerId !== pointerId) return;
+      // Cancellation (lost capture, OS gesture, app switch) is not the
+      // player's explicit match abort. Mark it separately; `weak` keeps old
+      // callers fail-safe while newer match UI can retry without a penalty.
+      finish(resultFrom(Date.now() - opts.shootAtMs, "weak", { cancelled: true }));
     };
 
     el.addEventListener("pointerdown", onDown);
     el.addEventListener("pointermove", onMove);
     el.addEventListener("pointerup", onUp);
-    el.addEventListener("pointercancel", onUp);
+    el.addEventListener("pointercancel", onCancel);
     void opts.abortSignal?.then(() =>
-      finish({ sp: 0, releaseOffsetMs: 0, mislaunch: null, aborted: true }),
+      finish(resultFrom(0, null, { aborted: true })),
     );
   });
 }

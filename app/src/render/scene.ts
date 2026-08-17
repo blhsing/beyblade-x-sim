@@ -5,31 +5,34 @@
 
 import * as THREE from "three";
 
-import { railPointAt, railTangentAt, surfaceZ, type StadiumSpec } from "../core/stadium";
-import { wrapAngle } from "../core/fxmath";
-import type { BeyParams, WorldState } from "../core/types";
+import { surfaceZ, type StadiumSpec } from "../core/stadium";
+import { normalizeLauncherForSpin } from "../core/launcher";
+import { launchKinematics } from "../core/sim";
+import type { BeyParams, LauncherKind, LaunchParams, WorldState } from "../core/types";
 import type { ResolvedCombo } from "../core/derive";
 import { gyro } from "../sensors/gyro";
 import { sfx } from "../audio/sfx";
-import {
-  absPlastic,
-  clearPanel,
-  paintedMetal,
-  studioEnvironment,
-  tableMaps,
-} from "./materials";
+import { studioEnvironment, tableMaps } from "./materials";
 import { buildBeyMesh, partRadiusM } from "./parts";
-import { buildLauncher, updateCord, type LauncherRig } from "./hand";
+import {
+  alignLauncherMountToWorld,
+  applyLauncherPreviewPose,
+  buildLauncher,
+  composeLaunchedBeyOrientation,
+  LAUNCHER_PREVIEW_POSE,
+  launcherAimTiltFromGesture,
+  launcherExitOrientation,
+  orientWorldLauncher,
+  setLauncherClawOpen,
+  setLauncherPull,
+  type LauncherRig,
+  type LauncherPullState,
+} from "./launcher";
 import { RT_PRESETS, RayMarchComposer, markReflective } from "./rt";
+import { buildStadiumModel, disposeStadiumModel } from "./stadium";
 
 export { buildBeyMesh } from "./parts";
-
-function ringSegmentShape(rIn: number, rOut: number, a0: number, a1: number): THREE.Shape {
-  const s = new THREE.Shape();
-  s.absarc(0, 0, rOut, a0, a1, false);
-  s.absarc(0, 0, rIn, a1, a0, true);
-  return s;
-}
+export { pocketDepth } from "./stadium";
 
 /** Star-ish 2D outline: base radius with N lobes of given depth. */
 export function lobedShape(r: number, lobes: number, depth: number, sharp: number): THREE.Shape {
@@ -53,6 +56,32 @@ interface Spark {
   life: number;
 }
 
+export interface LauncherGestureVisual {
+  axialPx: number;
+  pullPx: number;
+  perpendicularPx: number;
+  maxTravelPx: number;
+  gestureAngleDeg: number;
+  pullQuality: number;
+}
+
+interface PreviewLauncher extends LauncherRig {
+  beyPivot: THREE.Group;
+  beySpin: THREE.Group;
+  basePitch: number;
+  baseYaw: number;
+  baseRoll: number;
+  generation: number;
+}
+
+interface StagedLauncher extends LauncherRig {
+  mesh: THREE.Group;
+  side: number;
+  released: boolean;
+  liftT: number;
+  generation: number;
+}
+
 /** Release one transient model without destroying globally cached textures. */
 function disposeModel(root: THREE.Object3D): void {
   const geometries = new Set<THREE.BufferGeometry>();
@@ -74,16 +103,6 @@ function disposeModel(root: THREE.Object3D): void {
  * wind-down is watchable rather than an abrupt stop. */
 const WOBBLE_OMEGA = 55;
 
-/**
- * How far a pocket's catch tray extends past the wall (m), clamped so the
- * cut-out can never run off the stadium body — a hole hanging past the deck
- * edge renders as broken geometry rather than a pocket.
- */
-export function pocketDepth(s: StadiumSpec): number {
-  const margin = Math.min(s.deckW, s.deckH) / 2 - s.rWall - 0.004;
-  return Math.max(0.012, Math.min(0.04, margin));
-}
-
 export type CameraMode = "orbit" | "gyro" | "launch" | "cinema";
 
 export class BattleView {
@@ -92,6 +111,16 @@ export class BattleView {
   readonly camera: THREE.PerspectiveCamera;
   private beyMeshes: (THREE.Group | null)[] = [];
   private beyParams: (BeyParams | null)[] = [];
+  /** Staged world sticker phase retained across scene.attach ownership hand-off. */
+  private launchPhaseOffsets: number[] = [];
+  /** Full non-spinning world orientation of the tilted launcher mount. */
+  private launchOrientationBases: (THREE.Quaternion | null)[] = [];
+  /** 0..1 transition from launcher tilt to free upright ground spin. */
+  private launchLandingBlend: number[] = [];
+  /** In-place fall angle for a bey that touched down outside the casing. */
+  private launchMissTumble: number[] = [];
+  private launchMissElapsed: number[] = [];
+  private launchMissSpin: (number | null)[] = [];
   private sparks: Spark[] = [];
   private sparkMat: THREE.MeshBasicMaterial;
   private stadiumGroup = new THREE.Group();
@@ -299,12 +328,9 @@ export class BattleView {
   // way you actually see it over your own hands when you launch — camera
   // attached, so it stays put while the anchored stadium view moves behind it.
 
-  private launcherRig: (LauncherRig & { beyPivot: THREE.Group; beySpin: THREE.Group; pullM: number }) | null =
-    null;
-
-  /** neutral rig pose in camera space: centred, low, close */
-  private static readonly RIG_HOME = new THREE.Vector3(0, -0.105, -0.235);
-  private static readonly RIG_PITCH = -0.62;
+  private launcherRig: PreviewLauncher | null = null;
+  /** Invalidates every outstanding preview/staging animation callback. */
+  private launcherGeneration = 0;
 
   /** Camera-attached launcher (real type) with both hands and the player's
    * actual bey clipped underneath. */
@@ -312,10 +338,10 @@ export class BattleView {
     rc: ResolvedCombo | null,
     params: BeyParams,
     accent: number,
-    kind: "winder" | "string" | "hold" = "string",
+    kind: LauncherKind = "string",
   ): void {
     this.removeLauncher();
-    const rig = buildLauncher(kind, accent);
+    const rig = buildLauncher(normalizeLauncherForSpin(kind, params.spinDir), accent);
     const g = rig.group;
 
     // the player's own bey clipped under the head, tip pointing down
@@ -326,52 +352,81 @@ export class BattleView {
     beyPivot.position.set(0, 0, -0.014);
     rig.beyMount.add(beyPivot);
 
-    g.position.copy(BattleView.RIG_HOME);
-    g.rotation.set(BattleView.RIG_PITCH, 0, 0);
-    g.scale.setScalar(0.92);
+    // Rotate each drive handedness so its real local withdrawal axis projects
+    // down-screen. This keeps an L rack mechanically mirrored while giving
+    // either hand the familiar downward launch gesture.
+    applyLauncherPreviewPose(rig);
+    const roll = g.rotation.z;
     this.camera.add(g);
-    this.launcherRig = { ...rig, beyPivot, beySpin, pullM: 0 };
-    updateCord(this.launcherRig);
+    setLauncherClawOpen(rig, 0);
+    this.launcherRig = {
+      ...rig,
+      beyPivot,
+      beySpin,
+      basePitch: LAUNCHER_PREVIEW_POSE.pitch,
+      baseYaw: 0,
+      baseRoll: roll,
+      generation: this.launcherGeneration,
+    };
+    setLauncherPull(this.launcherRig, 0);
   }
 
-  /** The puller tracks the ACTUAL finger: screen-pixel deltas from the touch
-   * origin map through camera space into the rig, so the string/ripcord
-   * visibly follows the hand in real time. */
-  setLauncherPointer(dxPx: number, dyPx: number): void {
+  /**
+   * Apply the same axis-projected gesture credited by the input model. A
+   * rigid winder can only slide collinearly through its guide. A string may
+   * bow laterally inside its physical cone, with its hand still parented to
+   * the handle. Cross-axis error leans/yaws the whole launcher rather than
+   * teleporting the rack away from its slot.
+   */
+  setLauncherGesture(progress: LauncherGestureVisual): LauncherPullState | null {
     const rig = this.launcherRig;
-    if (!rig) return;
-    const k = 0.3 / Math.max(320, window.innerHeight); // px → metres at rig depth
-    const camOff = new THREE.Vector3(dxPx * k, -dyPx * k, 0);
-    if (camOff.length() > 0.5) camOff.setLength(0.5);
-    const local = camOff.applyAxisAngle(new THREE.Vector3(1, 0, 0), -BattleView.RIG_PITCH);
-    rig.pullM = Math.min(0.42, local.length());
-    rig.puller.position.copy(rig.pullerHome).add(local);
-    updateCord(rig);
+    if (!rig) return null;
+    const denom = Math.max(1, progress.maxTravelPx);
+    const physicalAxial = rig.mechanism === "string" ? progress.axialPx : progress.pullPx;
+    const travel = THREE.MathUtils.clamp(physicalAxial / denom, 0, 1) * rig.maxPullM;
+    const lateral = THREE.MathUtils.clamp(progress.perpendicularPx / denom, -1, 1) * rig.maxPullM;
+    const state = setLauncherPull(rig, travel, lateral);
+    const direction = launcherAimTiltFromGesture(progress);
+    rig.group.rotation.set(
+      rig.basePitch + THREE.MathUtils.degToRad(direction.tiltDeg),
+      rig.baseYaw + THREE.MathUtils.degToRad(direction.aimDeg),
+      rig.baseRoll,
+    );
+    rig.group.userData.visualAimDeg = direction.aimDeg;
+    rig.group.userData.visualTiltDeg = direction.tiltDeg;
+
+    // Rack teeth/string spool drive the mounted bey continuously during the
+    // credited outward stroke. Pointer-up does not invent a second spin-up.
+    const signedTurns = rig.pullAxis.x * state.fraction * Math.PI * 34;
+    rig.beySpin.rotation.z = signedTurns;
+    const gear = rig.beyMount.getObjectByName("launcher gear plate");
+    if (gear) gear.rotation.z = -signedTurns * 0.34;
+    return state;
   }
 
-  /** Release: bey spins up, rips off toward the stadium; launcher lifts away. */
+  /**
+   * Finish the camera-space feedback. The real battle bey is staged later at
+   * the deterministic world mount; the extracted rack/string never rewinds
+   * or teleports while this preview rig leaves frame.
+   */
   releaseLauncher(): Promise<void> {
     const rig = this.launcherRig;
     if (!rig) return Promise.resolve();
+    const generation = rig.generation;
     return new Promise((resolve) => {
       const t0 = performance.now();
-      const home = BattleView.RIG_HOME;
+      const start = rig.group.position.clone();
+      const releaseOrientation = rig.group.quaternion.clone();
       const tick = (): void => {
         const r = this.launcherRig;
-        if (!r) {
+        if (!r || r.generation !== generation || generation !== this.launcherGeneration) {
           resolve();
           return;
         }
-        const t = Math.min(1, (performance.now() - t0) / 650);
-        r.beySpin.rotation.z = t * t * 90; // visible spin-up
-        r.beyPivot.position.set(0, t * 0.4, -0.014 - t * 0.5);
-        r.puller.position.copy(r.pullerHome).addScaledVector(
-          new THREE.Vector3(1, 0, 0),
-          r.pullM * (1 - t),
-        );
-        r.group.position.set(home.x, home.y - t * 0.05, home.z + t * 0.12);
-        r.group.rotation.x = BattleView.RIG_PITCH - t * 0.35;
-        updateCord(r);
+        const t = Math.min(1, (performance.now() - t0) / 220);
+        const eased = t * t * (3 - 2 * t);
+        r.group.position.copy(start).add(new THREE.Vector3(0, -eased * 0.16, eased * 0.08));
+        launcherExitOrientation(releaseOrientation, eased, r.group.quaternion);
         if (t < 1) requestAnimationFrame(tick);
         else resolve();
       };
@@ -380,6 +435,7 @@ export class BattleView {
   }
 
   removeLauncher(): void {
+    this.launcherGeneration++;
     if (this.launcherRig) {
       this.camera.remove(this.launcherRig.group);
       disposeModel(this.launcherRig.group);
@@ -389,7 +445,13 @@ export class BattleView {
 
   // ---- opponent launcher (world-anchored; bots launch at the countdown) ---
 
-  private oppRigs: { group: THREE.Group; beySpin: THREE.Group; side: 0 | 1 }[] = [];
+  private oppRigs: {
+    rig: LauncherRig;
+    group: THREE.Group;
+    beySpin: THREE.Group;
+    side: 0 | 1;
+    generation: number;
+  }[] = [];
 
   /** The opponent's real launcher, held in their hands over their entry
    * corner with their actual bey clipped under it — released on GO SHOOT. */
@@ -397,11 +459,11 @@ export class BattleView {
     rc: ResolvedCombo | null,
     params: BeyParams,
     side: 0 | 1,
-    kind: "winder" | "string" | "hold" = "string",
+    kind: LauncherKind = "string",
   ): void {
     this.removeOpponentLauncher(side);
     const accent = side === 0 ? 0x2b3a9e : 0x8e2b2b;
-    const rig = buildLauncher(kind, accent);
+    const rig = buildLauncher(normalizeLauncherForSpin(kind, params.spinDir), accent);
     const g = rig.group;
 
     const beySpin = new THREE.Group();
@@ -410,26 +472,38 @@ export class BattleView {
     rig.beyMount.add(beySpin);
 
     const baseAngle = side === 0 ? Math.PI - 0.55 : 0.55;
-    const r0 = 0.075;
+    const r0 = 0.18;
     g.position.set(Math.cos(baseAngle) * r0, Math.sin(baseAngle) * r0, 0.19);
-    g.rotation.z = baseAngle + Math.PI; // launcher faces the bowl
+    g.rotation.z = baseAngle - (rig.pullAxis.x < 0 ? Math.PI : 0);
     g.rotation.y = (side === 0 ? 1 : -1) * 0.12;
+    g.scale.setScalar(0.74);
+    setLauncherPull(rig, rig.maxPullM * 0.82);
+    beySpin.rotation.z = rig.pullAxis.x * Math.PI * 26;
+    setLauncherClawOpen(rig, 0);
     this.scene.add(g);
-    this.oppRigs.push({ group: g, beySpin, side });
+    this.oppRigs.push({ rig, group: g, beySpin, side, generation: this.launcherGeneration });
   }
 
-  /** Drop the bey to the surface with spin-up, lift the launcher, remove. */
+  /** Lift the mechanical opponent preview; canonical world staging follows. */
   playOpponentRelease(side?: 0 | 1): Promise<void> {
     const rigs = this.oppRigs.filter((r) => side === undefined || r.side === side);
     if (rigs.length === 0) return Promise.resolve();
+    const starts = rigs.map((rig) => rig.group.position.clone());
+    const generation = this.launcherGeneration;
     return new Promise((resolve) => {
       const t0 = performance.now();
       const tick = (): void => {
-        const t = Math.min(1, (performance.now() - t0) / 500);
-        for (const rig of rigs) {
-          rig.beySpin.rotation.z = t * t * 70; // spin-up around its own axis
-          rig.beySpin.position.z = -0.016 - t * 0.13; // down to the bowl
-          rig.group.position.z = 0.19 + t * 0.08; // launcher lifts away
+        if (generation !== this.launcherGeneration) {
+          resolve();
+          return;
+        }
+        const t = Math.min(1, (performance.now() - t0) / 240);
+        const eased = t * t * (3 - 2 * t);
+        for (let i = 0; i < rigs.length; i++) {
+          const rig = rigs[i]!;
+          const radial = starts[i]!.clone().setZ(0).normalize();
+          rig.group.position.copy(starts[i]!).addScaledVector(radial, eased * 0.09);
+          rig.group.position.z += eased * 0.11;
         }
         if (t < 1) requestAnimationFrame(tick);
         else {
@@ -454,6 +528,170 @@ export class BattleView {
       }
       return true;
     });
+  }
+
+  // ---- canonical world launch staging -----------------------------------
+
+  private stagedLaunchers: (StagedLauncher | null)[] = [];
+  private stageGeneration = 0;
+
+  /**
+   * Remove launcher shells without ever disposing a canonical battle mesh.
+   * A still-mounted bey is first reparented into the scene with its world
+   * transform preserved, then the now-empty launcher can be released safely.
+   */
+  private clearStagedLaunchers(): void {
+    this.stageGeneration++;
+    for (const staged of this.stagedLaunchers) {
+      if (!staged) continue;
+      if (staged.mesh.parent && staged.mesh.parent !== this.scene) this.scene.attach(staged.mesh);
+      this.scene.remove(staged.group);
+      disposeModel(staged.group);
+    }
+    this.stagedLaunchers = [];
+  }
+
+  /**
+   * Parent the ONE canonical battle mesh for each side under its real world
+   * launcher. The deterministic core's release origin is solved exactly,
+   * including model mount depth and the bey's local tip offset. A brief
+   * mounted pre-roll lets the viewer read the mechanism before simulation
+   * ticks begin; pendingTicks then controls each actual detach moment.
+   */
+  stageLaunchers(launches: readonly LaunchParams[], preRollMs = 200): Promise<void> {
+    this.clearStagedLaunchers();
+    const generation = this.stageGeneration;
+    const total = Math.min(launches.length, this.beyMeshes.length, this.beyParams.length);
+    this.stagedLaunchers = Array.from({ length: this.beyMeshes.length }, () => null);
+
+    for (let i = 0; i < total; i++) {
+      const mesh = this.beyMeshes[i];
+      const params = this.beyParams[i];
+      const launch = launches[i];
+      if (!mesh || !params || !launch) continue;
+      const rig = buildLauncher(normalizeLauncherForSpin(launch.launcher, launch.spinDir));
+      const kinematics = launchKinematics(params, launch, i, total);
+      orientWorldLauncher(
+        rig,
+        kinematics.heading,
+        launch.tiltDeg,
+        Math.atan2(kinematics.y, kinematics.x),
+      );
+      rig.group.userData.stageSide = i;
+      rig.group.userData.releaseTarget = new THREE.Vector3(
+        kinematics.x,
+        kinematics.y,
+        kinematics.z,
+      );
+      rig.group.userData.landingTarget = new THREE.Vector3(
+        kinematics.landingX,
+        kinematics.landingY,
+        0,
+      );
+      setLauncherClawOpen(rig, 0);
+
+      this.scene.add(rig.group);
+      rig.beyMount.add(mesh);
+      mesh.position.set(0, 0, -0.016);
+      mesh.rotation.set(0, 0, 0);
+      mesh.visible = true;
+      const target = new THREE.Vector3(kinematics.x, kinematics.y, kinematics.z);
+      const actual = alignLauncherMountToWorld(rig, mesh, target);
+      mesh.userData.launchStageTarget = target.clone();
+      mesh.userData.launchStageErrorM = actual.distanceTo(target);
+
+      const pullFraction = THREE.MathUtils.clamp(launch.sp / 11000, 0.18, 1);
+      setLauncherPull(rig, rig.maxPullM * pullFraction);
+      const signedTurns = launch.spinDir * pullFraction * Math.PI * 34;
+      mesh.rotation.z = signedTurns;
+      const gear = rig.beyMount.getObjectByName("launcher gear plate");
+      if (gear) gear.rotation.z = -signedTurns * 0.34;
+      this.stagedLaunchers[i] = {
+        ...rig,
+        mesh,
+        side: i,
+        released: false,
+        liftT: 0,
+        generation,
+      };
+    }
+
+    if (preRollMs <= 0 || this.stagedLaunchers.every((staged) => !staged)) {
+      return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+      const start = performance.now();
+      let previous = start;
+      const tick = (): void => {
+        if (generation !== this.stageGeneration) {
+          resolve();
+          return;
+        }
+        const now = performance.now();
+        const elapsedS = Math.max(0, (now - previous) / 1000);
+        previous = now;
+        for (const staged of this.stagedLaunchers) {
+          if (!staged) continue;
+          const launch = launches[staged.side];
+          if (!launch) continue;
+          staged.mesh.rotation.z += launch.spinDir * elapsedS * 0.18;
+        }
+        if (now - start < preRollMs) requestAnimationFrame(tick);
+        else resolve();
+      };
+      requestAnimationFrame(tick);
+    });
+  }
+
+  private releaseStagedLauncher(index: number, mesh: THREE.Group, simPhase: number): void {
+    const staged = this.stagedLaunchers[index];
+    if (!staged || staged.released || staged.mesh !== mesh) return;
+    // scene.attach() is the single ownership hand-off. The canonical mesh is
+    // never cloned, hidden/replaced, or disposed with its launcher shell.
+    const mountedSpin = mesh.rotation.z;
+    this.scene.attach(mesh);
+    const inverseSpin = new THREE.Quaternion().setFromAxisAngle(
+      new THREE.Vector3(0, 0, 1),
+      -mountedSpin,
+    );
+    this.launchOrientationBases[index] = mesh.quaternion.clone().multiply(inverseSpin).normalize();
+    this.launchPhaseOffsets[index] = mountedSpin - simPhase;
+    staged.released = true;
+    setLauncherClawOpen(staged, 1);
+  }
+
+  /** Detach zero-delay canonical meshes before the first fixed simulation step. */
+  primeStagedLaunches(world: WorldState): void {
+    const n = Math.min(world.beys.length, this.beyMeshes.length);
+    for (let i = 0; i < n; i++) {
+      const state = world.beys[i]!;
+      const mesh = this.beyMeshes[i];
+      if (!mesh || state.pendingTicks > 0) continue;
+      this.releaseStagedLauncher(i, mesh, state.phase);
+      mesh.position.set(state.x, state.y, state.z);
+      const base = this.launchOrientationBases[i];
+      if (base) {
+        composeLaunchedBeyOrientation(
+          base,
+          state.phase + (this.launchPhaseOffsets[i] ?? 0),
+          mesh.quaternion,
+        );
+      }
+      mesh.visible = true;
+    }
+  }
+
+  private updateStagedLauncher(index: number, dt: number): void {
+    const staged = this.stagedLaunchers[index];
+    if (!staged || !staged.released) return;
+    staged.liftT += dt;
+    const radial = staged.group.position.clone().setZ(0).normalize();
+    staged.group.position.addScaledVector(radial, dt * 0.23);
+    staged.group.position.z += dt * 0.3;
+    if (staged.liftT < 0.42) return;
+    this.scene.remove(staged.group);
+    disposeModel(staged.group);
+    this.stagedLaunchers[index] = null;
   }
 
   /**
@@ -556,307 +794,20 @@ export class BattleView {
 
   setStadium(s: StadiumSpec): void {
     this.stadium = s;
+    // Stadiums contain well over 100k triangles. Clearing the Group alone
+    // leaves their GPU buffers/material programs alive, so always release the
+    // previous product before installing the new one.
+    disposeStadiumModel(this.stadiumGroup);
     this.stadiumGroup.clear();
-    const rimZ = surfaceZ(s, s.rWall);
-    const POCKET_OUT = pocketDepth(s);
-    // ABS shell, moulded and lightly polished — the real stadiums are a matte
-    // white body with a coloured X-Line (docs/MODELING.md §2)
-    const bodyMat = absPlastic(s.bodyColor, { rough: 0.46, coat: 0.3 });
-    bodyMat.side = THREE.DoubleSide;
-    bodyMat.envMapIntensity = 0.7;
-
-    // battle bowl from the physics surface profile — same curve the sim
-    // integrates, so what you see is literally what the beys roll on
-    const profile: THREE.Vector2[] = [];
-    for (let i = 0; i <= 160; i++) {
-      const r = (s.rWall * i) / 160;
-      profile.push(new THREE.Vector2(Math.max(1e-4, r), surfaceZ(s, r)));
-    }
-    const dish = new THREE.Mesh(new THREE.LatheGeometry(profile, 384), bodyMat);
-    dish.rotateX(Math.PI / 2);
-    dish.scale.z = -1;
-    dish.receiveShadow = true;
-    markReflective(dish, 0.14); // polished ABS picks up the beys above it
-    this.stadiumGroup.add(dish);
-
-    // ---- outer deck -----------------------------------------------------
-    //
-    // The moulded shell around the bowl (real bodies: 440 × 455 mm on BX-10,
-    // 600 × 440 mm on BX-32), with the exit mouths left open.
-    //
-    // This is built as SEPARATE hole-free sectors, one per gap between
-    // pockets, and that is deliberate. It used to be one rounded rectangle
-    // carrying a bowl hole plus one hole per pocket, and ExtrudeGeometry's
-    // triangulation could not handle that many holes: it sprayed stray
-    // triangles clear across the bowl, which is the flat plate that was
-    // covering beys on the near side. Measured before/after with a pixel
-    // probe — the old deck painted over 20% of the bowl floor, this one 0%.
-    const hw = s.deckW / 2;
-    const hh = s.deckH / 2;
-    /** distance from centre to the rectangular body edge at this angle */
-    const edgeR = (th: number): number => {
-      const c = Math.abs(Math.cos(th));
-      const sn = Math.abs(Math.sin(th));
-      return Math.min(c < 1e-6 ? 1e9 : hw / c, sn < 1e-6 ? 1e9 : hh / sn);
+    const model = buildStadiumModel(s);
+    this.stadiumGroup.add(model);
+    this.stadiumGroup.name = "stadium:host";
+    this.stadiumGroup.userData = {
+      stadiumName: s.name,
+      productCode: model.userData.productCode,
+      triangleCount: model.userData.triangleCount,
     };
-    const inner = s.rWall * 1.004; // never reach in over the bowl
-    // gaps between pockets, in ascending angle
-    const sortedP = [...s.pockets].sort((a, b) => wrapAngle(a.angleCenter) - wrapAngle(b.angleCenter));
-    const deckGaps: { a0: number; a1: number }[] = [];
-    if (sortedP.length === 0) {
-      deckGaps.push({ a0: 0, a1: Math.PI * 2 });
-    } else {
-      for (let i = 0; i < sortedP.length; i++) {
-        const cur = sortedP[i]!;
-        const nxt = sortedP[(i + 1) % sortedP.length]!;
-        const a0 = wrapAngle(cur.angleCenter) + cur.halfWidth;
-        let a1 = wrapAngle(nxt.angleCenter) - nxt.halfWidth;
-        if (a1 <= a0) a1 += Math.PI * 2;
-        deckGaps.push({ a0, a1 });
-      }
-    }
-    for (const g of deckGaps) {
-      const shape = new THREE.Shape();
-      const steps = Math.max(8, Math.ceil((g.a1 - g.a0) / 0.05));
-      // out along the body edge…
-      for (let i = 0; i <= steps; i++) {
-        const th = g.a0 + ((g.a1 - g.a0) * i) / steps;
-        const r = edgeR(th);
-        const x = Math.cos(th) * r;
-        const y = Math.sin(th) * r;
-        if (i === 0) shape.moveTo(x, y);
-        else shape.lineTo(x, y);
-      }
-      // …and back along the bowl edge
-      for (let i = steps; i >= 0; i--) {
-        const th = g.a0 + ((g.a1 - g.a0) * i) / steps;
-        shape.lineTo(Math.cos(th) * inner, Math.sin(th) * inner);
-      }
-      shape.closePath();
-      const seg = new THREE.Mesh(
-        new THREE.ExtrudeGeometry(shape, { depth: 0.014, bevelEnabled: false }),
-        bodyMat,
-      );
-      seg.position.z = rimZ - 0.014; // top face flush with the rim
-      seg.receiveShadow = true;
-      seg.castShadow = true;
-      this.stadiumGroup.add(seg);
-    }
-
-    // Tornado Ridge: the raised circular lip (⌀210 mm on BX-10) that turns
-    // tops back toward the centre — a moulded swell in the body, not a decal
-    const ridgeSection: THREE.Vector2[] = [];
-    for (let i = 0; i <= 16; i++) {
-      const t = i / 16;
-      const a = Math.PI * t;
-      ridgeSection.push(
-        new THREE.Vector2(s.rDish + Math.cos(a) * 0.0055, surfaceZ(s, s.rDish) + Math.sin(a) * 0.0021),
-      );
-    }
-    const ridge = new THREE.Mesh(new THREE.LatheGeometry(ridgeSection, 384), bodyMat);
-    ridge.rotateX(Math.PI / 2);
-    ridge.scale.z = -1;
-    ridge.receiveShadow = true;
-    this.stadiumGroup.add(ridge);
-
-    // Xtreme Line gear rack: teeth walked along the real curved path
-    // (oval base + concave dips) at constant arc-length pitch, oriented to
-    // the local tangent, plus a base strip so the line reads like molding.
-    if (s.railArcs.length > 0) {
-      const toothPitch = 0.0056;
-      const placements: { p: { x: number; y: number }; rot: number }[] = [];
-      const stripPts: THREE.Vector3[] = [];
-      for (const a of s.railArcs) {
-        const span = a.end > a.start ? a.end - a.start : a.end + Math.PI * 2 - a.start;
-        const steps = Math.max(64, Math.ceil(span / 0.01));
-        let acc = toothPitch; // place the first tooth immediately
-        let prev = railPointAt(s, a.start);
-        for (let i = 0; i <= steps; i++) {
-          const th = a.start + (span * i) / steps;
-          const pt = railPointAt(s, th);
-          stripPts.push(new THREE.Vector3(pt.x, pt.y, surfaceZ(s, Math.hypot(pt.x, pt.y)) + 0.0011));
-          acc += Math.hypot(pt.x - prev.x, pt.y - prev.y);
-          if (acc >= toothPitch) {
-            acc = 0;
-            const t = railTangentAt(s, th);
-            placements.push({ p: pt, rot: Math.atan2(t.y, t.x) });
-          }
-          prev = pt;
-        }
-      }
-      // Real rack teeth: trapezoidal, cut across the line of travel, and
-      // TALL — the X-Line stands proud of the floor as a ridge, which is
-      // what stops a bey rolling over it. The physics barrier and this
-      // height are deliberately the same story.
-      const toothGeo = new THREE.CylinderGeometry(0.0022, 0.0032, 0.0064, 4, 4);
-      toothGeo.rotateX(Math.PI / 2);
-      toothGeo.rotateZ(Math.PI / 4);
-      const toothMat = absPlastic(s.railColor, { rough: 0.38, coat: 0.5 });
-      const inst = new THREE.InstancedMesh(toothGeo, toothMat, placements.length);
-      const m4 = new THREE.Matrix4();
-      const q = new THREE.Quaternion();
-      placements.forEach((pl, idx) => {
-        q.setFromAxisAngle(new THREE.Vector3(0, 0, 1), pl.rot);
-        m4.compose(
-          new THREE.Vector3(pl.p.x, pl.p.y, surfaceZ(s, Math.hypot(pl.p.x, pl.p.y)) + 0.0014),
-          q,
-          new THREE.Vector3(1, 1, 1),
-        );
-        inst.setMatrixAt(idx, m4);
-      });
-      this.stadiumGroup.add(inst);
-      // the moulded channel the rack sits in, swept along the same curve
-      if (stripPts.length > 2) {
-        const curve = new THREE.CatmullRomCurve3(stripPts, true);
-        const channel = new THREE.Mesh(
-          new THREE.TubeGeometry(curve, Math.min(600, stripPts.length), 0.0038, 20, true),
-          absPlastic(s.railColor, { rough: 0.5, coat: 0.35 }),
-        );
-        channel.position.z = -0.0026;
-        channel.receiveShadow = true;
-        this.stadiumGroup.add(channel);
-      }
-    }
-
-    // Walls between the pockets.
-    //
-    // These used to stand 55 mm proud of the rim — twice a bey's height — in
-    // opaque body plastic, so the NEAR wall simply hid beys running the
-    // front of the bowl. That is also not how the stadium is built: the
-    // moulded shell stops at a low lip and everything above it is the clear
-    // casing (already modelled separately, just below), which is what you
-    // actually see through when watching a real battle.
-    const wallH = 0.014;
-    const sorted = [...s.pockets].sort((a, b) => wrapAngle(a.angleCenter) - wrapAngle(b.angleCenter));
-    const gaps: { a0: number; a1: number }[] = [];
-    if (sorted.length === 0) {
-      gaps.push({ a0: 0, a1: Math.PI * 2 });
-    } else {
-      for (let i = 0; i < sorted.length; i++) {
-        const cur = sorted[i]!;
-        const nxt = sorted[(i + 1) % sorted.length]!;
-        const a0 = wrapAngle(cur.angleCenter) + cur.halfWidth;
-        let a1 = wrapAngle(nxt.angleCenter) - nxt.halfWidth;
-        if (a1 <= a0) a1 += Math.PI * 2;
-        gaps.push({ a0, a1 });
-      }
-    }
-    for (const gseg of gaps) {
-      const wall = new THREE.Mesh(
-        new THREE.ExtrudeGeometry(ringSegmentShape(s.rWall - 0.002, s.rWall + 0.006, gseg.a0, gseg.a1), {
-          depth: wallH,
-          bevelEnabled: false,
-        }),
-        bodyMat,
-      );
-      wall.position.z = rimZ - 0.004;
-      this.stadiumGroup.add(wall);
-    }
-    // Exit pockets: a sunken catch tray behind the wall mouth, with side
-    // cheeks and a back stop so it reads as a real recess you can see into
-    // through the cut-out in the deck above.
-    for (const p of s.pockets) {
-      const a0 = p.angleCenter - p.halfWidth;
-      const a1 = p.angleCenter + p.halfWidth;
-      const rOut = s.rWall + POCKET_OUT;
-      const floorZ = rimZ - 0.028; // deep enough to swallow a fallen bey
-      // Xtreme Zone (3 pt) is the wide red catch; Over Zones (2 pt) amber
-      const col = p.kind === "xtreme" ? 0xd8322f : 0xd89b2f;
-      const floor = new THREE.Mesh(
-        new THREE.ExtrudeGeometry(ringSegmentShape(s.rWall - 0.004, rOut, a0, a1), {
-          depth: 0.004,
-          bevelEnabled: false,
-          curveSegments: 48,
-        }),
-        absPlastic(col, { rough: 0.44, coat: 0.35 }),
-      );
-      floor.position.z = floorZ;
-      floor.receiveShadow = true;
-      this.stadiumGroup.add(floor);
-
-      // Back stop — a LIP on the catch tray, not a wall.
-      //
-      // This is what was hiding beys: at 48 mm it stood well above the rim,
-      // and the front pocket sits between the camera and the bowl, so from
-      // any low angle it simply covered the near half of the floor. Measured
-      // with a per-mesh occlusion probe: hiding this one mesh restored the
-      // bey. It only has to stop a bey rolling out, so it stays below the
-      // rim where it can never block the view in.
-      const back = new THREE.Mesh(
-        new THREE.ExtrudeGeometry(ringSegmentShape(rOut, rOut + 0.006, a0, a1), {
-          depth: rimZ - 0.006 - floorZ,
-          bevelEnabled: false,
-          curveSegments: 48,
-        }),
-        bodyMat,
-      );
-      back.position.z = floorZ;
-      this.stadiumGroup.add(back);
-
-      // side cheeks so the tray has walls rather than open ends
-      for (const a of [a0, a1]) {
-        const cheek = new THREE.Mesh(
-          new THREE.ExtrudeGeometry(ringSegmentShape(s.rWall - 0.004, rOut, a - 0.02, a + 0.02), {
-            // same rule as the back stop: never above the rim
-            depth: rimZ - 0.006 - floorZ,
-            bevelEnabled: false,
-            curveSegments: 16,
-          }),
-          bodyMat,
-        );
-        cheek.position.z = floorZ;
-        this.stadiumGroup.add(cheek);
-      }
-    }
-
-    // mostly-transparent casing: clear walls everywhere EXCEPT the gaps
-    // (loose coverage — beys can still find their way out there)
-    {
-      // real clear polycarbonate (IOR 1.585), not a faded plane
-      const caseMat = clearPanel();
-      const gaps = [...s.coverGaps].sort((a, b) => wrapAngle(a.start) - wrapAngle(b.start));
-      const covered: { a0: number; a1: number }[] = [];
-      if (gaps.length === 0) {
-        covered.push({ a0: 0, a1: Math.PI * 2 });
-      } else {
-        for (let i = 0; i < gaps.length; i++) {
-          const cur = gaps[i]!;
-          const nxt = gaps[(i + 1) % gaps.length]!;
-          const a0 = wrapAngle(cur.end);
-          let a1 = wrapAngle(nxt.start);
-          if (a1 <= a0) a1 += Math.PI * 2;
-          covered.push({ a0, a1 });
-        }
-      }
-      for (const seg of covered) {
-        const wallSeg = new THREE.Mesh(
-          new THREE.ExtrudeGeometry(
-            ringSegmentShape(s.rWall + 0.007, s.rWall + 0.011, seg.a0, seg.a1),
-            { depth: s.coverHeight, bevelEnabled: false },
-          ),
-          caseMat,
-        );
-        // start just inside the lip so there is no gap to see through
-        wallSeg.position.z = rimZ + 0.008;
-        this.stadiumGroup.add(wallSeg);
-      }
-    }
-
-    // shoot position markers moulded into the deck
-    for (const a of s.shootAngles) {
-      const marker = new THREE.Mesh(
-        new THREE.TorusGeometry(0.016, 0.0022, 24, 128),
-        absPlastic(0xd83c3c, { rough: 0.4 }),
-      );
-      marker.position.set(
-        Math.cos(a) * (s.rWall + 0.033),
-        Math.sin(a) * (s.rWall + 0.033),
-        rimZ + 0.0035,
-      );
-      this.stadiumGroup.add(marker);
-    }
   }
-
   /** side accents (free-for-all can hold many beys) */
   static readonly SIDE_COLORS = [0x3f7bff, 0xff5b4d, 0x3cb26a, 0xd8c22e, 0x8a4ad8, 0x2eb8c2, 0xd8802e, 0xd85f9e];
 
@@ -868,6 +819,7 @@ export class BattleView {
   }
 
   setBeysList(list: { rc: ResolvedCombo | null; params: BeyParams }[]): void {
+    this.clearStagedLaunchers();
     for (const m of this.beyMeshes) {
       if (!m) continue;
       this.scene.remove(m);
@@ -879,6 +831,12 @@ export class BattleView {
       return m;
     });
     this.beyParams = list.map((e) => e.params);
+    this.launchPhaseOffsets = list.map(() => 0);
+    this.launchOrientationBases = list.map(() => null);
+    this.launchLandingBlend = list.map(() => 0);
+    this.launchMissTumble = list.map(() => 0);
+    this.launchMissElapsed = list.map(() => 0);
+    this.launchMissSpin = list.map(() => null);
     // the radius actually rendered (dataset diameter, not the derived one) —
     // used to sit a toppled bey ON the dish instead of through it
     this.beyRadius = list.map((e) =>
@@ -896,6 +854,7 @@ export class BattleView {
   }
 
   clearBeys(): void {
+    this.clearStagedLaunchers();
     for (const m of this.beyMeshes) {
       if (!m) continue;
       this.scene.remove(m);
@@ -903,6 +862,12 @@ export class BattleView {
     }
     this.beyMeshes = [];
     this.beyParams = [];
+    this.launchPhaseOffsets = [];
+    this.launchOrientationBases = [];
+    this.launchLandingBlend = [];
+    this.launchMissTumble = [];
+    this.launchMissElapsed = [];
+    this.launchMissSpin = [];
     this.burstDone = [];
     this.clearDebris();
     sfx.stopHums();
@@ -981,12 +946,47 @@ export class BattleView {
         if (!m || !p) continue;
         // still in its owner's launcher — not in the stadium yet
         if (b.pendingTicks > 0) {
-          m.visible = false;
+          const staged = this.stagedLaunchers[i];
+          // Canonical staged meshes remain visibly mounted. A replay/menu
+          // path that chose not to stage keeps the historical hidden delay.
+          m.visible = Boolean(staged && !staged.released);
           sfx.updateHum(i, 0, 0, 0);
           continue;
         }
+        this.releaseStagedLauncher(i, m, b.phase);
+        this.updateStagedLauncher(i, dt);
         if (!m.visible && !this.burstDone[i]) m.visible = true;
         const r = Math.hypot(b.x, b.y);
+
+        // A bad launch already followed the canonical ballistic path and
+        // touched down outside the casing. Keep it at that exact miss point;
+        // the generic KO arc below would invent a second, unrelated flight.
+        if (b.exited === "launchMiss") {
+          const fall = Math.min(Math.PI / 2, (this.launchMissTumble[i] ?? 0) + dt * 3.4);
+          this.launchMissTumble[i] = fall;
+          const elapsed = (this.launchMissElapsed[i] ?? 0) + dt;
+          this.launchMissElapsed[i] = elapsed;
+          const initialSpin = b.phase + (this.launchPhaseOffsets[i] ?? 0);
+          const missSpin = (this.launchMissSpin[i] ?? initialSpin) +
+            b.omega * Math.exp(-elapsed * 4.2) * dt;
+          this.launchMissSpin[i] = missSpin;
+          const radius = this.beyRadius[i] ?? 0.024;
+          m.position.set(b.x, b.y, Math.max(0, b.z) + radius * Math.sin(fall));
+          const base = this.launchOrientationBases[i] ?? new THREE.Quaternion();
+          const spinning = composeLaunchedBeyOrientation(
+            base,
+            missSpin,
+          );
+          const speed = Math.hypot(b.vx, b.vy);
+          const fallAxis = speed > 1e-8
+            ? new THREE.Vector3(-b.vy / speed, b.vx / speed, 0)
+            : new THREE.Vector3(1, 0, 0);
+          const falling = new THREE.Quaternion().setFromAxisAngle(fallAxis, fall);
+          m.quaternion.copy(falling).multiply(spinning).normalize();
+          this.lastBeyPos[i]?.copy(m.position);
+          sfx.updateHum(i, 0, 0, 0);
+          continue;
+        }
 
         // A knocked-out bey does not vanish: the sim stops tracking it, so
         // the view flies it out over the wall on its last heading and lands
@@ -1027,15 +1027,32 @@ export class BattleView {
           b.y,
           b.airborne ? b.z : surfaceZ(s, Math.min(r, s.rWall)),
         );
-        m.rotation.z = b.phase;
+        const visualSpin = b.phase + (this.launchPhaseOffsets[i] ?? 0);
+        const launchBase = this.launchOrientationBases[i];
+        let preservesLaunchAxis = false;
+        if (b.airborne && launchBase) {
+          composeLaunchedBeyOrientation(launchBase, visualSpin, m.quaternion);
+          preservesLaunchAxis = true;
+        } else if (launchBase && (this.launchLandingBlend[i] ?? 0) < 1) {
+          const blend = Math.min(1, (this.launchLandingBlend[i] ?? 0) + dt / 0.14);
+          this.launchLandingBlend[i] = blend;
+          const smooth = blend * blend * (3 - 2 * blend);
+          const groundBase = launchBase.clone().slerp(new THREE.Quaternion(), smooth);
+          composeLaunchedBeyOrientation(groundBase, visualSpin, m.quaternion);
+          preservesLaunchAxis = blend < 1;
+        } else {
+          m.rotation.set(0, 0, visualSpin);
+        }
         const absOmega = Math.abs(b.omega);
         const blurMesh = m.getObjectByName("blurRing") as THREE.Mesh | undefined;
         if (blurMesh) {
           const bm = blurMesh.material as THREE.ShaderMaterial;
-          bm.uniforms.uPhase!.value = -b.phase * 3; // streaks counter-rotate in local frame
+          bm.uniforms.uPhase!.value = -visualSpin * 3; // streaks counter-rotate in local frame
           bm.uniforms.uIntensity!.value = Math.min(1, Math.max(0, (absOmega - 140) / 650)) * 0.5;
         }
-        if (!b.alive) {
+        if (b.airborne || preservesLaunchAxis) {
+          // Preserve the full tilted top axis composed above until touchdown.
+        } else if (!b.alive) {
           // burst: the bey comes apart where it stood
           this.explodeBey(i, m.position.clone());
         } else if (b.stoppedTick >= 0) {

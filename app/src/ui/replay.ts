@@ -53,6 +53,7 @@ export async function playReplay(app: GameApp, rec: MatchRecord, onDone: () => v
     const pA = deriveBeyParams(rcA);
     const pB = deriveBeyParams(rcB);
     app.view.setBeys({ rc: rcA, params: pA }, { rc: rcB, params: pB });
+    await app.view.stageLaunchers(b.launches as [LaunchParams, LaunchParams]);
     const cfg: WorldConfig = {
       seed: b.seed,
       beys: [pA, pB],

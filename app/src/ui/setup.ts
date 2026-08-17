@@ -6,7 +6,7 @@ import { getPrefs, savePrefs } from "../game/persist";
 import { COMBO_FILTERS, comboItems, openGallery } from "./gallery";
 import { RULE_PRESETS, deckDuplicateError, type RuleSet } from "../game/rules";
 import { STADIUMS } from "../core/stadium";
-import type { LauncherKind } from "../core/types";
+import { LAUNCHER_KINDS, type LauncherKind } from "../core/types";
 import { showGarage } from "./garage";
 import { Tournament, type TournamentSlot } from "../game/tournament";
 import type { ComboSelection } from "../core/types";
@@ -37,9 +37,13 @@ export function defaultSlot(i: number): SlotConfig {
 }
 
 export const LAUNCHER_LABELS: Record<LauncherKind, string> = {
+  entry: ZH.launcherEntry,
   winder: ZH.launcherWinder,
+  longWinder: ZH.launcherLongWinder,
   string: ZH.launcherString,
   hold: ZH.launcherHold,
+  winderL: ZH.launcherWinderL,
+  stringL: ZH.launcherStringL,
 };
 
 export function slotDisplayName(s: SlotConfig): string {
@@ -137,7 +141,7 @@ export function slotEditor(
   };
 
   const launcherSel = select(
-    (Object.keys(LAUNCHER_LABELS) as LauncherKind[]).map((k) => ({
+    LAUNCHER_KINDS.map((k) => ({
       value: k,
       label: LAUNCHER_LABELS[k],
     })),

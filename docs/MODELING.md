@@ -100,33 +100,72 @@ Lock Chip + Main + Assist, or Expand Lock Chip + Metal + Over + Assist.
 
 ### 2.1 BX-10 Xtreme Stadium (tournament standard)
 
-- Outer body **440 × 455 × 155 mm**, square-ish moulded shell.
+- Configured outer body **440 × 455 mm**, square-ish moulded shell. These
+  physical measurements are retained for the simulator; Takara Tomy's public
+  product page and assembly sheet do not publish an engineering drawing.
 - **Tornado Ridge diameter 210 mm** — the raised circular ridge that returns
   tops toward the centre; the bowl inside it is the battle dish.
 - **Xtreme Line**: a gear rack moulded into the floor (green on the standard
   release) that meshes with gear-ringed Bits to trigger the Xtreme Dash.
-- **Three exits, all on one side**: two corner **Over Zones** (2 pt) flanking
-  one wide central **Xtreme Zone** (3 pt).
-- Colours: white body, green X-Line, transparent outer casing panels.
+- Colours/materials: off-white opaque ABS dish and lower body, green ABS
+  X-Line, and a broad faceted clear-polycarbonate upper cover. The cover is a
+  thickness-bearing canopy with a raised circular launch opening and four
+  fastening tabs—not a transparent cylindrical wall.
+- The rendered rack uses declared 5.0 mm tooth pitch, 3.8 mm tooth height,
+  trapezoidal teeth, and a 1.2 mm base channel. Pocket geometry is physically
+  recessed and has an open throat, floor, two cheeks and a low backstop.
 
 ### 2.2 BX-32 Wide Xtreme Stadium
 
-- **600 × 440 mm**, the largest Beyblade X stadium, and — usefully for this
-  project — **designed for three players**, which is exactly the free-for-all
-  (大亂鬥) mode's stadium.
+- Configured body **600 × 440 mm**, from physical/product measurements (the
+  official public page confirms the three-player role but does not state its
+  dimensions). Its long, rounded-rectangle white body, indigo oval/notched
+  X-Line, three red triangular shoot markers, clear faceted cover and side
+  catch trays are modeled separately from BX-10.
+- It is officially **designed for three players**, which is exactly the
+  free-for-all (大亂鬥) mode's stadium.
+
+### 2.3 Current Takara Tomy stadium families
+
+Official product photography and instructions identify four distinct X-era
+stadium mechanisms as of 2026:
+
+- **BX-10 Xtreme Stadium** — standard two-player continuous X-Line.
+- **BX-32 Wide Xtreme Stadium** — three-player wide/oval X-Line.
+- **BX-37 Double Xtreme Stadium** — battery-powered center area rises and
+  falls, creating two X-Dash routes.
+- **BX-46 Infinity Stadium** — rail layout enables consecutive “Infinity
+  Dash” acceleration and head-on X-Dash collisions.
+
+The app's existing selectable/physics-backed products remain BX-10 and BX-32.
+BX-37 and BX-46 require distinct moving-surface/dual-rail simulation rules;
+presenting them as cosmetic reskins would not be an accurate model.
 
 ## 3. Launchers
 
-Three real types, all modelled:
+Seven mechanically distinct Takara Tomy X configurations are modelled. Pure
+colour reissues share the same geometry as their mechanism:
 
-- **Winder launcher** — ripcord ("winder") pulled straight out through the
-  side; the entry-level launcher, geared.
-- **String launcher** — the string is built into the unit; pull the handle
-  and the string retracts itself. Highest control, tournament favourite.
-- **Gear grip / custom grip** — a pistol-style grip that clips onto either
-  launcher for stability; sold separately and legal in tournaments.
+- **Entry Launcher R (BX-22)** — the smallest housing and short winder.
+- **Winder Launcher R (BX-01)** — full-size compact geared housing and looped
+  winder.
+- **Long Winder Launcher R (UX-14)** — the same compact drive class with the
+  substantially longer T-handled winder.
+- **Hold Launcher R + Long Winder (UX-09)** — long grip-integrated housing,
+  four interchangeable rubber panels and the long winder.
+- **String Launcher R (BX-18)** — long faceted housing, internal retracting
+  spool and T-handle.
+- **Winder Launcher L (BX-40)** — left-spin mirrored drive/prongs with its
+  official magenta winder.
+- **String Launcher L (BX-47)** — left-spin mirrored string drive in the
+  translucent-red/grey product colourway.
 
-All three mount the bey underneath on a sprung claw that releases at speed.
+All mount the bey underneath on three sprung claws. At launch time a saved or
+networked incompatible R/L choice is converted to its closest mechanically
+compatible launcher; it never silently applies a right-spin gear train to a
+left-spin bey. BX-11/BX-29/BX-30/BX-41/BX-42 are detachable grip accessories,
+not additional launcher mechanisms, so they do not create extra launcher
+types in the picker.
 
 ## 4. Hands
 
@@ -152,11 +191,21 @@ lighting probe generated from a procedural studio environment.
 
 ## Sources
 
+- [Takara Tomy — BX-10 official product page](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/bx10.html)
+- [Takara Tomy — BX-10 official assembly/package sheet](https://www.takaratomy.co.jp/support/manual/beyblade/2023071913472.html)
+- [Takara Tomy — BX-32 official product page](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/bx32.html)
+- [Takara Tomy — BX-37 official product page and powered-center description](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/bx37.html)
+- [Takara Tomy — BX-46 official product page and Infinity Dash description](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/bx46.html)
 - [Beyblade Wiki — Xtreme Stadium](https://beyblade.wiki/xtreme-stadium/)
 - [Beyblade Wiki — Wide Xtreme Stadium](https://beyblade.fandom.com/wiki/Wide_Xtreme_Stadium)
 - [Beyblade Wiki — Ratchet 3-60](https://beyblade.fandom.com/wiki/Ratchet_-_3-60)
 - [Beyblade X Database — Bits](https://www.beybxdb.com/parts-system-guide/parts/bit)
 - [Beyblade X Database — Ratchets](https://www.beybxdb.com/parts-system-guide/parts/ratchet)
 - [Beyblade Wiki — Dran Sword blade](https://beyblade.fandom.com/wiki/Blade_-_DranSword)
-- [TheGamer — Beyblade X launcher types](https://www.thegamer.com/beyblade-x-launcher-types-guide/)
+- [Takara Tomy — BX-22 Entry Launcher starter](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/bx22.html)
+- [Takara Tomy — BX-18 String Launcher](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/bx18.html)
+- [Takara Tomy — UX-09 Hold Launcher + Long Winder](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/ux09.html)
+- [Takara Tomy — UX-14 Long Winder Launcher starter](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/ux14.html)
+- [Takara Tomy — BX-40 Winder Launcher L](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/bx40.html)
+- [Takara Tomy — BX-47 String Launcher L](https://beyblade.takaratomy.co.jp/beyblade-x/lineup/bx47.html)
 - Per-part diameters/weights: phstudy dataset (docs/DATA.md).

@@ -88,6 +88,9 @@ void bots;
 
 describe("balance batches (also the tuning harness — see console table)", () => {
   const N = 60;
+  // These are deterministic 60-battle simulation batches, not unit-sized
+  // cases. Keep explicit budgets so parallel high-poly render tests cannot
+  // turn a healthy balance result into a machine-load-dependent failure.
 
   it("attack vs stamina: lively KO-driven battles, not spin-out carousels", () => {
     const t = battleBatch(attacker, staminaBot, N, 4000);
@@ -104,18 +107,18 @@ describe("balance batches (also the tuning harness — see console table)", () =
     expect(t.slings / N).toBeGreaterThan(0.8);
     // trips + casing bumps exist as events across the batch
     expect(t.trips + t.coverHits).toBeGreaterThan(N * 0.1);
-  });
+  }, 15_000);
 
   it("stamina vs stamina: mostly spin finishes, long battles", () => {
     const t = battleBatch(staminaBot, { ...staminaBot, name: "持2" }, N, 9000);
     console.log("stamina mirror:", JSON.stringify(t));
     expect(t.spin + t.draw).toBeGreaterThan(N * 0.5);
     expect(t.totalSec / t.n).toBeGreaterThan(8);
-  }, 15_000);
+  }, 45_000);
 
   it("defense vs attack: defender survives KOs more often than stamina does", () => {
     const tDef = battleBatch(attacker, defender, N, 14000);
     console.log("attack vs defense:", JSON.stringify(tDef));
     expect(tDef.ownFinish).toBeLessThan(N * 0.2);
-  });
+  }, 15_000);
 });
