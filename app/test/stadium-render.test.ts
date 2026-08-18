@@ -8,6 +8,8 @@ import {
   railPointAt,
   railTangentAt,
   stadiumTerrainAt,
+  stadiumBodyRadiusAt,
+  stadiumBoundaryRadiusAt,
   surfaceZAt,
   STADIUM_BX10,
   STADIUM_BX32,
@@ -20,6 +22,7 @@ import {
   RAIL_RENDER_MAX_ANGLE_STEP,
   RAIL_RENDER_MAX_TANGENT_STEP,
   STADIUM_MODEL_DIMENSIONS,
+  stadiumCasingOuterRadiusAt,
   stadiumTriangleCount,
 } from "../src/render/stadium";
 
@@ -116,7 +119,7 @@ describe("reference-driven stadium models", () => {
     // Dense enough for close launch cameras, but kept below the budget that
     // would make two live stadium previews impractical on midrange hardware.
     expect(model.userData.triangleCount).toBeGreaterThan(600_000);
-    expect(model.userData.triangleCount).toBeLessThan(800_000);
+    expect(model.userData.triangleCount).toBeLessThan(900_000);
     for (let i = 0; i < panelCount; i++) object(model, `stadium:casing-panel:${i}`);
     expect(model.getObjectByName(`stadium:casing-panel:${panelCount}`)).toBeUndefined();
   });
@@ -360,6 +363,26 @@ describe("reference-driven stadium models", () => {
       expect(model.getObjectByName(`stadium:pocket-backstop:${index}`)).toBeUndefined();
       expect(model.getObjectByName(`stadium:pocket-cheek:${index}:0`)).toBeUndefined();
 
+      const guard = mesh(model, `stadium:pocket-guard:${index}`);
+      expect(guard.userData).toMatchObject({
+        source: "core:pocketGuardCenterline+pocketGuardRiseAt",
+        heightM: pocket.trace?.guard.height,
+        halfThicknessM: pocket.trace?.guard.halfThickness,
+      });
+      expect(guard.geometry.userData).toMatchObject({
+        shape: "rounded-pocket-entry-wall",
+        source: "core:pocketGuardCenterline+pocketGuardRiseAt",
+        acrossSegments: 32,
+        photoDerived: true,
+      });
+      expect(guard.geometry.userData.pathSamples).toBeGreaterThanOrEqual(26);
+      const guardPosition = guard.geometry.getAttribute("position") as THREE.BufferAttribute;
+      for (let vertex = 0; vertex < guardPosition.count; vertex += Math.max(1, Math.floor(guardPosition.count / 80))) {
+        const x = guardPosition.getX(vertex);
+        const y = guardPosition.getY(vertex);
+        expect(guardPosition.getZ(vertex)).toBeCloseTo(stadiumTerrainAt(spec, x, y).height + 0.00003, 5);
+      }
+
       const position = basin.geometry.getAttribute("position") as THREE.BufferAttribute;
       const normal = basin.geometry.getAttribute("normal") as THREE.BufferAttribute;
       const outlinePoints = Number(basin.geometry.userData.outlinePoints);
@@ -454,13 +477,15 @@ describe("reference-driven stadium models", () => {
     expect(casing.userData).toMatchObject({
       material: resin,
       ior,
-      transmission: 0.94,
+      transmission: 0.985,
       thicknessM: STADIUM_MODEL_DIMENSIONS.casingThicknessM,
       coverHeightM: spec.coverHeight,
       canopyCoverageRadians: Math.PI * 2,
       apertureCount: 3,
-      apertureSource: "core:pocketAtPoint",
+      apertureSource: "core:pocketThroatAtPoint",
       gapAffects: "product-pocket-throats-only",
+      floorGapHeightM: 0.003,
+      outerContourSource: "core:boundary+pocketBasinPolygon",
     });
     expect(casing.userData.wallCoverageRadians).toBeGreaterThan(4);
     expect(casing.userData.wallCoverageRadians).toBeLessThan(Math.PI * 2);
@@ -475,16 +500,25 @@ describe("reference-driven stadium models", () => {
     const material = materialOf(panel);
     expect(material.name).toBe(materialName);
     expect(material.transparent).toBe(true);
-    expect(material.transmission).toBeCloseTo(0.94, 6);
+    expect(material.transmission).toBeCloseTo(0.985, 6);
     expect(material.opacity).toBe(1);
     expect(material.ior).toBeCloseTo(ior, 6);
     expect(material.thickness).toBeCloseTo(0.002, 6);
-    expect(material.roughness).toBeLessThan(0.07);
+    expect(material.roughness).toBeCloseTo(0.13, 6);
+    expect(material.clearcoat).toBeCloseTo(0.22, 6);
+    expect(material.clearcoatRoughness).toBeCloseTo(0.2, 6);
+    expect(material.specularIntensity).toBeCloseTo(0.18, 6);
+    expect(material.envMapIntensity).toBeCloseTo(0.28, 6);
     expect(material.depthWrite).toBe(true);
     const innerWall = mesh(model, "stadium:casing-inner-wall:0");
     expect(innerWall.geometry.userData).toMatchObject({
       shape: spec.name === "wide" ? "obround-aperture-wall" : "circular-aperture-wall",
-      source: "core:pocketAtPoint",
+      source: "core:pocketThroatAtPoint",
+    });
+    expect(object(model, "stadium:casing-floor-gap").userData).toMatchObject({
+      shape: "thin-air-slot",
+      heightM: 0.003,
+      apertureSource: "core:pocketThroatAtPoint",
     });
     const innerLip = object(model, "stadium:casing-inner-lip");
     expect(innerLip.userData).toMatchObject({
@@ -520,6 +554,22 @@ describe("reference-driven stadium models", () => {
         : "stadium:material:clear-body-product-plastic",
     );
     expect(outerMaterial.transparent).toBe(true);
+  });
+
+  it.each([STADIUM_BX10, STADIUM_BX32])("hugs the actual %s floor rim instead of the shipping rectangle", (spec) => {
+    let largestBodyInset = 0;
+    for (let sample = 0; sample < 4096; sample++) {
+      const theta = sample / 4096 * Math.PI * 2;
+      const casing = stadiumCasingOuterRadiusAt(spec, theta);
+      const body = stadiumBodyRadiusAt(spec, theta);
+      const bowl = stadiumBoundaryRadiusAt(spec, theta);
+      expect(casing).toBeLessThanOrEqual(body - 0.0039);
+      expect(casing).toBeGreaterThanOrEqual(bowl + 0.0069);
+      largestBodyInset = Math.max(largestBodyInset, body - casing);
+    }
+    // This catches the old canopy, which simply followed the full packaging
+    // footprint and left a broad dead shelf outside the playable molding.
+    expect(largestBodyInset).toBeGreaterThan(spec.name === "wide" ? 0.03 : 0.05);
   });
 
   it("uses only the verified BX-10 PVC / PA / PP material assignments", () => {

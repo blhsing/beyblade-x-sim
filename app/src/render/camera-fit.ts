@@ -1,7 +1,12 @@
 import {
-  stadiumBodyRadiusAt,
-  stadiumBoundaryRadiusAt,
-  surfaceZ,
+  pocketBasinPolygon,
+  pocketGuardCenterline,
+  pocketSurfaceZ,
+  railPointAt,
+  railTangentAt,
+  STADIUM_GEOMETRY,
+  stadiumTerrainAt,
+  surfaceZAt,
   type StadiumSpec,
 } from "../core/stadium";
 
@@ -25,42 +30,53 @@ export interface StadiumProjectedBounds {
   maxY: number;
 }
 
-/**
- * Compact silhouette of the actual authored product, rather than the eight
- * impossible corners of its rectangular shipping dimensions. The rings
- * match createCasing(): outer flange, two canopy shoulders and the launch
- * aperture. A dense polar sample makes the portrait fit tight even for the
- * BX-32 superellipse while remaining cheap enough to recompute on rotation.
- */
+/** Physical features which must remain visible in the initial battle shot.
+ * The transparent safety cover is intentionally excluded: it may crop, but
+ * the complete X-Line and every loss-zone basin/guard must remain on screen.
+ * This gives both the fixed and sensor-driven cameras the closest useful
+ * framing instead of shrinking the action to fit clear decorative plastic. */
 export function stadiumFramingPoints(
   stadium: StadiumSpec,
-  angularSamples = 720,
+  angularSamples = 1440,
 ): StadiumFramingPoint[] {
   const points: StadiumFramingPoint[] = [];
-  const rimZ = surfaceZ(stadium, stadium.rWall);
-  const topZ = rimZ + stadium.coverHeight;
-  const apertureScale = stadium.name === "wide" ? 0.7 : 0.69;
-  const samples = Math.max(64, Math.round(angularSamples));
+  const samples = Math.max(360, Math.round(angularSamples));
+  const railHalf = stadium.railPhysicalHalfWidth ?? STADIUM_GEOMETRY.railPhysicalHalfWidthM;
+  const featureGuard = 0.0035;
+  const railTop = STADIUM_GEOMETRY.railChannelThicknessM + STADIUM_GEOMETRY.railToothHeightM;
 
   for (let sample = 0; sample < samples; sample++) {
-    const theta = sample / samples * Math.PI * 2;
-    const c = Math.cos(theta);
-    const sn = Math.sin(theta);
-    const body = stadiumBodyRadiusAt(stadium, theta);
-    const wall = stadiumBoundaryRadiusAt(stadium, theta);
-    const aperture = wall * apertureScale;
-    const rings = [
-      // Full body radius deliberately includes the outer lip's 1.2 mm safety
-      // envelope and the opaque product base beneath it.
-      { radius: body, z: 0 },
-      { radius: body, z: rimZ + 0.012 },
-      { radius: wall + (body - wall) * 0.58, z: rimZ + stadium.coverHeight * 0.3 },
-      { radius: aperture + (wall - aperture) * 0.38, z: rimZ + stadium.coverHeight * 0.72 },
-      // The rolled launch lip extends 3.2 mm outside the opening curve.
-      { radius: aperture + 0.0032, z: topZ },
-    ];
-    for (const ring of rings) {
-      points.push({ x: c * ring.radius, y: sn * ring.radius, z: ring.z });
+    const theta = -Math.PI + sample / samples * Math.PI * 2;
+    const point = railPointAt(stadium, theta);
+    const tangent = railTangentAt(stadium, theta);
+    const normal = { x: -tangent.y, y: tangent.x };
+    for (const side of [-1, 1]) {
+      const x = point.x + normal.x * (railHalf + featureGuard) * side;
+      const y = point.y + normal.y * (railHalf + featureGuard) * side;
+      points.push({ x, y, z: surfaceZAt(stadium, x, y) + railTop + 0.0015 });
+    }
+  }
+
+  for (const pocket of stadium.pockets) {
+    const polygon = pocketBasinPolygon(stadium, pocket);
+    const center = polygon.reduce(
+      (sum, point) => ({ x: sum.x + point.x / polygon.length, y: sum.y + point.y / polygon.length }),
+      { x: 0, y: 0 },
+    );
+    for (const point of polygon) {
+      const dx = point.x - center.x;
+      const dy = point.y - center.y;
+      const length = Math.sqrt(dx * dx + dy * dy) || 1;
+      const x = point.x + dx / length * featureGuard;
+      const y = point.y + dy / length * featureGuard;
+      points.push({ x, y, z: pocketSurfaceZ(stadium, pocket, point.x, point.y) + 0.002 });
+    }
+    for (const point of pocketGuardCenterline(stadium, pocket)) {
+      points.push({
+        x: point.x,
+        y: point.y,
+        z: stadiumTerrainAt(stadium, point.x, point.y).height + 0.002,
+      });
     }
   }
   return points;
@@ -122,9 +138,9 @@ export function stadiumProjectedBounds(
 }
 
 /**
- * Tight distance for the actual shell silhouette at the requested initial
- * perspective. A 3% guard is enough for antialiasing/refraction (roughly six
- * portrait pixels) without reducing a 390 px stadium to a small object.
+ * Tight distance for the action-critical silhouette at the requested initial
+ * perspective. A 1.5% raster guard keeps the X-Line and pockets intact while
+ * allowing the transparent casing to crop, as it does in a close real view.
  */
 export function stadiumOrbitFitDistance(
   stadium: StadiumSpec,
@@ -133,7 +149,7 @@ export function stadiumOrbitFitDistance(
 ): number {
   const fovDeg = options.fovDeg ?? 55;
   const safeAspect = Math.max(0.1, Number.isFinite(aspect) ? aspect : 1);
-  const margin = options.margin ?? 1.03;
+  const margin = options.margin ?? 1.015;
   const minimumDistance = options.minimumDistance ?? 0.1;
   const tanHalfVertical = Math.tan(fovDeg * Math.PI / 360);
   const tanHalfHorizontal = tanHalfVertical * safeAspect;

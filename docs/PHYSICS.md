@@ -6,7 +6,11 @@ part stats, and *bit-exact determinism* across devices.
 
 ## Determinism contract
 
-Current deterministic replay/lockstep version: **7**. Version 7 removes the
+Current deterministic replay/lockstep version: **8**. Version 8 replaces the
+generic BX-32 rear-pocket lips with the broader, taller molded wedges derived
+from the supplied overhead trace and oblique shadow-bearing product view. The
+same rounded heightfield now controls both their visible geometry and the
+energy needed to climb them. Version 7 removes the
 full-Blade clearance inset from terminal pocket judgment: after a valid entry,
 continued occupancy plus actual translational rest is enough even when the
 Blade overhangs a sloped basin edge and even while the Bey spins. It also adds
@@ -92,9 +96,11 @@ own-finish rule), visual phase.
    wall outward through the real mouth with sufficient speed to enter. Its
    linear and angular momentum continue into the basin; it can circulate,
    collide, climb or rebound from the molded rim, and return through the open
-   mouth when it carries enough momentum uphill. A traced low retaining lip
+   mouth when it carries enough momentum uphill. A traced retaining wall
    precedes each mouth, so weak approaches deflect while strong ones climb it
-   and pay the corresponding energy. Entry alone is not a finish.
+   and pay the corresponding energy. BX-32's two rear walls use the broad,
+   tall rounded wedges measured from overhead plan and oblique shadow-bearing
+   reference views; they are not generic low lips. Entry alone is not a finish.
    Official stadiums have no invented angular side gaps.
 7. **Collisions** (circle-circle): normal impulse (restitution 0.25,
    mass-weighted) + two directed "smash" impulses derived from **rim slip**

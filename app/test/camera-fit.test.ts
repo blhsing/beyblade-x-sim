@@ -29,7 +29,7 @@ const VIEWS = [
 
 describe("responsive stadium camera framing", () => {
   it.each([STADIUM_BX10, STADIUM_BX32])(
-    "fits the complete $name shell tightly in fixed and dynamic views",
+    "fits every $name rail and pocket tightly in fixed and dynamic views",
     (stadium) => {
       for (const [, aspect] of VIEWS) {
         for (const options of [ORBIT, GYRO]) {
@@ -37,11 +37,11 @@ describe("responsive stadium camera framing", () => {
           const bounds = stadiumProjectedBounds(stadium, aspect, distance, options);
           const limitingAxis = Math.max(bounds.maxX, bounds.maxY);
 
-          // Keep only a 3% antialias/refraction guard around the actual shell,
-          // rather than shrinking it to fit an impossible shipping-box corner.
-          expect(bounds.maxX).toBeLessThanOrEqual(1 / 1.03 + 1e-10);
-          expect(bounds.maxY).toBeLessThanOrEqual(1 / 1.03 + 1e-10);
-          expect(limitingAxis).toBeGreaterThan(0.969);
+          // The clear casing may crop; action-critical rails and pocket lips
+          // retain only a narrow raster/antialias guard.
+          expect(bounds.maxX).toBeLessThanOrEqual(1 / 1.015 + 1e-10);
+          expect(bounds.maxY).toBeLessThanOrEqual(1 / 1.015 + 1e-10);
+          expect(limitingAxis).toBeGreaterThan(0.982);
 
           // Pulling this carefully fitted camera just 3% closer must clip.
           const tooClose = stadiumProjectedBounds(stadium, aspect, distance * 0.97, options);

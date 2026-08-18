@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { UI_CSS } from "../src/ui/dom";
 import { galleryLayoutClass } from "../src/ui/gallery";
-import { renderViewportSize } from "../src/render/scene";
+import { cameraModeAllowsPanZoom, renderViewportSize } from "../src/render/scene";
 
 function rule(selector: string): string {
   const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -10,6 +10,13 @@ function rule(selector: string): string {
 }
 
 describe("responsive mobile UI contract", () => {
+  it("supports zoom and pan in fixed and sensor-driven battle views", () => {
+    expect(cameraModeAllowsPanZoom("orbit")).toBe(true);
+    expect(cameraModeAllowsPanZoom("gyro")).toBe(true);
+    expect(cameraModeAllowsPanZoom("launch")).toBe(false);
+    expect(cameraModeAllowsPanZoom("cinema")).toBe(false);
+  });
+
   it("keeps menu overlays and panels vertically touch-scrollable", () => {
     expect(rule(".overlay")).toContain("overflow-y: auto");
     expect(rule(".overlay")).toContain("overflow-x: hidden");

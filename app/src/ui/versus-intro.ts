@@ -12,8 +12,10 @@ export interface VersusIntroTiming {
 }
 
 export const VERSUS_INTRO_TIMING: Readonly<VersusIntroTiming> = Object.freeze({
-  durationMs: 1320,
-  exitStartsMs: 920,
+  // Long enough for both real tops and the name lock-up to register, while
+  // remaining a brisk match bumper rather than a loading screen.
+  durationMs: 1600,
+  exitStartsMs: 1160,
   // Keep the skip surface around through the pointerup -> click synthesis so
   // a skip cannot become an accidental launch gesture on the next screen.
   skipSettleMs: 48,

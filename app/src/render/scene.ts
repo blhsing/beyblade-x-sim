@@ -150,6 +150,11 @@ function disposeModel(root: THREE.Object3D): void {
 
 export type CameraMode = "orbit" | "gyro" | "launch" | "cinema";
 
+/** Battle views may be reframed without interfering with launch/cinema rigs. */
+export function cameraModeAllowsPanZoom(mode: CameraMode): boolean {
+  return mode === "orbit" || mode === "gyro";
+}
+
 export class BattleView {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -175,10 +180,13 @@ export class BattleView {
   private orbitPitch = 0.9;
   private orbitDist = 0.56; // frames the true-scale (wider) bowls
   private gyroFitDist = 0.56;
-  /** Resize keeps the full product framed until the player explicitly zooms. */
+  /** Resize keeps the action silhouette fitted until that view is adjusted. */
   private orbitZoomAdjusted = false;
+  private gyroZoomAdjusted = false;
   /** look-at point, moved by two-finger pan */
   private orbitTarget = new THREE.Vector3(0, 0, 0.02);
+  /** Screen-plane translation layered over the sensor-anchored camera pose. */
+  private gyroPan = new THREE.Vector3();
   /** per-bey knock-out flights, so a KO'd bey lands and stays visible */
   private koFlights: ({
     t: number;
@@ -850,10 +858,9 @@ export class BattleView {
   }
 
   /**
-   * Touch camera: one finger orbits, two fingers pinch to zoom and drag to
-   * pan (and the wheel zooms on desktop). Pan moves the orbit target across
-   * the stadium plane in the camera's own screen axes, so dragging feels
-   * like moving the stadium under your finger.
+   * Touch camera: fixed view uses one-finger orbit; sensor view uses that
+   * gesture for pan so device orientation remains authoritative. Both views
+   * use two-finger pinch/pan and desktop-wheel zoom.
    */
   private attachOrbitControls(el: HTMLElement): void {
     const pts = new Map<number, { x: number; y: number }>();
@@ -870,7 +877,7 @@ export class BattleView {
     };
 
     el.addEventListener("pointerdown", (e) => {
-      if (this.mode !== "orbit") return;
+      if (!cameraModeAllowsPanZoom(this.mode)) return;
       pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
       const c = centreAndSpread();
       pinchDist = c.d;
@@ -878,14 +885,18 @@ export class BattleView {
     });
 
     el.addEventListener("pointermove", (e) => {
-      if (this.mode !== "orbit" || !pts.has(e.pointerId)) return;
+      if (!cameraModeAllowsPanZoom(this.mode) || !pts.has(e.pointerId)) return;
       const prev = pts.get(e.pointerId)!;
       if (pts.size === 1) {
-        this.orbitYaw -= (e.clientX - prev.x) * 0.006;
-        this.orbitPitch = Math.min(
-          1.45,
-          Math.max(0.12, this.orbitPitch + (e.clientY - prev.y) * 0.005),
-        );
+        if (this.mode === "orbit") {
+          this.orbitYaw -= (e.clientX - prev.x) * 0.006;
+          this.orbitPitch = Math.min(
+            1.45,
+            Math.max(0.12, this.orbitPitch + (e.clientY - prev.y) * 0.005),
+          );
+        } else {
+          this.panBy(e.clientX - prev.x, e.clientY - prev.y);
+        }
         pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
         return;
       }
@@ -908,7 +919,7 @@ export class BattleView {
     el.addEventListener(
       "wheel",
       (e) => {
-        if (this.mode !== "orbit") return;
+        if (!cameraModeAllowsPanZoom(this.mode)) return;
         e.preventDefault();
         this.zoomBy(Math.exp(e.deltaY * 0.0012));
       },
@@ -918,28 +929,40 @@ export class BattleView {
 
   /** factor > 1 pulls the camera back */
   zoomBy(factor: number): void {
+    if (this.mode === "gyro") {
+      this.gyroZoomAdjusted = true;
+      this.gyroFitDist = Math.min(3, Math.max(0.09, this.gyroFitDist * factor));
+      return;
+    }
     this.orbitZoomAdjusted = true;
     this.orbitDist = Math.min(3, Math.max(0.09, this.orbitDist * factor));
   }
 
   /** Drag the look-at point across the stadium plane, in screen axes. */
   panBy(dxPx: number, dyPx: number): void {
-    const k = (this.orbitDist * 1.4) / Math.max(320, window.innerHeight);
+    const dynamic = this.mode === "gyro";
+    const distance = dynamic ? this.gyroFitDist : this.orbitDist;
+    const k = (distance * 1.4) / Math.max(320, window.innerHeight);
     const right = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 0);
     const up = new THREE.Vector3().setFromMatrixColumn(this.camera.matrix, 1);
-    this.orbitTarget
+    const target = dynamic ? this.gyroPan : this.orbitTarget;
+    target
       .addScaledVector(right, -dxPx * k)
       .addScaledVector(up, dyPx * k);
-    const lim = 0.4;
-    this.orbitTarget.x = Math.max(-lim, Math.min(lim, this.orbitTarget.x));
-    this.orbitTarget.y = Math.max(-lim, Math.min(lim, this.orbitTarget.y));
-    this.orbitTarget.z = Math.max(-0.05, Math.min(0.3, this.orbitTarget.z));
+    const lim = dynamic ? 0.25 : 0.4;
+    target.x = Math.max(-lim, Math.min(lim, target.x));
+    target.y = Math.max(-lim, Math.min(lim, target.y));
+    target.z = dynamic
+      ? Math.max(-0.18, Math.min(0.18, target.z))
+      : Math.max(-0.05, Math.min(0.3, target.z));
   }
 
   /** Recentre the touch camera (used when a new battle starts). */
   resetView(): void {
     this.orbitTarget.set(0, 0, 0.02);
+    this.gyroPan.set(0, 0, 0);
     this.orbitZoomAdjusted = false;
+    this.gyroZoomAdjusted = false;
     this.fitOrbitToStadium();
   }
 
@@ -951,23 +974,27 @@ export class BattleView {
     }
     const viewport = renderViewportSize(window.visualViewport, window.innerWidth, window.innerHeight);
     const aspect = viewport.width / viewport.height;
-    this.orbitDist = stadiumOrbitFitDistance(
-      this.stadium,
-      aspect,
-      {
-        fovDeg: this.camera.fov,
-        yaw: this.orbitYaw,
-        pitch: this.orbitPitch,
-        targetZ: this.orbitTarget.z,
-      },
-    );
+    if (!this.orbitZoomAdjusted) {
+      this.orbitDist = stadiumOrbitFitDistance(
+        this.stadium,
+        aspect,
+        {
+          fovDeg: this.camera.fov,
+          yaw: this.orbitYaw,
+          pitch: this.orbitPitch,
+          targetZ: this.orbitTarget.z,
+        },
+      );
+    }
     const gyroTargetZ = 0.02;
-    this.gyroFitDist = stadiumOrbitFitDistance(this.stadium, aspect, {
-      fovDeg: this.camera.fov,
-      yaw: -Math.PI / 2,
-      pitch: Math.atan2(GYRO_HOLD_Z - gyroTargetZ, -GYRO_HOLD_Y),
-      targetZ: gyroTargetZ,
-    });
+    if (!this.gyroZoomAdjusted) {
+      this.gyroFitDist = stadiumOrbitFitDistance(this.stadium, aspect, {
+        fovDeg: this.camera.fov,
+        yaw: -Math.PI / 2,
+        pitch: Math.atan2(GYRO_HOLD_Z - gyroTargetZ, -GYRO_HOLD_Y),
+        targetZ: gyroTargetZ,
+      });
+    }
   }
 
   resize(): void {
@@ -978,7 +1005,7 @@ export class BattleView {
     // The ray-march composer owns independent color/normal/depth targets;
     // resizing only the WebGLRenderer leaves those targets stretched and stale.
     this.rt.setSize(viewport.width, viewport.height, this.renderer.getPixelRatio());
-    if (!this.orbitZoomAdjusted) this.fitOrbitToStadium();
+    this.fitOrbitToStadium();
   }
 
   setStadium(s: StadiumSpec): void {
@@ -996,7 +1023,7 @@ export class BattleView {
       productCode: model.userData.productCode,
       triangleCount: model.userData.triangleCount,
     };
-    if (!this.orbitZoomAdjusted) this.fitOrbitToStadium();
+    this.fitOrbitToStadium();
   }
   /** side accents (free-for-all can hold many beys) */
   static readonly SIDE_COLORS = [0x3f7bff, 0xff5b4d, 0x3cb26a, 0xd8c22e, 0x8a4ad8, 0x2eb8c2, 0xd8802e, 0xd85f9e];
@@ -1478,6 +1505,7 @@ export class BattleView {
     }
     if (this.mode === "gyro" && gyro.active) {
       gyro.apply(this.camera, this.gyroFitDist, 0.02);
+      this.camera.position.add(this.gyroPan);
       return;
     }
     if (this.mode === "launch") {

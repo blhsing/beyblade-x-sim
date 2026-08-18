@@ -11,7 +11,9 @@ import {
   pocketAtPoint,
   pocketBasinPolygon,
   pocketExitTarget,
+  pocketGuardCenterline,
   pocketGuardRiseAt,
+  pocketPolygon,
   pointInConvexPolygon,
   pocketSurfaceZ as corePocketSurfaceZ,
   railPointAt,
@@ -25,6 +27,7 @@ import {
   STADIUM_GEOMETRY,
   surfaceZAt,
   surfaceZ,
+  type PocketSpec,
   type RailArc,
   type StadiumSpec,
 } from "../core/stadium";
@@ -41,8 +44,12 @@ interface CompiledPocketFootprint {
   maxY: number;
 }
 
-function compilePocketFootprints(s: StadiumSpec): CompiledPocketFootprint[] {
-  const polygons = s.pockets.map((pocket) => pocketBasinPolygon(s, pocket));
+function compilePocketFootprints(
+  s: StadiumSpec,
+  kind: "basin" | "throat" = "basin",
+): CompiledPocketFootprint[] {
+  const polygons = s.pockets.map((pocket) =>
+    kind === "throat" ? pocketPolygon(s, pocket) : pocketBasinPolygon(s, pocket));
   return polygons.map((polygon) => ({
     polygon,
     minX: Math.min(...polygon.map((point) => point.x)),
@@ -86,16 +93,18 @@ function stadiumClearPlastic(s: StadiumSpec, role: "cover" | "body"): THREE.Mesh
   return new THREE.MeshPhysicalMaterial({
     color: role === "cover" ? 0xf7fbff : 0xf1f5f7,
     metalness: 0,
-    roughness: role === "cover" ? 0.055 : 0.1,
-    transmission: role === "cover" ? 0.94 : 0.76,
+    roughness: role === "cover" ? 0.13 : 0.1,
+    transmission: role === "cover" ? 0.985 : 0.76,
     thickness: role === "cover" ? STADIUM_GEOMETRY.casingThicknessM : 0.004,
-    attenuationDistance: role === "cover" ? 0.65 : 0.18,
+    attenuationDistance: role === "cover" ? 2.4 : 0.18,
     attenuationColor: new THREE.Color(role === "cover" ? 0xeaf4f8 : 0xe5ecef),
     // BX-10 packaging identifies PVC. BX-32 resin is intentionally left
     // neutral because Takara Tomy's public page does not publish it.
     ior: bx10 ? 1.54 : 1.5,
-    clearcoat: 1,
-    clearcoatRoughness: role === "cover" ? 0.05 : 0.11,
+    clearcoat: role === "cover" ? 0.22 : 1,
+    clearcoatRoughness: role === "cover" ? 0.2 : 0.11,
+    specularIntensity: role === "cover" ? 0.18 : 1,
+    envMapIntensity: role === "cover" ? 0.28 : 0.85,
     transparent: true,
     opacity: 1,
     side: THREE.DoubleSide,
@@ -121,6 +130,61 @@ function bodyEdgeRadius(s: StadiumSpec, theta: number): number {
   return stadiumBodyRadiusAt(s, theta);
 }
 
+const CASING_CONTOUR_SAMPLES = 4096;
+const CASING_CONTOUR_CACHE = new WeakMap<StadiumSpec, Float64Array>();
+
+function raySegmentRadius(
+  ux: number,
+  uy: number,
+  a: { x: number; y: number },
+  b: { x: number; y: number },
+): number | null {
+  const sx = b.x - a.x;
+  const sy = b.y - a.y;
+  const denominator = ux * sy - uy * sx;
+  if (Math.abs(denominator) <= 1e-12) return null;
+  const radius = (a.x * sy - a.y * sx) / denominator;
+  const edgeT = (a.x * uy - a.y * ux) / denominator;
+  return radius >= 0 && edgeT >= 0 && edgeT <= 1 ? radius : null;
+}
+
+function compiledCasingContour(s: StadiumSpec): Float64Array {
+  const cached = CASING_CONTOUR_CACHE.get(s);
+  if (cached) return cached;
+  const contour = new Float64Array(CASING_CONTOUR_SAMPLES);
+  const basins = s.pockets.map((pocket) => pocketBasinPolygon(s, pocket));
+  // Only a slim molded ledge surrounds the playable floor. The previous
+  // shipping-footprint canopy was tens of millimetres too wide on BX-32.
+  const ordinaryClearance = s.name === "wide" ? 0.016 : 0.015;
+  const pocketClearance = s.name === "wide" ? 0.008 : 0.007;
+  for (let index = 0; index < contour.length; index++) {
+    const theta = index / contour.length * TAU;
+    const ux = Math.cos(theta);
+    const uy = Math.sin(theta);
+    let radius = stadiumBoundaryRadiusAt(s, theta) + ordinaryClearance;
+    for (const polygon of basins) {
+      for (let edge = 0; edge < polygon.length; edge++) {
+        const hit = raySegmentRadius(ux, uy, polygon[edge]!, polygon[(edge + 1) % polygon.length]!);
+        if (hit !== null) radius = Math.max(radius, hit + pocketClearance);
+      }
+    }
+    // Never claim plastic outside the product's measured body envelope.
+    contour[index] = Math.min(radius, bodyEdgeRadius(s, theta) - 0.004);
+  }
+  CASING_CONTOUR_CACHE.set(s, contour);
+  return contour;
+}
+
+/** Tight photo-matched lower-cover contour, shared by cover, ribs and tests. */
+export function stadiumCasingOuterRadiusAt(s: StadiumSpec, theta: number): number {
+  const contour = compiledCasingContour(s);
+  const wrapped = ((theta % TAU) + TAU) % TAU / TAU * contour.length;
+  const index = Math.floor(wrapped) % contour.length;
+  const next = (index + 1) % contour.length;
+  const fraction = wrapped - Math.floor(wrapped);
+  return THREE.MathUtils.lerp(contour[index]!, contour[next]!, fraction);
+}
+
 function setMeshName(mesh: THREE.Object3D, name: string, data: Record<string, unknown> = {}): void {
   mesh.name = name;
   Object.assign(mesh.userData, data);
@@ -135,7 +199,7 @@ function configureMesh(mesh: THREE.Mesh, cast = true, receive = true): THREE.Mes
 function radialSurfaceGeometry(s: StadiumSpec, radialSegments: number, angularSegments: number): THREE.BufferGeometry {
   const positions: number[] = [];
   const indices: number[] = [];
-  const pocketFootprints = compilePocketFootprints(s);
+  const pocketFootprints = compilePocketFootprints(s, "basin");
   for (let ring = 0; ring <= radialSegments; ring++) {
     const u = ring / radialSegments;
     for (let segment = 0; segment <= angularSegments; segment++) {
@@ -982,6 +1046,59 @@ function pocketBasinGeometry(
   return geometry;
 }
 
+/** Dense canonical surface patch for the raised molded wall before a pocket.
+ * The bowl/basin owns this same heightfield; this coplanar patch contributes
+ * enough local vertices for the rounded wedge and its cast shadow to remain
+ * visible instead of disappearing into the coarse pale floor grid. */
+function pocketGuardGeometry(s: StadiumSpec, pocket: PocketSpec): THREE.BufferGeometry {
+  const centerline = pocketGuardCenterline(s, pocket);
+  const halfThickness = pocket.trace?.guard.halfThickness ?? 0;
+  const acrossSegments = 32;
+  const positions: number[] = [];
+  const indices: number[] = [];
+  for (let pathIndex = 0; pathIndex < centerline.length; pathIndex++) {
+    const previous = centerline[Math.max(0, pathIndex - 1)]!;
+    const next = centerline[Math.min(centerline.length - 1, pathIndex + 1)]!;
+    let tangentX = next.x - previous.x;
+    let tangentY = next.y - previous.y;
+    const tangentLength = Math.sqrt(tangentX * tangentX + tangentY * tangentY) || 1;
+    tangentX /= tangentLength;
+    tangentY /= tangentLength;
+    const normalX = -tangentY;
+    const normalY = tangentX;
+    for (let across = 0; across <= acrossSegments; across++) {
+      const offset = (across / acrossSegments * 2 - 1) * halfThickness;
+      const x = centerline[pathIndex]!.x + normalX * offset;
+      const y = centerline[pathIndex]!.y + normalY * offset;
+      positions.push(x, y, stadiumTerrainAt(s, x, y).height + 0.00003);
+    }
+  }
+  const row = acrossSegments + 1;
+  for (let pathIndex = 0; pathIndex < centerline.length - 1; pathIndex++) {
+    for (let across = 0; across < acrossSegments; across++) {
+      const a = pathIndex * row + across;
+      const b = a + 1;
+      const c = a + row;
+      const d = c + 1;
+      indices.push(a, c, b, b, c, d);
+    }
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setIndex(indices);
+  geometry.computeVertexNormals();
+  geometry.userData = {
+    shape: "rounded-pocket-entry-wall",
+    source: "core:pocketGuardCenterline+pocketGuardRiseAt",
+    pathSamples: centerline.length,
+    acrossSegments,
+    halfThicknessM: halfThickness,
+    heightM: pocket.trace?.guard.height ?? 0,
+    photoDerived: true,
+  };
+  return geometry;
+}
+
 function createPockets(s: StadiumSpec, bodyMat: THREE.Material): THREE.Group {
   const pockets = new THREE.Group();
   setMeshName(pockets, "stadium:pockets", {
@@ -996,6 +1113,11 @@ function createPockets(s: StadiumSpec, bodyMat: THREE.Material): THREE.Group {
   basinMaterial.polygonOffset = true;
   basinMaterial.polygonOffsetFactor = -1;
   basinMaterial.polygonOffsetUnits = -1;
+  const guardMaterial = bodyMat.clone();
+  guardMaterial.name = `${bodyMat.name}:pocket-entry-wall`;
+  guardMaterial.polygonOffset = true;
+  guardMaterial.polygonOffsetFactor = -2;
+  guardMaterial.polygonOffsetUnits = -2;
 
   s.pockets.forEach((pocket, index) => {
     const group = new THREE.Group();
@@ -1033,6 +1155,21 @@ function createPockets(s: StadiumSpec, bodyMat: THREE.Material): THREE.Group {
     });
     markReflective(basin, 0.14);
     group.add(basin);
+    if (pocket.trace?.guard) {
+      const guard = configureMesh(
+        new THREE.Mesh(pocketGuardGeometry(s, pocket), guardMaterial),
+        true,
+        true,
+      );
+      setMeshName(guard, `stadium:pocket-guard:${index}`, {
+        source: "core:pocketGuardCenterline+pocketGuardRiseAt",
+        heightM: pocket.trace.guard.height,
+        halfThicknessM: pocket.trace.guard.halfThickness,
+        reference: pocket.trace.reference.source,
+      });
+      markReflective(guard, 0.12);
+      group.add(guard);
+    }
     pockets.add(group);
   });
   return pockets;
@@ -1048,7 +1185,7 @@ function boundaryWallGeometry(
 ): THREE.BufferGeometry {
   const positions: number[] = [];
   const indices: number[] = [];
-  const pocketFootprints = compilePocketFootprints(s);
+  const pocketFootprints = compilePocketFootprints(s, "throat");
   let cellCount = 0;
   for (let segment = 0; segment < segments; segment++) {
     const a0 = (segment / segments) * TAU;
@@ -1085,7 +1222,7 @@ function boundaryWallGeometry(
   geometry.computeVertexNormals();
   geometry.userData = {
     shape: s.wallShape?.kind === "obround" ? "obround-aperture-wall" : "circular-aperture-wall",
-    source: "core:pocketAtPoint",
+    source: "core:pocketThroatAtPoint",
     sampleSegments: segments,
     solidCells: cellCount,
   };
@@ -1097,7 +1234,7 @@ function createLowWall(s: StadiumSpec, rimZ: number, bodyMat: THREE.Material): T
   setMeshName(walls, "stadium:low-bowl-wall", {
     material: s.name === "bx10" ? "PVC" : "product-plastic-unspecified",
     heightM: 0.014,
-    apertureSource: "core:pocketAtPoint",
+    apertureSource: "core:pocketThroatAtPoint",
   });
   const wall = configureMesh(
     new THREE.Mesh(
@@ -1204,10 +1341,11 @@ function createCasing(s: StadiumSpec, rimZ: number): THREE.Group {
   const code = productCode(s);
   const resin = s.name === "bx10" ? "PVC" : "product-plastic-unspecified";
   const ior = s.name === "bx10" ? 1.54 : 1.5;
-  const transmission = 0.94;
+  const transmission = 0.985;
+  const floorGapHeight = 0.003;
   const wallGeometry = boundaryWallGeometry(
     s,
-    rimZ + 0.006,
+    rimZ + 0.01 + floorGapHeight,
     rimZ + s.coverHeight * 0.32,
     0.0055,
     0.0075,
@@ -1226,8 +1364,10 @@ function createCasing(s: StadiumSpec, rimZ: number): THREE.Group {
     wallCoverageRadians,
     gapCoverageRadians: TAU - wallCoverageRadians,
     apertureCount: s.pockets.length,
-    apertureSource: "core:pocketAtPoint",
+    apertureSource: "core:pocketThroatAtPoint",
     gapAffects: "product-pocket-throats-only",
+    floorGapHeightM: floorGapHeight,
+    outerContourSource: "core:boundary+pocketBasinPolygon",
   });
   const material = stadiumClearPlastic(s, "cover");
   material.name = s.name === "bx10"
@@ -1236,11 +1376,12 @@ function createCasing(s: StadiumSpec, rimZ: number): THREE.Group {
   const topZ = rimZ + s.coverHeight;
   const thickness = STADIUM_MODEL_DIMENSIONS.casingThicknessM;
   const rings: CanopyRing[] = [
-    { radius: (theta) => bodyEdgeRadius(s, theta) - 0.006, z: rimZ + 0.012 },
+    { radius: (theta) => stadiumCasingOuterRadiusAt(s, theta), z: rimZ + 0.014 },
     {
       radius: (theta) => {
         const wall = stadiumBoundaryRadiusAt(s, theta);
-        return wall + (bodyEdgeRadius(s, theta) - wall) * 0.58;
+        const outer = stadiumCasingOuterRadiusAt(s, theta);
+        return wall + (outer - wall) * 0.7;
       },
       z: rimZ + s.coverHeight * 0.3,
     },
@@ -1284,10 +1425,41 @@ function createCasing(s: StadiumSpec, rimZ: number): THREE.Group {
   setMeshName(wall, "stadium:casing-inner-wall:0", {
     coverageRadians: wallCoverageRadians,
     thicknessM: thickness,
-    heightM: s.coverHeight * 0.32 - 0.006,
-    apertureSource: "core:pocketAtPoint",
+    heightM: s.coverHeight * 0.32 - 0.01 - floorGapHeight,
+    apertureSource: "core:pocketThroatAtPoint",
   });
   casing.add(wall);
+
+  // A narrow real air seam separates the lower safety wall from the molded
+  // floor. A dark recessed backing makes the 3 mm slot read as a thin hole
+  // through transparent plastic without inventing a Bey-sized escape route.
+  const gapMaterial = new THREE.MeshBasicMaterial({
+    color: 0x07101a,
+    transparent: true,
+    opacity: 0.32,
+    depthWrite: false,
+    side: THREE.DoubleSide,
+  });
+  const floorGap = configureMesh(
+    new THREE.Mesh(
+      boundaryWallGeometry(
+        s,
+        rimZ + 0.01,
+        rimZ + 0.01 + floorGapHeight,
+        0.0062,
+        0.0082,
+      ),
+      gapMaterial,
+    ),
+    false,
+    false,
+  );
+  setMeshName(floorGap, "stadium:casing-floor-gap", {
+    shape: "thin-air-slot",
+    heightM: floorGapHeight,
+    apertureSource: "core:pocketThroatAtPoint",
+  });
+  casing.add(floorGap);
 
   // Thick rolled lips around the launch opening and the product's outer
   // flange catch specular highlights visible in the official photographs.
@@ -1315,7 +1487,7 @@ function createCasing(s: StadiumSpec, rimZ: number): THREE.Group {
   const outerLip = configureMesh(
     new THREE.Mesh(
       new THREE.TubeGeometry(
-        contourCurve((theta) => bodyEdgeRadius(s, theta) - 0.004, rimZ + 0.01, 512),
+        contourCurve((theta) => stadiumCasingOuterRadiusAt(s, theta) - 0.0015, rimZ + 0.014, 512),
         768,
         0.0028,
         16,
@@ -1326,7 +1498,10 @@ function createCasing(s: StadiumSpec, rimZ: number): THREE.Group {
     true,
     false,
   );
-  setMeshName(outerLip, "stadium:casing-outer-flange", { tubularSegments: 768 });
+  setMeshName(outerLip, "stadium:casing-outer-flange", {
+    tubularSegments: 768,
+    contourSource: "core:boundary+pocketBasinPolygon",
+  });
   casing.add(outerLip);
 
   // Mold-flow ribs divide the transparent canopy into its recognizable
@@ -1334,7 +1509,7 @@ function createCasing(s: StadiumSpec, rimZ: number): THREE.Group {
   const ribCount = s.name === "wide" ? 12 : 8;
   for (let i = 0; i < ribCount; i++) {
     const theta = (i / ribCount) * TAU;
-    const outer = bodyEdgeRadius(s, theta) - 0.007;
+    const outer = stadiumCasingOuterRadiusAt(s, theta) - 0.003;
     const wallRadius = stadiumBoundaryRadiusAt(s, theta);
     const aperture = launchApertureRadiusAt(s, theta);
     const path = new THREE.CatmullRomCurve3([

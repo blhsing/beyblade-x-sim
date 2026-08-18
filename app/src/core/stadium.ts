@@ -429,11 +429,13 @@ const BX32_REAR_BASIN: readonly PocketTracePoint[] = [
   { along: -0.018, across: -0.008 },
 ];
 const BX32_REAR_GUARD: readonly PocketTracePoint[] = [
-  { along: -0.019, across: -0.019 },
-  { along: -0.014, across: -0.010 },
-  { along: -0.012, across: 0 },
-  { along: -0.014, across: 0.010 },
-  { along: -0.019, across: 0.019 },
+  { along: -0.0302, across: -0.0369 },
+  { along: -0.0203, across: -0.0288 },
+  { along: -0.0123, across: -0.0158 },
+  { along: -0.0093, across: 0.0002 },
+  { along: -0.0123, across: 0.0162 },
+  { along: -0.0204, across: 0.0292 },
+  { along: -0.0277, across: 0.0375 },
 ];
 const BX32_FRONT_THROAT: readonly PocketTracePoint[] = [
   { along: -0.021, across: 0.052 },
@@ -472,11 +474,12 @@ function pocketTrace(
   source: string,
   calibration: string,
   mirroredFrom?: string,
+  halfThickness = 0.0048,
 ): PocketTraceSpec {
   return {
     throat,
     basin,
-    guard: { centerline: guard, halfThickness: 0.0048, height },
+    guard: { centerline: guard, halfThickness, height },
     reference: { source, calibration, mirroredFrom },
   };
 }
@@ -684,9 +687,11 @@ export const STADIUM_BX32: StadiumSpec = {
         BX32_REAR_THROAT,
         BX32_REAR_BASIN,
         BX32_REAR_GUARD,
-        0.0055,
-        "user:codex-clipboard-11c8d883-8577-4d92-aebc-4db4b34113f9.png + TT:BX-32-manual",
-        "600x440mm body; upper-left rounded Xtreme concavity and entrance wall",
+        0.0168,
+        "user:codex-clipboard-11c8d883-8577-4d92-aebc-4db4b34113f9.png + TT:BX-32-manual + https://m.media-amazon.com/images/I/61mev0MM2vL.jpg",
+        "600x440mm body; overhead plan trace plus oblique shadow-edge fit normalized against the adjacent 4.6mm X-Line; inferred 16.8mm rise and 21mm full width",
+        undefined,
+        0.0105,
       ),
     },
     {
@@ -708,10 +713,11 @@ export const STADIUM_BX32: StadiumSpec = {
         BX32_REAR_THROAT,
         BX32_REAR_BASIN,
         BX32_REAR_GUARD,
-        0.0055,
-        "user:codex-clipboard-11c8d883-8577-4d92-aebc-4db4b34113f9.png + TT:BX-32-manual",
-        "600x440mm body; mirrored upper-right rounded Xtreme concavity and entrance wall",
+        0.0168,
+        "user:codex-clipboard-11c8d883-8577-4d92-aebc-4db4b34113f9.png + TT:BX-32-manual + https://m.media-amazon.com/images/I/61mev0MM2vL.jpg",
+        "600x440mm body; mirrored overhead plan trace plus opposite oblique shadow-edge cross-check; inferred 16.8mm rise and 21mm full width",
         "rear-left-xtreme",
+        0.0105,
       ),
     },
     {

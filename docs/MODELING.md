@@ -99,6 +99,17 @@ Lock Chip + Main + Assist, or Expand Lock Chip + Metal + Over + Assist.
 
 ## 2. Stadiums
 
+Both selectable stadiums use a tight clear-cover contour derived from the
+playable-floor boundary plus the traced pocket concavities, rather than the
+rectangular shipping envelope. A 3 mm recessed air seam remains visible as a
+thin hole between the molded floor and lower safety wall. The cover shader is
+deliberately high-transmission and low-reflection (0.985 transmission, 0.13
+roughness, 0.22 clearcoat, 0.18 dielectric specular intensity and 0.28
+environment intensity), so background play
+remains readable through the casing instead of being covered by a white gloss.
+Initial fixed and sensor-driven camera fits use the complete X-Line and pocket
+geometry as their non-croppable silhouette; clear casing may crop at the edge.
+
 ### 2.1 BX-10 Xtreme Stadium (tournament standard)
 
 - Configured outer body **440 × 455 mm**, square-ish moulded shell. These
@@ -160,9 +171,18 @@ Lock Chip + Main + Assist, or Expand Lock Chip + Metal + Over + Assist.
   Xtreme openings plus one broad front-center trapezoidal Over opening. The
   narrow mouths continue into broader rounded concavities in the same molded
   battle surface; they are not separate catch trays. Their pocket outlines and
-  the low entry lips are traced independently from the supplied BX-32 overhead
-  and cross-checked against the official manual, rather than reusing BX-10
-  sectors. The
+  entry walls are traced independently from the supplied BX-32 overhead and
+  cross-checked against the official manual, rather than reusing BX-10
+  sectors. The two pale rear walls are easy to miss overhead, so their broad
+  wedge silhouette and cast-shadow height were also calibrated from the
+  oblique product photograph
+  [61mev0MM2vL.jpg](https://m.media-amazon.com/images/I/61mev0MM2vL.jpg), using
+  the adjacent 4.6 mm X-Line as a same-perspective scale. The resulting 16.8 mm
+  rise and 21 mm full width are explicitly photographic inferences—not
+  published factory dimensions—and are shared by the visible mesh and terrain
+  collision. `tools/trace-stadium-features.py` reproduces the plan conversion,
+  shadow-edge ratio, overlays, and TypeScript-value check from those source
+  images. The
   cover has two red triangular shoot marks and a distinct rear molded shoot
   indicator. BX-32 plastic chemistry is left explicitly unspecified because
   the cited public material does not identify the resin.

@@ -159,7 +159,7 @@ export const UI_CSS = `
   100% { opacity: 0; transform: translateY(16px); }
 }
 .versus-intro { --versus-bey-size: 200px; --versus-travel: 500px;
-  --versus-name-size: 40px; --versus-duration: 1320ms;
+  --versus-name-size: 40px; --versus-duration: 1600ms;
   position: fixed; inset: 0; width: 100dvw; height: 100dvh; z-index: 32;
   box-sizing: border-box; overflow: hidden; isolation: isolate; cursor: pointer;
   touch-action: none; user-select: none; -webkit-user-select: none; color: #fff;
@@ -226,7 +226,7 @@ export const UI_CSS = `
   right: max(calc(env(safe-area-inset-right, 0px) + 12px), 4vw); top: 50%;
   transform: translateY(-50%) rotate(-2deg); display: grid; grid-template-columns: minmax(0,1fr) auto minmax(0,1fr);
   align-items: center; gap: clamp(8px, 3vw, 28px); text-align: center;
-  animation: versus-lockup var(--versus-duration) cubic-bezier(.15,.8,.2,1) both; }
+  filter: none; animation: versus-lockup var(--versus-duration) cubic-bezier(.15,.8,.2,1) both; }
 .versus-name { min-width: 0; font-size: var(--versus-name-size); line-height: .94; font-weight: 1000;
   letter-spacing: clamp(1px, .5vw, 6px); overflow-wrap: anywhere; text-transform: uppercase;
   -webkit-text-stroke: 1px rgba(255,255,255,.72); }
@@ -256,7 +256,7 @@ export const UI_CSS = `
   73% { transform: rotate(-520deg); } 100% { transform: rotate(-1080deg); } }
 @keyframes versus-lockup { 0%, 18% { opacity: 0; transform: translateY(-50%) scale(2.2) rotate(-8deg); }
   31%, 71% { opacity: 1; transform: translateY(-50%) scale(1) rotate(-2deg); }
-  100% { opacity: 0; transform: translateY(-50%) scale(.86) rotate(3deg); filter: blur(8px); } }
+  100% { opacity: 0; transform: translateY(-50%) scale(.86) rotate(3deg); filter: none; } }
 @keyframes versus-burn { 0% { opacity: 0; transform: scaleY(.25); } 25%, 72% { opacity: .9; transform: scaleY(1); }
   100% { opacity: 0; transform: scaleY(1.5); } }
 @keyframes versus-flare { 0%, 22% { opacity: 0; transform: scaleX(.1); } 31% { opacity: 1; transform: scaleX(1.15); }

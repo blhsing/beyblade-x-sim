@@ -177,8 +177,8 @@ describe("product-accurate stadium openings", () => {
     }
   });
 
-  it.each([STADIUM_BX10, STADIUM_BX32])("uses dense traced pocket silhouettes and a rounded retaining lip in %s", (stadium) => {
-    for (const pocket of stadium.pockets) {
+  it.each([STADIUM_BX10, STADIUM_BX32])("uses dense traced pocket silhouettes and a rounded retaining wall in %s", (stadium) => {
+    for (const [index, pocket] of stadium.pockets.entries()) {
       expect(pocket.trace?.reference.source).toMatch(/user:codex-clipboard/);
       expect(pocketPolygon(stadium, pocket).length).toBeGreaterThanOrEqual(96);
       expect(pocketBasinPolygon(stadium, pocket).length).toBeGreaterThanOrEqual(160);
@@ -186,9 +186,26 @@ describe("product-accurate stadium openings", () => {
       expect(guard.length).toBeGreaterThanOrEqual(26);
       let peak = 0;
       for (const point of guard) peak = Math.max(peak, pocketGuardRiseAt(stadium, point.x, point.y));
-      expect(peak).toBeGreaterThanOrEqual(0.0054);
-      expect(peak).toBeLessThanOrEqual(0.0066);
+      if (stadium === STADIUM_BX32 && index < 2) {
+        // The white-on-white corner wedges are height-calibrated from the
+        // oblique shadow edges, not guessed from the nearly invisible top view.
+        expect(peak).toBeCloseTo(0.0168, 5);
+        expect(pocket.trace?.guard.halfThickness).toBeCloseTo(0.0105, 6);
+        expect(pocket.trace?.reference.source).toContain("61mev0MM2vL.jpg");
+      } else {
+        expect(peak).toBeGreaterThanOrEqual(0.0054);
+        expect(peak).toBeLessThanOrEqual(0.0066);
+      }
     }
+  });
+
+  it("mirrors the two photo-derived BX-32 corner walls exactly", () => {
+    const left = STADIUM_BX32.pockets[0]!;
+    const right = STADIUM_BX32.pockets[1]!;
+    expect(right.trace?.reference.mirroredFrom).toBe(left.id);
+    expect(right.trace?.guard.centerline).toEqual(left.trace?.guard.centerline);
+    expect(right.trace?.guard.height).toBe(left.trace?.guard.height);
+    expect(right.trace?.guard.halfThickness).toBe(left.trace?.guard.halfThickness);
   });
 
   it.each([STADIUM_BX10, STADIUM_BX32])("keeps an uninterrupted open throat-to-basin route in %s", (stadium) => {
@@ -555,6 +572,38 @@ describe("reversible live pocket simulation", () => {
     for (let i = 0; i < 30; i++) step(world, cfg, STADIUM_BX10, true);
     expect(bey.pocketIndex).toBe(-1);
     expect(bey.exited).toBeNull();
+  });
+
+  it("makes a low-energy BX-32 corner approach roll back from the photo-derived wall", () => {
+    const cfg = config();
+    const world = createWorld(cfg);
+    const bey = world.beys[0]!;
+    const pocket = STADIUM_BX32.pockets[0]!;
+    const path = pocketPath(STADIUM_BX32, pocket);
+    const wall = pocketGuardCenterline(STADIUM_BX32, pocket);
+    const apex = wall.reduce((best, point) =>
+      pocketGuardRiseAt(STADIUM_BX32, point.x, point.y) >
+        pocketGuardRiseAt(STADIUM_BX32, best.x, best.y) ? point : best);
+    Object.assign(bey, {
+      x: apex.x - path.axis.x * 0.018,
+      y: apex.y - path.axis.y * 0.018,
+      vx: path.axis.x * 0.28,
+      vy: path.axis.y * 0.28,
+      airborne: false,
+      pendingTicks: 0,
+      omega: 220,
+    });
+    let furthestAlong = -Infinity;
+    for (let tick = 0; tick < 240; tick++) {
+      step(world, cfg, STADIUM_BX32, true);
+      furthestAlong = Math.max(
+        furthestAlong,
+        (bey.x - path.boundary.x) * path.axis.x + (bey.y - path.boundary.y) * path.axis.y,
+      );
+    }
+    expect(bey.pocketIndex).toBe(-1);
+    expect(bey.exited).toBeNull();
+    expect(furthestAlong).toBeLessThan(-0.002);
   });
 
   it("admits a realistic 1.0 m/s outward crossing through the exact BX-10 throat", () => {

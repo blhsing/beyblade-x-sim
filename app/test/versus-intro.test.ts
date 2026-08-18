@@ -62,11 +62,10 @@ class FakeTarget implements VersusLifecycleTarget {
 }
 
 describe("versus intro timing", () => {
-  it("keeps the normal cinematic quick and starts its roll-away before one second", () => {
+  it("holds the normal cinematic long enough to read, then rolls away briskly", () => {
     expect(versusIntroTiming(false)).toBe(VERSUS_INTRO_TIMING);
-    expect(VERSUS_INTRO_TIMING.durationMs).toBe(1320);
-    expect(VERSUS_INTRO_TIMING.exitStartsMs).toBeGreaterThanOrEqual(880);
-    expect(VERSUS_INTRO_TIMING.exitStartsMs).toBeLessThanOrEqual(950);
+    expect(VERSUS_INTRO_TIMING.durationMs).toBe(1600);
+    expect(VERSUS_INTRO_TIMING.exitStartsMs).toBe(1160);
     expect(VERSUS_INTRO_TIMING.exitStartsMs).toBeLessThan(VERSUS_INTRO_TIMING.durationMs);
   });
 
@@ -186,6 +185,8 @@ describe("versus intro styles", () => {
     expect(UI_CSS).toContain("env(safe-area-inset-top, 0px)");
     expect(UI_CSS).toContain(".versus-spark");
     expect(UI_CSS).toContain(".versus-burn");
+    expect(UI_CSS).toMatch(/\.versus-lockup[^}]*filter:\s*none/s);
+    expect(UI_CSS).not.toMatch(/@keyframes versus-lockup[^}]*filter:\s*blur/s);
     expect(UI_CSS).toContain("@media (prefers-reduced-motion: reduce)");
   });
 });
