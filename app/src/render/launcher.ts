@@ -626,15 +626,38 @@ export const LAUNCHER_PREVIEW_POSE = Object.freeze({
   scale: 0.72,
 });
 
-/** Apply the shared preview framing and map either L/R pull axis down-screen. */
-export function applyLauncherPreviewPose(rig: LauncherRig): void {
+export interface ScreenPullAxis {
+  /** screen-right component */
+  x: number;
+  /** screen-down component */
+  y: number;
+}
+
+/**
+ * Apply the shared preview framing and align the model's real withdrawal axis
+ * with the responsive screen-space gesture lane. Portrait defaults down;
+ * landscape callers can use the wider left/right lane without visually
+ * disconnecting the hand, rack or string from the gesture.
+ */
+export function applyLauncherPreviewPose(
+  rig: LauncherRig,
+  screenPullAxis: ScreenPullAxis = { x: 0, y: 1 },
+): void {
+  const length = Math.hypot(screenPullAxis.x, screenPullAxis.y);
+  const screenX = length > 1e-9 ? screenPullAxis.x / length : 0;
+  const screenDown = length > 1e-9 ? screenPullAxis.y / length : 1;
+  const desiredCameraAngle = Math.atan2(-screenDown, screenX);
+  const localAxisAngle = rig.pullAxis.x < 0 ? Math.PI : 0;
+  const rawRoll = desiredCameraAngle - localAxisAngle;
+  const roll = Math.atan2(Math.sin(rawRoll), Math.cos(rawRoll));
   rig.group.position.set(...LAUNCHER_PREVIEW_POSE.position);
   rig.group.rotation.set(
     LAUNCHER_PREVIEW_POSE.pitch,
     0,
-    -rig.pullAxis.x * Math.PI / 2,
+    roll,
   );
   rig.group.scale.setScalar(LAUNCHER_PREVIEW_POSE.scale);
+  rig.group.userData.screenPullAxis = { x: screenX, y: screenDown };
 }
 
 /** Build the selected catalog launcher with a naturally posed two-hand rig. */

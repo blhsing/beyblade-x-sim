@@ -9,9 +9,8 @@ import type { PocketSpec, Point2, StadiumSpec } from "./stadium";
 import {
   inArc,
   pocketAtPoint,
-  pocketCatchPolygon,
+  pocketBasinPolygon,
   pocketPath,
-  pocketPolygon,
   pocketSecureAtPoint,
   pocketThroatAtPoint,
   railClosestPoint,
@@ -34,7 +33,7 @@ import type {
 export const DT = 1 / 240;
 export const TICKS_PER_SECOND = 240;
 /** Increment whenever deterministic state evolution changes incompatibly. */
-export const PHYSICS_VERSION = 4;
+export const PHYSICS_VERSION = 5;
 
 const G = 9.81;
 // Stop means visually and mechanically settled, not merely crossing a low-
@@ -44,7 +43,7 @@ export const STOP_LINEAR_SPEED = 0.005; // m/s: ≤3 mm over the full dwell
 /** all stop conditions must remain true this long before a Spin Finish */
 export const STOP_DWELL_TICKS = 144; // 0.6 s at 240 Hz
 /** Zone loss needs a short confirmation after translational rest. Spin is
- * deliberately irrelevant: a retained Bey can still rotate in the tray. */
+ * deliberately irrelevant: a retained Bey can still rotate in the basin. */
 export const POCKET_DWELL_TICKS = 24; // 0.1 s, evaluated after collisions
 
 const T = {
@@ -68,6 +67,12 @@ const T = {
   driftSatGrip: 0.55,
   lowSpinThreshold: 120,
   lowSpinDrag: 1.6,
+  // Once rotation reaches zero the Blade/Ratchet is leaning on the stadium,
+  // so it slides under Coulomb contact instead of rolling like an upright Bit.
+  // Static friction then holds it on the shallow inner bowl after at most one
+  // inward slide rather than allowing repeated center-crossing oscillations.
+  toppledKineticFriction: 0.28,
+  toppledStaticFriction: 0.34,
   spinDecayBase: 130,
   spinDecaySpeed: 26,
   // rail — a real rack-and-pinion: the bit's bottom gear (r≈4 mm) meshes
@@ -97,12 +102,12 @@ const T = {
   railBumpRestitution: 0.42,
   railBarrierInner: 0.75, // barrier sits at railR - halfWidth×this
   pocketEntrySpeed: 0.45, // committed outward crossing, above a slow wall graze
-  // Recessed catch trays retain most incoming momentum. Molded plastic and
-  // a polymer Bit dissipate energy gradually; cheeks/backstops redirect a
-  // Bey instead of acting like the former invisible capture brake.
+  // Concave molded loss zones retain incoming momentum. Polymer contact
+  // dissipates energy gradually; the rising basin rim redirects a Bey instead
+  // of acting like an invisible capture brake.
   pocketLinearDrag: 0.7,
-  pocketWallRestitution: 0.38,
-  pocketWallFriction: 0.08,
+  pocketRimRestitution: 0.38,
+  pocketRimFriction: 0.08,
   // collisions (rim slip ≈ 16 m/s at full spin → smash impulse ~0.01–0.02
   // kg·m/s → Δv ~0.3–0.5 m/s and spin loss ~15–40 rad/s per solid hit)
   restitution: 0.28,
@@ -422,42 +427,30 @@ interface PocketEdgeContact {
 }
 
 function closestPocketEdge(
-  s: StadiumSpec,
-  pocket: PocketSpec,
-  polygons: readonly (readonly Point2[])[],
+  polygon: readonly Point2[],
   x: number,
   y: number,
 ): PocketEdgeContact {
   let best: PocketEdgeContact = { point: { x, y }, distance: Infinity };
-  for (const polygon of polygons) {
-    for (let i = 0; i < polygon.length; i++) {
-      const a = polygon[i]!;
-      const c = polygon[(i + 1) % polygon.length]!;
-      const dx = c.x - a.x;
-      const dy = c.y - a.y;
-      const denom = dx * dx + dy * dy;
-      const length = Math.sqrt(denom);
-      if (length > 1e-12) {
-        // Clockwise outlines have their exterior on the edge's left. If a
-        // probe there is still in the union, this is an internal overlap seam.
-        const probeX = (a.x + c.x) / 2 - (dy / length) * 0.0005;
-        const probeY = (a.y + c.y) / 2 + (dx / length) * 0.0005;
-        if (pocketAtPoint(s, probeX, probeY) === pocket) continue;
-      }
-      const t = denom > 1e-14
-        ? clamp(((x - a.x) * dx + (y - a.y) * dy) / denom, 0, 1)
-        : 0;
-      const px = a.x + dx * t;
-      const py = a.y + dy * t;
-      const distance = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
-      if (distance < best.distance) best = { point: { x: px, y: py }, distance };
-    }
+  for (let i = 0; i < polygon.length; i++) {
+    const a = polygon[i]!;
+    const c = polygon[(i + 1) % polygon.length]!;
+    const dx = c.x - a.x;
+    const dy = c.y - a.y;
+    const denom = dx * dx + dy * dy;
+    const t = denom > 1e-14
+      ? clamp(((x - a.x) * dx + (y - a.y) * dy) / denom, 0, 1)
+      : 0;
+    const px = a.x + dx * t;
+    const py = a.y + dy * t;
+    const distance = Math.sqrt((x - px) ** 2 + (y - py) ** 2);
+    if (distance < best.distance) best = { point: { x: px, y: py }, distance };
   }
   return best;
 }
 
-/** Keep a live Bey inside the pale catch tray while leaving the bowl-side
- * throat open. Returns false when it really escapes back into the bowl. */
+/** Keep a live Bey inside the concave molded basin while leaving the bowl-side
+ * mouth open. Returns false when it really climbs back into the bowl. */
 function constrainPocket(
   s: StadiumSpec,
   b: BeyState,
@@ -471,8 +464,8 @@ function constrainPocket(
   const along = dx * path.axis.x + dy * path.axis.y;
   const inside = pocketAtPoint(s, b.x, b.y) === pocket;
   if (inside && along <= pocket.throat.outwardDepth * 0.32) {
-    // Mouth traversal may be tipped/airborne in reality; only the broad
-    // catch tray applies a full horizontal footprint constraint.
+    // Mouth traversal may be tipped/airborne in reality; only the deeper
+    // basin applies a full horizontal footprint constraint.
     return true;
   }
   if (inside && pocketSecureAtPoint(s, pocket, b.x, b.y, clearance)) return true;
@@ -483,9 +476,7 @@ function constrainPocket(
   ) return false;
 
   const nearest = closestPocketEdge(
-    s,
-    pocket,
-    [pocketPolygon(s, pocket), pocketCatchPolygon(s, pocket)],
+    pocketBasinPolygon(s, pocket),
     b.x,
     b.y,
   );
@@ -496,7 +487,7 @@ function constrainPocket(
   const inwardY = inside ? towardCurrentY : -towardCurrentY;
   const inwardVelocity = b.vx * inwardX + b.vy * inwardY;
   if (inwardVelocity < 0) {
-    const normalDelta = (1 + T.pocketWallRestitution) * inwardVelocity;
+    const normalDelta = (1 + T.pocketRimRestitution) * inwardVelocity;
     b.vx -= normalDelta * inwardX;
     b.vy -= normalDelta * inwardY;
 
@@ -505,7 +496,7 @@ function constrainPocket(
     const tangentX = -inwardY;
     const tangentY = inwardX;
     const tangentVelocity = b.vx * tangentX + b.vy * tangentY;
-    const maxTangentDelta = -inwardVelocity * T.pocketWallFriction;
+    const maxTangentDelta = -inwardVelocity * T.pocketRimFriction;
     const tangentDelta = clamp(tangentVelocity, -maxTangentDelta, maxTangentDelta);
     b.vx -= tangentDelta * tangentX;
     b.vy -= tangentDelta * tangentY;
@@ -584,12 +575,16 @@ function stepBey(
   const slope = Math.sqrt(gradient.x * gradient.x + gradient.y * gradient.y);
   // Low-speed contact enters static friction instead of endlessly micro-
   // sliding. The bowl still requires zero spin before sleeping; a retained
-  // tray occupant may sleep translationally while its Bit keeps rotating.
+  // basin occupant may sleep translationally while its Bit keeps rotating.
   // A subsequent real hit raises speed above the gate and wakes it immediately.
+  const contactSpeed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+  const gravityAlongSurface = G * slope;
   const staticRest =
     (absOmega === 0 || activePocket !== null) &&
-    Math.sqrt(b.vx * b.vx + b.vy * b.vy) < STOP_LINEAR_SPEED &&
-    Math.abs(slope) < 0.25;
+    contactSpeed < STOP_LINEAR_SPEED &&
+    (absOmega === 0
+      ? gravityAlongSurface <= T.toppledStaticFriction * G
+      : Math.abs(slope) < 0.25);
   if (staticRest) {
     b.vx = 0;
     b.vy = 0;
@@ -628,6 +623,21 @@ function stepBey(
   const dampen = Math.max(0, 1 - drag * DT);
   b.vx = (b.vx + ax * DT) * dampen;
   b.vy = (b.vy + ay * DT) * dampen;
+
+  // At exact zero spin the top is no longer upright on its low-friction Bit:
+  // its Blade/Ratchet is scraping the bowl. Constant Coulomb work removes
+  // translation in a fraction of a pass. This is deliberately applied to
+  // velocity (not position), so a fast toppled Bey still follows the actual
+  // slope and a collision can wake it without any teleport or early finish.
+  if (absOmega === 0 && !staticRest) {
+    const slidingSpeed = Math.sqrt(b.vx * b.vx + b.vy * b.vy);
+    if (slidingSpeed > 0) {
+      const retainedSpeed = Math.max(0, slidingSpeed - T.toppledKineticFriction * G * DT);
+      const scale = retainedSpeed / slidingSpeed;
+      b.vx *= scale;
+      b.vy *= scale;
+    }
+  }
 
   // spin decay from tip friction (faster while travelling)
   const decay = p.muSpin * (T.spinDecayBase + T.spinDecaySpeed * speed) * DT;
@@ -783,7 +793,7 @@ function stepBey(
   }
 
   // Live pockets: crossing a real 2-D throat does not instantly score. The
-  // Bey follows the recessed terrain, can rebound from the tray and escape
+  // Bey follows the concave terrain, can rebound from the basin rim and escape
   // through the open inner edge, and remains collidable while there.
   const pocketHere = pocketAtPoint(s, b.x, b.y);
   const throatHere = pocketThroatAtPoint(s, b.x, b.y);
@@ -867,7 +877,7 @@ function updateStopStates(w: WorldState): void {
       b.stopDwell = 0;
       continue;
     }
-    // A translationally retained Bey inside a live Over/Xtreme tray is
+    // A translationally retained Bey inside a live Over/Xtreme basin is
     // authorized by the shorter zone dwell (even while spinning); it must
     // never become an ordinary Spin Finish.
     if (b.pocketIndex >= 0) {
@@ -972,7 +982,7 @@ function collidePair(w: WorldState, cfg: WorldConfig, i: number, j: number): voi
   if (dist >= minDist || dist < 1e-9) return;
 
   // Even a low-speed overlap requires positional correction. Treat that as
-  // a real tray disturbance so a collision tick cannot complete a retained-
+  // a real basin disturbance so a collision tick cannot complete a retained-
   // zone dwell merely because its post-impact speed falls under the sleep gate.
   if (b1.pocketIndex >= 0) {
     b1.pocketDwell = 0;

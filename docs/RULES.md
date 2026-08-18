@@ -78,7 +78,7 @@ list at bottom. Items marked ⚠ need re-verification against the official PDFs
   product-facing positions rather than generic angular gaps.
 - **BX-32 exits:** two narrow rounded, tangential rear Xtreme openings and one
   broad front-center trapezoidal Over opening, as shown in its official
-  diagram. Entering either product's catch tray is reversible. The official
+  diagram. Entering either product's concave loss-zone basin is reversible. The official
   rule is retained/cannot-return; the game intentionally applies the user's
   stricter visual gate and announces the zone finish only after the complete
   Bey is retained there and literally stops.

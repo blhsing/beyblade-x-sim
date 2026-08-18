@@ -240,7 +240,7 @@ export interface BeyState {
   pocketIndex: number;
   /** Consecutive translationally-settled ticks securely inside the same catch zone. */
   pocketDwell: number;
-  /** Last fixed tick on which entry, a tray-wall contact, or another Bey
+  /** Last fixed tick on which entry, a basin-rim contact, or another Bey
    * disturbed this pocket occupant. It prevents an impact tick itself from
    * counting toward the retained-zone confirmation. */
   pocketDisturbedTick: number;

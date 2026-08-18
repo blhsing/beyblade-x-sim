@@ -24,9 +24,10 @@ import {
   type BurstKinematicCollider,
 } from "../src/render/burst";
 import {
-  pocketFloorTopZ,
   pocketAtPoint,
-  pocketCatchPolygon,
+  pocketBasinBottomZ,
+  pocketBasinPolygon,
+  pocketExitTarget,
   pocketPath,
   pocketPolygon,
   stadiumBoundarySignedDistance,
@@ -408,7 +409,16 @@ describe("progressive Ratchet Burst presentation", () => {
     for (let i = 0; i < 60; i++) acc60 = advanceBurstDebris([at60], STADIUM_BX10, 1 / 60, acc60);
     for (let i = 0; i < 120; i++) acc120 = advanceBurstDebris([at120], STADIUM_BX10, 1 / 120, acc120);
     expect(at60.position.distanceTo(at120.position)).toBeLessThan(1e-9);
-    expect(at60.quaternion.angleTo(at120.quaternion)).toBeLessThan(1e-9);
+    // angleTo() amplifies machine-epsilon quaternion differences through
+    // acos into a false ~3e-8 rad floor. Compare the normalized components
+    // directly (accounting for q and -q representing the same rotation).
+    const quaternionSign = at60.quaternion.dot(at120.quaternion) < 0 ? -1 : 1;
+    expect(Math.max(
+      Math.abs(at60.quaternion.x - at120.quaternion.x * quaternionSign),
+      Math.abs(at60.quaternion.y - at120.quaternion.y * quaternionSign),
+      Math.abs(at60.quaternion.z - at120.quaternion.z * quaternionSign),
+      Math.abs(at60.quaternion.w - at120.quaternion.w * quaternionSign),
+    )).toBeLessThan(1e-12);
     expect(at60.velocity.distanceTo(at120.velocity)).toBeLessThan(1e-9);
     expect(at60.angularVelocity.distanceTo(at120.angularVelocity)).toBeLessThan(1e-9);
     expect(acc60).toBeCloseTo(acc120, 12);
@@ -525,9 +535,9 @@ describe("progressive Ratchet Burst presentation", () => {
     expect(body.velocity.x).toBeLessThan(0);
   });
 
-  it("contacts finite pocket backstops and BX-32's obround casing", () => {
+  it("contacts finite concave-basin rims and BX-32's obround casing", () => {
     const pocket = STADIUM_BX10.pockets[0]!;
-    const polygon = pocketPolygon(STADIUM_BX10, pocket);
+    const polygon = pocketBasinPolygon(STADIUM_BX10, pocket);
     const inner = new THREE.Vector2(
       (polygon[0]!.x + polygon[3]!.x) / 2,
       (polygon[0]!.y + polygon[3]!.y) / 2,
@@ -553,7 +563,7 @@ describe("progressive Ratchet Burst presentation", () => {
       93,
     );
     stepBurstDebrisBody(pocketBody, STADIUM_BX10);
-    // The backstop leaves the settled part in the tray outside the bowl; it
+    // The rising basin rim leaves the settled part outside the bowl; it
     // must not snap to the old circular `rWall` approximation.
     expect(stadiumBoundarySignedDistance(
       STADIUM_BX10,
@@ -589,23 +599,20 @@ describe("progressive Ratchet Burst presentation", () => {
     }
   });
 
-  it("retains debris in BX-32's widened catch instead of snapping to its narrow throat", () => {
+  it("retains debris in BX-32's widened concave basin instead of snapping to its narrow throat", () => {
     const pocket = STADIUM_BX32.pockets.find((entry) => entry.kind === "xtreme")!;
-    expect(pocket.throat.catchHalfWidth).toBeTypeOf("number");
-    expect(pocket.throat.catchDepth).toBeTypeOf("number");
+    expect(pocket.throat.basinHalfWidth).toBeTypeOf("number");
+    expect(pocket.throat.basinDepth).toBeTypeOf("number");
     const path = pocketPath(STADIUM_BX32, pocket);
     const throat = pocketPolygon(STADIUM_BX32, pocket);
-    const catchTray = pocketCatchPolygon(STADIUM_BX32, pocket);
+    const basin = pocketBasinPolygon(STADIUM_BX32, pocket);
     const along = (point: { x: number; y: number }): number =>
       (point.x - path.boundary.x) * path.axis.x +
       (point.y - path.boundary.y) * path.axis.y;
     const throatBack = Math.max(...throat.map(along));
-    const catchBack = Math.max(...catchTray.map(along));
-    expect(catchBack).toBeGreaterThan(throatBack + 0.01);
-    const outerMidpoint = new THREE.Vector2(
-      (catchTray[1]!.x + catchTray[2]!.x) / 2,
-      (catchTray[1]!.y + catchTray[2]!.y) / 2,
-    );
+    const basinBack = Math.max(...basin.map(along));
+    expect(basinBack).toBeGreaterThan(throatBack + 0.01);
+    const outerMidpoint = basin.reduce((best, point) => along(point) > along(best) ? point : best);
     const carrier = new THREE.Group();
     carrier.position.set(
       outerMidpoint.x + path.axis.x * 0.008,
@@ -624,7 +631,7 @@ describe("progressive Ratchet Burst presentation", () => {
     stepBurstDebrisBody(body, STADIUM_BX32);
     const bodyAlong = along(body.position);
     expect(bodyAlong).toBeGreaterThan(throatBack + 0.005);
-    expect(bodyAlong).toBeLessThan(catchBack);
+    expect(bodyAlong).toBeLessThan(basinBack);
     for (const point of body.supportPoints) {
       const world = point.clone().applyQuaternion(body.quaternion).add(body.position);
       expect(
@@ -639,18 +646,14 @@ describe("progressive Ratchet Burst presentation", () => {
     expect(rail.onRail).toBe(true);
     expect(rail.height).toBeGreaterThan(surfaceZAt(STADIUM_BX10, STADIUM_BX10.rRail, 0));
     const pocket = STADIUM_BX10.pockets[0]!;
-    const polygon = pocketPolygon(STADIUM_BX10, pocket);
-    const outerMidpoint = {
-      x: (polygon[1]!.x + polygon[2]!.x) / 2,
-      y: (polygon[1]!.y + polygon[2]!.y) / 2,
-    };
+    const outerMidpoint = pocketExitTarget(STADIUM_BX10, pocket);
     const pocketTerrain = sampleBurstTerrain(
       STADIUM_BX10,
       outerMidpoint.x,
       outerMidpoint.y,
     );
     expect(pocketTerrain.inPocket).toBe(true);
-    expect(pocketTerrain.height).toBeCloseTo(pocketFloorTopZ(STADIUM_BX10), 8);
+    expect(pocketTerrain.height).toBeCloseTo(pocketBasinBottomZ(STADIUM_BX10, pocket), 8);
     const canonical = stadiumTerrainAt(STADIUM_BX10, outerMidpoint.x, outerMidpoint.y);
     expect(pocketTerrain.height).toBe(canonical.height);
     expect(pocketTerrain.normal.x).toBe(canonical.normalX);

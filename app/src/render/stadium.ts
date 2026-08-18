@@ -8,11 +8,9 @@
 import * as THREE from "three";
 
 import {
-  pocketFloorTopZ as corePocketFloorTopZ,
   pocketAtPoint,
-  pocketCatchPolygon,
-  pocketPath,
-  pocketPolygon,
+  pocketBasinPolygon,
+  pocketExitTarget,
   pointInConvexPolygon,
   pocketSurfaceZ as corePocketSurfaceZ,
   railPointAt,
@@ -22,6 +20,7 @@ import {
   stadiumBoundaryNormalAt,
   stadiumBoundarySignedDistance,
   stadiumBodyRadiusAt,
+  stadiumTerrainAt,
   STADIUM_GEOMETRY,
   surfaceZAt,
   surfaceZ,
@@ -42,11 +41,7 @@ interface CompiledPocketFootprint {
 }
 
 function compilePocketFootprints(s: StadiumSpec): CompiledPocketFootprint[] {
-  const polygons = s.pockets.flatMap((pocket) => {
-    const throat = pocketPolygon(s, pocket);
-    if (pocket.throat.catchHalfWidth === undefined || pocket.throat.catchDepth === undefined) return [throat];
-    return [throat, pocketCatchPolygon(s, pocket)];
-  });
+  const polygons = s.pockets.map((pocket) => pocketBasinPolygon(s, pocket));
   return polygons.map((polygon) => ({
     polygon,
     minX: Math.min(...polygon.map((point) => point.x)),
@@ -109,6 +104,12 @@ function stadiumClearPlastic(s: StadiumSpec, role: "cover" | "body"): THREE.Mesh
 
 /** Product geometry constants in metres, declared for tests and model audit. */
 export const STADIUM_MODEL_DIMENSIONS = STADIUM_GEOMETRY;
+
+/** The bowl/deck meshes use dense product grids rather than a constrained
+ * polygon triangulation. This narrow, coplanar collar bridges their last
+ * centroid-cut cell to the exact basin rim, preventing sub-cell cracks while
+ * leaving the canonical physics outline unchanged. */
+export const POCKET_SURFACE_STITCH_OVERLAP_M = 0.004;
 
 function productCode(s: StadiumSpec): string {
   return s.name === "wide" ? "BX-32" : "BX-10";
@@ -207,7 +208,9 @@ function createDeck(s: StadiumSpec, rimZ: number, bodyMat: THREE.Material): THRE
   // rounded slots, while retaining a thickness-bearing molded deck.
   const angularSegments = 1024;
   const radialSegments = 18;
-  const topZ = rimZ + 0.0005;
+  // The deck and bowl lip are one molded surface. Keeping them coplanar also
+  // lets each concave basin meet both without a half-millimetre lighting seam.
+  const topZ = rimZ;
   const bottomZ = rimZ - 0.014;
   const positions: number[] = [];
   const indices: number[] = [];
@@ -342,13 +345,12 @@ function railArcSpan(arc: RailArc): number {
   return direct > 0 ? direct : direct + TAU;
 }
 
-/** Dense enough that an ordinary 140–180 mm-radius span has sub-0.3 mm
- * centerline chords. Sparse authored knots are also injected exactly so the
- * intentional molded release corners remain sharp. */
+/** Dense enough that the photo-vector loop parameter produces sub-0.3 mm
+ * centerline chords. Rounded raster-fitted elbows are refined again by their
+ * tangent turn, so neither product falls back to visible joined-line facets. */
 export const RAIL_RENDER_MAX_ANGLE_STEP = 0.0015;
-/** Smooth spans are subdivided again when an off-centre circular lobe turns
- * faster than its polar angle. This keeps glossy channel normals continuous
- * without rounding the explicitly authored release elbows. */
+/** Smooth spans are subdivided again wherever the fitted XY vector turns
+ * faster than its loop parameter. */
 export const RAIL_RENDER_MAX_TANGENT_STEP = 0.001;
 
 function railArcSampleAngles(s: StadiumSpec, arc: RailArc, span: number): number[] {
@@ -496,14 +498,13 @@ function createRailRibbon(
   points: {
     p: { x: number; y: number };
     tangent: { x: number; y: number };
-    z: number;
     widthScale?: number;
   }[],
   closed = false,
 ): THREE.BufferGeometry {
-  // `railHalfWidth` is the Bit capture tolerance in the sim, not solid mold
-  // width. The visible rack stays the narrow product-scaled band.
-  const halfWidth = STADIUM_MODEL_DIMENSIONS.railPhysicalHalfWidthM;
+  // `railHalfWidth` is the Bit capture tolerance, while this is the visible
+  // inner/outer silhouette fitted independently from each retail photograph.
+  const halfWidth = s.railPhysicalHalfWidth ?? STADIUM_MODEL_DIMENSIONS.railPhysicalHalfWidthM;
   const zTop = STADIUM_MODEL_DIMENSIONS.railChannelThicknessM;
   const positions: number[] = [];
   const indices: number[] = [];
@@ -517,10 +518,19 @@ function createRailRibbon(
     const nx = -point.tangent.y;
     const ny = point.tangent.x;
     const width = halfWidth * (point.widthScale ?? 1);
-    positions.push(point.p.x + nx * width, point.p.y + ny * width, point.z + zTop);
-    positions.push(point.p.x - nx * width, point.p.y - ny * width, point.z + zTop);
-    positions.push(point.p.x + nx * width, point.p.y + ny * width, point.z);
-    positions.push(point.p.x - nx * width, point.p.y - ny * width, point.z);
+    const plusX = point.p.x + nx * width;
+    const plusY = point.p.y + ny * width;
+    const minusX = point.p.x - nx * width;
+    const minusY = point.p.y - ny * width;
+    // The bowl can change several millimetres across the BX-32 ribbon. Every
+    // physical edge therefore rests on the canonical surface at its own XY;
+    // reusing the centerline Z visibly buried one edge and floated the other.
+    const plusBaseZ = surfaceZAt(s, plusX, plusY);
+    const minusBaseZ = surfaceZAt(s, minusX, minusY);
+    positions.push(plusX, plusY, plusBaseZ + zTop);
+    positions.push(minusX, minusY, minusBaseZ + zTop);
+    positions.push(plusX, plusY, plusBaseZ);
+    positions.push(minusX, minusY, minusBaseZ);
   }
   const segmentCount = closed ? crossSectionCount : Math.max(0, crossSectionCount - 1);
   for (let i = 0; i < segmentCount; i++) {
@@ -591,10 +601,11 @@ function createRailRibbon(
     shape: "thickness-bearing-rack-channel",
     halfWidthM: halfWidth,
     thicknessM: zTop,
-    cornerJoin: "bounded-miter",
+    cornerJoin: "c1-rounded-photo-vector",
     closedLoop: closed,
     seamWelded: closed,
     normalSource: "area-weighted-centered-ribbon-frame",
+    baseHeightSource: "core:surfaceZAt-each-corner",
     crossSectionCount,
   };
   return geometry;
@@ -644,10 +655,13 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
       STADIUM_MODEL_DIMENSIONS.railChannelThicknessM + STADIUM_MODEL_DIMENSIONS.railToothHeightM,
     baseSurfaceOffsetM: 0,
     centerlineSource: "core:railTrace",
-    centerlineInterpolation: "xy-cubic-hermite-with-authored-linear-jogs",
+    centerlineInterpolation: "xy-cubic-hermite-photo-vector",
     maxAngularStepRad: RAIL_RENDER_MAX_ANGLE_STEP,
-    roundSideCount: s.railRoundSides?.length ?? 0,
-    roundSideControlSamples: s.railRoundSides?.map((side) => side.controlSamples) ?? [],
+    visibleHalfWidthM: s.railPhysicalHalfWidth ?? STADIUM_MODEL_DIMENSIONS.railPhysicalHalfWidthM,
+    traceMethod: s.railTraceReference?.method,
+    traceSource: s.railTraceReference?.source,
+    traceControlPoints: s.railTraceReference?.generatedControlPoints,
+    traceMirrored: s.railTraceReference?.mirrored,
     releaseArcs: s.railReleaseArcs?.length ?? 0,
     resin: s.name === "bx10" ? "PA" : "product-plastic-unspecified",
   });
@@ -659,6 +673,7 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
   const placements: {
     point: THREE.Vector3;
     angle: number;
+    tangent: { x: number; y: number };
     theta: number;
     arcIndex: number;
     arcDistanceM: number;
@@ -672,7 +687,6 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
     const ribbonPoints: {
       p: { x: number; y: number };
       tangent: { x: number; y: number };
-      z: number;
       theta: number;
       distanceM: number;
       widthScale: number;
@@ -684,12 +698,10 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
       const p = railPointAt(s, theta);
       const frame = railRenderFrameAt(s, theta);
       const tangent = frame.tangent;
-      const z = surfaceZAt(s, p.x, p.y);
       if (previous) cumulativeDistance += Math.hypot(p.x - previous.x, p.y - previous.y);
       ribbonPoints.push({
         p,
         tangent,
-        z,
         theta,
         distanceM: cumulativeDistance,
         widthScale: frame.widthScale,
@@ -722,6 +734,7 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
       placements.push({
         point: new THREE.Vector3(p.x, p.y, z + STADIUM_MODEL_DIMENSIONS.railChannelThicknessM),
         angle: Math.atan2(tangent.y, tangent.x),
+        tangent,
         theta,
         arcIndex,
         arcDistanceM: targetDistance,
@@ -750,8 +763,8 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
         0,
       ),
       maxSmoothTangentStepRad: maximumSmoothTangentStepRad,
-      interpolation: "core:xy-cubic-hermite-with-authored-linear-jogs",
-      cornerJoin: "bounded-miter",
+      interpolation: "core:xy-cubic-hermite-photo-vector",
+      cornerJoin: "c1-rounded-photo-vector",
       authoredSharpKnots: (s.railTrace ?? []).filter((point, index, trace) =>
         Boolean(point.linearToNext || trace[(index + trace.length - 2) % (trace.length - 1)]?.linearToNext)
       ).length,
@@ -763,11 +776,35 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
 
   const teeth = new THREE.InstancedMesh(toothGeometry, railMat, placements.length);
   const matrix = new THREE.Matrix4();
-  const rotation = new THREE.Quaternion();
-  const scale = new THREE.Vector3(1, 1, 1);
+  const tangentAxis = new THREE.Vector3();
+  const acrossAxis = new THREE.Vector3();
+  const surfaceNormal = new THREE.Vector3();
   placements.forEach((placement, index) => {
-    rotation.setFromAxisAngle(new THREE.Vector3(0, 0, 1), placement.angle);
-    matrix.compose(placement.point, rotation, scale);
+    // An upright Z-only instance left tooth corners up to 1.9 mm above/below
+    // the sloped BX-32 channel. Build a true local surface frame: X follows
+    // the rail after projection onto the underlying terrain, Z is that
+    // terrain's normal, and Y completes the right-handed tangent plane.
+    const h = 0.0001;
+    const dzdx = (
+      surfaceZAt(s, placement.point.x + h, placement.point.y) -
+      surfaceZAt(s, placement.point.x - h, placement.point.y)
+    ) / (2 * h);
+    const dzdy = (
+      surfaceZAt(s, placement.point.x, placement.point.y + h) -
+      surfaceZAt(s, placement.point.x, placement.point.y - h)
+    ) / (2 * h);
+    surfaceNormal.set(-dzdx, -dzdy, 1).normalize();
+    // Lift the exact plan-view rail tangent by the terrain directional
+    // derivative. This lies in the same tangent plane while preserving the
+    // photo-traced XY direction exactly.
+    tangentAxis.set(
+      placement.tangent.x,
+      placement.tangent.y,
+      dzdx * placement.tangent.x + dzdy * placement.tangent.y,
+    ).normalize();
+    acrossAxis.crossVectors(surfaceNormal, tangentAxis).normalize();
+    matrix.makeBasis(tangentAxis, acrossAxis, surfaceNormal);
+    matrix.setPosition(placement.point);
     teeth.setMatrixAt(index, matrix);
   });
   teeth.instanceMatrix.needsUpdate = true;
@@ -782,6 +819,8 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
     placementAngles: placements.map((placement) => placement.theta),
     placementArcIndices: placements.map((placement) => placement.arcIndex),
     placementArcDistancesM: placements.map((placement) => placement.arcDistanceM),
+    baseFrame: "core:surfaceZAt-tangent-plane",
+    frameDifferenceStepM: 0.0001,
     heightM: STADIUM_MODEL_DIMENSIONS.railToothHeightM,
     bottomWidthM: STADIUM_MODEL_DIMENSIONS.railToothBottomWidthM,
     topWidthM: STADIUM_MODEL_DIMENSIONS.railToothTopWidthM,
@@ -791,140 +830,173 @@ function createXtremeLine(s: StadiumSpec): THREE.Group {
   return group;
 }
 
-function polygonShape(points: readonly { x: number; y: number }[]): THREE.Shape {
-  const shape = new THREE.Shape();
-  points.forEach((point, index) => {
-    if (index === 0) shape.moveTo(point.x, point.y);
-    else shape.lineTo(point.x, point.y);
-  });
-  shape.closePath();
-  return shape;
-}
-
-/**
- * Thickness-bearing sloped quadrilateral generated from the same exact
- * top-view pocket polygon used by the deterministic wall test.
- */
-function pocketThroatGeometry(
-  points: readonly { x: number; y: number }[],
-  topHeights: readonly number[],
-): THREE.BufferGeometry {
-  const thickness = 0.0012;
-  const positions: number[] = [];
-  const indices: number[] = [];
-  const count = points.length;
-  for (let layer = 0; layer < 2; layer++) {
-    for (let i = 0; i < count; i++) {
-      const point = points[i]!;
-      positions.push(point.x, point.y, topHeights[i]! - layer * thickness);
+function densifyClosedPolygon(
+  polygon: readonly { x: number; y: number }[],
+  maximumSegmentLength = 0.0015,
+): { x: number; y: number }[] {
+  const points: { x: number; y: number }[] = [];
+  for (let index = 0; index < polygon.length; index++) {
+    const a = polygon[index]!;
+    const b = polygon[(index + 1) % polygon.length]!;
+    const divisions = Math.max(1, Math.ceil(Math.hypot(b.x - a.x, b.y - a.y) / maximumSegmentLength));
+    for (let division = 0; division < divisions; division++) {
+      const u = division / divisions;
+      points.push({
+        x: THREE.MathUtils.lerp(a.x, b.x, u),
+        y: THREE.MathUtils.lerp(a.y, b.y, u),
+      });
     }
   }
-  // All product throats are convex and clockwise, including sampled rounded
-  // BX-32 slots, so a fan is stable and preserves per-vertex ramp heights.
-  for (let i = 1; i < count - 1; i++) {
-    indices.push(0, i + 1, i);
-    indices.push(count, count + i, count + i + 1);
+  return points;
+}
+
+/** Dense concentric tessellation of the canonical pocket heightfield. The
+ * outside ring is exactly the core basin outline and every vertex samples the
+ * same terrain function used by motion/debris, so the molded depression joins
+ * the bowl/deck without an inserted floor or vertical internal seam. */
+function pocketBasinGeometry(
+  s: StadiumSpec,
+  pocket: StadiumSpec["pockets"][number],
+  radialSegments = 64,
+): THREE.BufferGeometry {
+  const canonicalOutline = pocketBasinPolygon(s, pocket);
+  let outline = densifyClosedPolygon(canonicalOutline);
+  let signedArea = 0;
+  for (let index = 0; index < outline.length; index++) {
+    const a = outline[index]!;
+    const b = outline[(index + 1) % outline.length]!;
+    signedArea += a.x * b.y - b.x * a.y;
   }
-  for (let i = 0; i < count; i++) {
-    const next = (i + 1) % count;
-    indices.push(i, next, i + count, next, next + count, i + count);
+  if (signedArea < 0) outline = outline.reverse();
+  const center = pocketExitTarget(s, pocket);
+  const positions: number[] = [
+    center.x,
+    center.y,
+    corePocketSurfaceZ(s, pocket, center.x, center.y),
+  ];
+  for (let ring = 1; ring <= radialSegments; ring++) {
+    const u = ring / radialSegments;
+    for (const boundary of outline) {
+      const x = THREE.MathUtils.lerp(center.x, boundary.x, u);
+      const y = THREE.MathUtils.lerp(center.y, boundary.y, u);
+      positions.push(x, y, corePocketSurfaceZ(s, pocket, x, y));
+    }
+  }
+  // The dish/deck grids cannot terminate every triangle on an arbitrary
+  // product polygon. Continue the same surface through a narrow coplanar
+  // collar so their centroid-cut aperture and the exact basin outline always
+  // overlap. The collar samples canonical surrounding terrain; it does not
+  // enlarge the physical pocket used by simulation or scoring.
+  for (const boundary of outline) {
+    const dx = boundary.x - center.x;
+    const dy = boundary.y - center.y;
+    const length = Math.max(1e-9, Math.hypot(dx, dy));
+    const x = boundary.x + dx / length * POCKET_SURFACE_STITCH_OVERLAP_M;
+    const y = boundary.y + dy / length * POCKET_SURFACE_STITCH_OVERLAP_M;
+    positions.push(x, y, stadiumTerrainAt(s, x, y).height);
+  }
+  const indices: number[] = [];
+  const count = outline.length;
+  for (let index = 0; index < count; index++) {
+    indices.push(0, 1 + index, 1 + (index + 1) % count);
+  }
+  for (let ring = 2; ring <= radialSegments; ring++) {
+    const inner = 1 + (ring - 2) * count;
+    const outer = 1 + (ring - 1) * count;
+    for (let index = 0; index < count; index++) {
+      const next = (index + 1) % count;
+      indices.push(
+        inner + index, outer + index, outer + next,
+        inner + index, outer + next, inner + next,
+      );
+    }
+  }
+  const canonicalRimStart = 1 + (radialSegments - 1) * count;
+  const stitchCollarStart = 1 + radialSegments * count;
+  for (let index = 0; index < count; index++) {
+    const next = (index + 1) % count;
+    indices.push(
+      canonicalRimStart + index, stitchCollarStart + index, stitchCollarStart + next,
+      canonicalRimStart + index, stitchCollarStart + next, canonicalRimStart + next,
+    );
   }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
+  // BufferGeometry stores positions as Float32. Re-sample the duplicate rim at
+  // those exact stored x/y coordinates so the independent basin and bowl
+  // meshes remain position-identical after quantization, then match its normals
+  // to the same canonical C1 terrain. The meshes are position-coincident rather
+  // than falsely claiming shared topology; the canonical normals prevent a
+  // visible lighting seam at that split.
+  const position = geometry.getAttribute("position") as THREE.BufferAttribute;
+  const normals = geometry.getAttribute("normal") as THREE.BufferAttribute;
+  for (let index = 0; index < count; index++) {
+    const vertex = canonicalRimStart + index;
+    const x = position.getX(vertex);
+    const y = position.getY(vertex);
+    const terrain = stadiumTerrainAt(s, x, y);
+    position.setZ(vertex, terrain.height);
+    normals.setXYZ(
+      vertex,
+      terrain.normalX,
+      terrain.normalY,
+      terrain.normalZ,
+    );
+    const collarVertex = stitchCollarStart + index;
+    const collarX = position.getX(collarVertex);
+    const collarY = position.getY(collarVertex);
+    const collarTerrain = stadiumTerrainAt(s, collarX, collarY);
+    position.setZ(collarVertex, collarTerrain.height);
+    normals.setXYZ(
+      collarVertex,
+      collarTerrain.normalX,
+      collarTerrain.normalY,
+      collarTerrain.normalZ,
+    );
+  }
+  position.needsUpdate = true;
+  normals.needsUpdate = true;
+  geometry.computeBoundingBox();
+  geometry.computeBoundingSphere();
   geometry.userData = {
-    shape: "open-sloped-pocket-throat",
-    bridgeFree: true,
-    thicknessM: thickness,
-    outlinePoints: count,
-    source: "core:pocketPolygon+pocketSurfaceZ",
+    shape: "continuous-concave-basin-heightfield",
+    source: "core:pocketBasinPolygon+pocketSurfaceZ",
+    outlinePoints: outline.length,
+    canonicalOutlinePoints: canonicalOutline.length,
+    radialSegments,
+    canonicalRimStart,
+    stitchCollarStart,
+    stitchOverlapM: POCKET_SURFACE_STITCH_OVERLAP_M,
+    stitchMethod: "coplanar-overlap-collar",
+    rimPositionMatched: true,
+    rimNormalsFromCanonicalTerrain: true,
+    topologicallyWelded: false,
+    separateFloor: false,
+    verticalInternalSeams: 0,
   };
   return geometry;
 }
 
-function edgeWall(
-  a: { x: number; y: number },
-  b: { x: number; y: number },
-  width: number,
-  height: number,
-  z: number,
-  material: THREE.Material,
-): THREE.Mesh {
-  const dx = b.x - a.x;
-  const dy = b.y - a.y;
-  const length = Math.hypot(dx, dy);
-  const wall = configureMesh(
-    new THREE.Mesh(new THREE.BoxGeometry(length, width, height, 12, 4, 6), material),
-  );
-  wall.position.set((a.x + b.x) / 2, (a.y + b.y) / 2, z + height / 2);
-  wall.rotation.z = Math.atan2(dy, dx);
-  return wall;
-}
-
-interface PocketWallSegment {
-  a: { x: number; y: number };
-  b: { x: number; y: number };
-}
-
-/** External outline of throat ∪ catch, clipped to the outside of the bowl.
- * Subdivision is required because the wider BX-32 catch overlaps only part
- * of each long throat/cheek edge. */
-function externalPocketWallSegments(s: StadiumSpec, pocket: StadiumSpec["pockets"][number]): PocketWallSegment[] {
-  const throat = pocketPolygon(s, pocket);
-  const catchTray = pocketCatchPolygon(s, pocket);
-  const footprints = pocket.throat.catchHalfWidth === undefined || pocket.throat.catchDepth === undefined
-    ? [throat]
-    : [throat, catchTray];
-  const segments: PocketWallSegment[] = [];
-  for (const polygon of footprints) {
-    const divisions = polygon.length <= 4 ? 16 : 1;
-    for (let edgeIndex = 0; edgeIndex < polygon.length; edgeIndex++) {
-      const start = polygon[edgeIndex]!;
-      const end = polygon[(edgeIndex + 1) % polygon.length]!;
-      for (let division = 0; division < divisions; division++) {
-        const u0 = division / divisions;
-        const u1 = (division + 1) / divisions;
-        const a = {
-          x: start.x + (end.x - start.x) * u0,
-          y: start.y + (end.y - start.y) * u0,
-        };
-        const b = {
-          x: start.x + (end.x - start.x) * u1,
-          y: start.y + (end.y - start.y) * u1,
-        };
-        const dx = b.x - a.x;
-        const dy = b.y - a.y;
-        const length = Math.hypot(dx, dy);
-        if (length <= 1e-9) continue;
-        const mx = (a.x + b.x) / 2;
-        const my = (a.y + b.y) / 2;
-        // Anything still within the battle bowl is the deliberately open
-        // mouth, not a tray cheek.
-        if (stadiumBoundarySignedDistance(s, mx, my) < -0.0005) continue;
-        // Clockwise outlines have their exterior on the left. If a small
-        // exterior probe remains in the union, this segment is an internal
-        // throat/catch overlap seam and must not become a visible wall.
-        const probeX = mx - (dy / length) * 0.0004;
-        const probeY = my + (dx / length) * 0.0004;
-        if (pocketAtPoint(s, probeX, probeY) === pocket) continue;
-        segments.push({ a, b });
-      }
-    }
-  }
-  return segments;
-}
-
-function createPockets(s: StadiumSpec, rimZ: number, bodyMat: THREE.Material): THREE.Group {
+function createPockets(s: StadiumSpec, bodyMat: THREE.Material): THREE.Group {
   const pockets = new THREE.Group();
-  setMeshName(pockets, "stadium:pockets", { count: s.pockets.length });
-  const floorZ = rimZ - STADIUM_MODEL_DIMENSIONS.pocketRecessM;
-  const floorTopZ = corePocketFloorTopZ(s);
+  setMeshName(pockets, "stadium:pockets", {
+    count: s.pockets.length,
+    construction: "one-piece-concave-battle-surface",
+  });
+  // The overlap collar is geometrically coplanar with the product grids.
+  // Polygon offset resolves only depth-buffer tie-breaking; it does not alter
+  // the modeled surface position or its canonical normals.
+  const basinMaterial = bodyMat.clone();
+  basinMaterial.name = `${bodyMat.name}:continuous-pocket-surface`;
+  basinMaterial.polygonOffset = true;
+  basinMaterial.polygonOffsetFactor = -1;
+  basinMaterial.polygonOffsetUnits = -1;
 
   s.pockets.forEach((pocket, index) => {
     const group = new THREE.Group();
-    const polygon = pocketPolygon(s, pocket);
-    const catchPolygon = pocketCatchPolygon(s, pocket);
+    const basinPolygon = pocketBasinPolygon(s, pocket);
     setMeshName(group, `stadium:pocket:${index}`, {
       id: pocket.id,
       kind: pocket.kind,
@@ -932,82 +1004,32 @@ function createPockets(s: StadiumSpec, rimZ: number, bodyMat: THREE.Material): T
       halfWidth: pocket.halfWidth,
       throatShape: pocket.throat.shape,
       depthM: pocket.throat.outwardDepth,
-      recessM: STADIUM_MODEL_DIMENSIONS.pocketRecessM,
-      source: "core:pocketPolygon",
+      recessM: STADIUM_MODEL_DIMENSIONS.pocketBasinDepthM,
+      source: "core:pocketBasinPolygon+pocketSurfaceZ",
+      continuousWithBattleSurface: true,
+      separateTray: false,
+      internalSeams: 0,
+      topologicallyWelded: false,
     });
 
-    const floor = configureMesh(
+    const basin = configureMesh(
       new THREE.Mesh(
-        new THREE.ExtrudeGeometry(polygonShape(catchPolygon), {
-          depth: STADIUM_MODEL_DIMENSIONS.pocketFloorThicknessM,
-          steps: 2,
-          bevelEnabled: true,
-          bevelSegments: 3,
-          bevelSize: 0.0007,
-          bevelThickness: 0.0005,
-          curveSegments: 64,
-        }),
-        bodyMat,
+        pocketBasinGeometry(s, pocket),
+        basinMaterial,
       ),
       false,
       true,
     );
-    floor.position.z = floorZ;
-    setMeshName(floor, `stadium:pocket-floor:${index}`, {
-      recessed: true,
-      floorZ,
-      thicknessM: STADIUM_MODEL_DIMENSIONS.pocketFloorThicknessM,
-      source: "core:pocketCatchPolygon",
-      outlinePoints: catchPolygon.length,
-    });
-    group.add(floor);
-
-    const heights = polygon.map((point) => corePocketSurfaceZ(s, pocket, point.x, point.y));
-    const throat = configureMesh(
-      new THREE.Mesh(
-        pocketThroatGeometry(polygon, heights),
-        bodyMat,
-      ),
-      false,
-      true,
-    );
-    setMeshName(throat, `stadium:pocket-throat:${index}`, {
+    setMeshName(basin, `stadium:pocket-basin:${index}`, {
       opening: true,
-      bridgeFree: true,
-      shape: "open-sloped-pocket-throat",
+      shape: "continuous-concave-basin-heightfield",
       throatShape: pocket.throat.shape,
-      source: "core:pocketPolygon+pocketSurfaceZ",
+      source: "core:pocketBasinPolygon+pocketSurfaceZ",
+      outlinePoints: basinPolygon.length,
+      continuousWithBattleSurface: true,
     });
-    group.add(throat);
-
-    const stopHeight = rimZ - 0.005 - floorTopZ;
-    const path = pocketPath(s, pocket);
-    const backstop = new THREE.Group();
-    const cheeks = [new THREE.Group(), new THREE.Group()];
-    setMeshName(backstop, `stadium:pocket-backstop:${index}`, { heightM: stopHeight, curved: true });
-    cheeks.forEach((cheek, side) => setMeshName(cheek, `stadium:pocket-cheek:${index}:${side}`, { side }));
-    const catchDepth = pocket.throat.catchDepth ?? pocket.throat.outwardDepth;
-    const externalWalls = externalPocketWallSegments(s, pocket);
-    group.userData.wallSource = "core:pocketPolygon+pocketCatchPolygon union";
-    group.userData.internalSeamsRemoved = true;
-    group.userData.wallSegmentCount = externalWalls.length;
-    for (let edgeIndex = 0; edgeIndex < externalWalls.length; edgeIndex++) {
-      const { a, b } = externalWalls[edgeIndex]!;
-      const mx = (a.x + b.x) / 2 - path.boundary.x;
-      const my = (a.y + b.y) / 2 - path.boundary.y;
-      const along = mx * path.axis.x + my * path.axis.y;
-      const across = mx * path.across.x + my * path.across.y;
-      const wall = edgeWall(a, b, 0.0045, stopHeight, floorTopZ, bodyMat);
-      setMeshName(wall, `stadium:pocket-wall:${index}:${edgeIndex}`, {
-        alongM: along,
-        midpointX: (a.x + b.x) / 2,
-        midpointY: (a.y + b.y) / 2,
-        externalUnionBoundary: true,
-      });
-      if (along > catchDepth * 0.55) backstop.add(wall);
-      else cheeks[across >= 0 ? 0 : 1]!.add(wall);
-    }
-    group.add(backstop, ...cheeks);
+    markReflective(basin, 0.14);
+    group.add(basin);
     pockets.add(group);
   });
   return pockets;
@@ -1254,7 +1276,7 @@ function createCasing(s: StadiumSpec, rimZ: number): THREE.Group {
   }
 
   // The lower clear barrier uses the same obround/circular boundary and exact
-  // polygon throat exclusions as the low tray wall and deterministic sim.
+  // polygon basin-mouth exclusions as the low wall and deterministic sim.
   const wall = configureMesh(new THREE.Mesh(wallGeometry, material), true, false);
   setMeshName(wall, "stadium:casing-inner-wall:0", {
     coverageRadians: wallCoverageRadians,
@@ -1491,7 +1513,7 @@ export function buildStadiumModel(s: StadiumSpec): THREE.Group {
   root.add(createTornadoRidge(s, bodyMat));
   root.add(createXtremeLine(s));
   root.add(createLowWall(s, rimZ, bodyMat));
-  root.add(createPockets(s, rimZ, bodyMat));
+  root.add(createPockets(s, bodyMat));
   root.add(createCasing(s, rimZ));
   addProductDetails(root, s, rimZ);
   root.userData.triangleCount = stadiumTriangleCount(root);

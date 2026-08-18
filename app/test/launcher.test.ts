@@ -418,6 +418,65 @@ describe("Takara Tomy launcher catalog", () => {
     }
   }, 15_000);
 
+  it("aligns the real launcher withdrawal side with responsive screen pull axes", () => {
+    const right = buildLauncher("string", 0x3f7bff, { simpleMaterials: true });
+    const left = buildLauncher("stringL", 0x3f7bff, { simpleMaterials: true });
+    try {
+      applyLauncherPreviewPose(right, { x: 1, y: 0 });
+      applyLauncherPreviewPose(left, { x: -1, y: 0 });
+      expect(right.group.rotation.z).toBeCloseTo(0, 12);
+      expect(left.group.rotation.z).toBeCloseTo(0, 12);
+      expect(right.group.userData.screenPullAxis).toEqual({ x: 1, y: 0 });
+      expect(left.group.userData.screenPullAxis).toEqual({ x: -1, y: 0 });
+
+      applyLauncherPreviewPose(right);
+      applyLauncherPreviewPose(left);
+      expect(right.group.rotation.z).toBeCloseTo(-Math.PI / 2, 12);
+      expect(left.group.rotation.z).toBeCloseTo(Math.PI / 2, 12);
+    } finally {
+      dispose(right.group);
+      dispose(left.group);
+    }
+  });
+
+  it("keeps horizontally aligned launchers and both hands inside a compact landscape frustum", () => {
+    const camera = new THREE.PerspectiveCamera(55, 844 / 390, 0.005, 20);
+    camera.updateProjectionMatrix();
+    camera.updateMatrixWorld(true);
+    for (const kind of ["hold", "stringL"] as const) {
+      const rig = buildLauncher(kind, 0x3f7bff, { simpleMaterials: true });
+      try {
+        const direction = LAUNCHER_MODELS[kind].direction;
+        applyLauncherPreviewPose(rig, { x: direction, y: 0 });
+        rig.group.updateWorldMatrix(true, true);
+        const box = new THREE.Box3();
+        rig.group.traverse((object) => {
+          const candidate = object as THREE.Mesh;
+          if (!candidate.visible || !candidate.geometry) return;
+          candidate.geometry.computeBoundingBox();
+          if (candidate.geometry.boundingBox) {
+            box.union(candidate.geometry.boundingBox.clone().applyMatrix4(candidate.matrixWorld));
+          }
+        });
+        let maxX = 0;
+        let maxY = 0;
+        for (const x of [box.min.x, box.max.x]) {
+          for (const y of [box.min.y, box.max.y]) {
+            for (const z of [box.min.z, box.max.z]) {
+              const projected = new THREE.Vector3(x, y, z).project(camera);
+              maxX = Math.max(maxX, Math.abs(projected.x));
+              maxY = Math.max(maxY, Math.abs(projected.y));
+            }
+          }
+        }
+        expect(maxX, `${kind} horizontal`).toBeLessThan(0.98);
+        expect(maxY, `${kind} vertical`).toBeLessThan(0.98);
+      } finally {
+        dispose(rig.group);
+      }
+    }
+  }, 15_000);
+
   it("preserves BX-10 framing and fits the full BX-32 shell at 1280x720", () => {
     expect(launchCameraFrame(STADIUM_BX10, 0).position.toArray()).toEqual([-0.16, -0.4, 0.3]);
     expect(launchCameraFrame(STADIUM_BX10, 1).position.toArray()).toEqual([0.16, -0.4, 0.3]);

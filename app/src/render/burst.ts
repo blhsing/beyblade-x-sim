@@ -7,8 +7,7 @@ import * as THREE from "three";
 import type { ResolvedCombo } from "../core/derive";
 import {
   pocketAtPoint,
-  pocketCatchPolygon,
-  pocketPolygon,
+  pocketBasinPolygon,
   stadiumBoundaryNormalAt,
   stadiumBoundarySignedDistance,
   stadiumTerrainAt,
@@ -643,26 +642,6 @@ interface PlanarWallContact {
   inward: THREE.Vector3;
 }
 
-function pointStrictlyInsideConvexPolygon(
-  polygon: readonly { x: number; y: number }[],
-  x: number,
-  y: number,
-): boolean {
-  let sign = 0;
-  for (let index = 0; index < polygon.length; index++) {
-    const a = polygon[index]!;
-    const b = polygon[(index + 1) % polygon.length]!;
-    const cross = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
-    // Boundary points remain candidates; only a point strictly behind every
-    // edge belongs to the other footprint's interior overlap seam.
-    if (Math.abs(cross) <= 1e-9) return false;
-    const current = cross > 0 ? 1 : -1;
-    if (sign !== 0 && sign !== current) return false;
-    sign = current;
-  }
-  return sign !== 0;
-}
-
 function nearestPointOnSegment(
   x: number,
   y: number,
@@ -706,43 +685,23 @@ function planarWallContactAt(
     });
   }
 
-  // Outside the finite throat+catch union, resolve against its EXTERNAL
-  // cheeks/backstop. BX-32's catch tray is deliberately wider than its
-  // rounded slot; overlapping edges are internal seams and cannot collide.
+  // Outside the finite concave-basin outline, resolve against its rising rim.
+  // The canonical basin is one convex surface, so there is no internal
+  // throat/floor overlap seam to invent a debris collision.
   for (const pocket of stadium.pockets) {
-    const throat = pocketPolygon(stadium, pocket);
-    const catchTray = pocketCatchPolygon(stadium, pocket);
-    const footprints = pocket.throat.catchHalfWidth === undefined || pocket.throat.catchDepth === undefined
-      ? [throat]
-      : [throat, catchTray];
-    for (let footprintIndex = 0; footprintIndex < footprints.length; footprintIndex++) {
-      const polygon = footprints[footprintIndex]!;
-      const otherFootprints = footprints.filter((_, index) => index !== footprintIndex);
-      for (let index = 0; index < polygon.length; index++) {
-        const a = polygon[index]!;
-        const b = polygon[(index + 1) % polygon.length]!;
-        const nearest = nearestPointOnSegment(x, y, a.x, a.y, b.x, b.y);
-        // If the perpendicular foot lies on an internal overlap portion, an
-        // endpoint can still be the nearest external corner. Evaluate all.
-        const edgeCandidates = [
-          nearest,
-          { x: a.x, y: a.y, distance: Math.hypot(a.x - x, a.y - y) },
-          { x: b.x, y: b.y, distance: Math.hypot(b.x - x, b.y - y) },
-        ];
-        for (const candidate of edgeCandidates) {
-          if (candidate.distance <= 1e-12) continue;
-          if (stadiumBoundarySignedDistance(stadium, candidate.x, candidate.y) < -1e-8) continue;
-          if (otherFootprints.some((other) =>
-            pointStrictlyInsideConvexPolygon(other, candidate.x, candidate.y)
-          )) continue;
-          candidates.push({
-            penetration: candidate.distance,
-            inward: new THREE.Vector3(candidate.x - x, candidate.y - y, 0)
-              .multiplyScalar(1 / candidate.distance),
-          });
-        }
+    const polygon = pocketBasinPolygon(stadium, pocket);
+    for (let index = 0; index < polygon.length; index++) {
+      const a = polygon[index]!;
+      const b = polygon[(index + 1) % polygon.length]!;
+      const candidate = nearestPointOnSegment(x, y, a.x, a.y, b.x, b.y);
+      if (candidate.distance <= 1e-12) continue;
+      if (stadiumBoundarySignedDistance(stadium, candidate.x, candidate.y) < -1e-8) continue;
+      candidates.push({
+        penetration: candidate.distance,
+        inward: new THREE.Vector3(candidate.x - x, candidate.y - y, 0)
+          .multiplyScalar(1 / candidate.distance),
+      });
       }
-    }
   }
   if (candidates.length === 0) {
     // Defensive fallback for a degenerate product polygon.

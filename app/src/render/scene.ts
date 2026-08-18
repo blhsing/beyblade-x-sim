@@ -49,8 +49,9 @@ import {
   setLauncherPull,
   type LauncherRig,
   type LauncherPullState,
+  type ScreenPullAxis,
 } from "./launcher";
-import { RT_PRESETS, RayMarchComposer, markReflective } from "./rt";
+import { RT_PRESETS, RayMarchComposer, markBeyReflective } from "./rt";
 import { buildStadiumModel, disposeStadiumModel } from "./stadium";
 import {
   applyBalanceTopplePose,
@@ -60,6 +61,26 @@ import {
 } from "./topple";
 
 export { buildBeyMesh } from "./parts";
+
+export interface RenderViewportSize {
+  width: number;
+  height: number;
+}
+
+/** Mobile browser chrome and orientation changes are reflected in
+ * `visualViewport` before some engines update `innerWidth/innerHeight`. */
+export function renderViewportSize(
+  visual: Pick<VisualViewport, "width" | "height"> | null | undefined,
+  fallbackWidth: number,
+  fallbackHeight: number,
+): RenderViewportSize {
+  const width = visual?.width ?? fallbackWidth;
+  const height = visual?.height ?? fallbackHeight;
+  return {
+    width: Math.max(1, Number.isFinite(width) ? width : 1),
+    height: Math.max(1, Number.isFinite(height) ? height : 1),
+  };
+}
 
 /** Star-ish 2D outline: base radius with N lobes of given depth. */
 export function lobedShape(r: number, lobes: number, depth: number, sharp: number): THREE.Shape {
@@ -343,16 +364,17 @@ export class BattleView {
   }
 
   constructor(container: HTMLElement) {
+    const viewport = renderViewportSize(window.visualViewport, window.innerWidth, window.innerHeight);
     this.renderer = new THREE.WebGLRenderer({ antialias: true });
     this.renderer.setPixelRatio(Math.min(2, window.devicePixelRatio));
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(viewport.width, viewport.height);
     this.renderer.toneMapping = THREE.ACESFilmicToneMapping;
     this.renderer.toneMappingExposure = 0.95;
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
     this.renderer.shadowMap.enabled = true;
     this.renderer.shadowMap.type = THREE.PCFSoftShadowMap;
     container.appendChild(this.renderer.domElement);
-    this.camera = new THREE.PerspectiveCamera(55, window.innerWidth / window.innerHeight, 0.005, 20);
+    this.camera = new THREE.PerspectiveCamera(55, viewport.width / viewport.height, 0.005, 20);
     // our world is Z-up; without this, lookAt() at arbitrary yaws rolls the
     // horizon (up to 90° "sideways" shots — three.js defaults to Y-up)
     this.camera.up.set(0, 0, 1);
@@ -403,6 +425,7 @@ export class BattleView {
     this.rt.lightWorld.copy(key.position).normalize();
     this.applyRtQuality();
     window.addEventListener("resize", () => this.resize());
+    window.visualViewport?.addEventListener("resize", () => this.resize());
     this.attachOrbitControls(container);
   }
 
@@ -415,7 +438,8 @@ export class BattleView {
 
   private applyRtQuality(): void {
     this.rt.quality = RT_PRESETS[this.rtQuality] ?? RT_PRESETS.high!;
-    this.rt.setSize(window.innerWidth, window.innerHeight, this.renderer.getPixelRatio());
+    const viewport = renderViewportSize(window.visualViewport, window.innerWidth, window.innerHeight);
+    this.rt.setSize(viewport.width, viewport.height, this.renderer.getPixelRatio());
   }
 
   setRtQuality(q: keyof typeof RT_PRESETS): void {
@@ -449,6 +473,7 @@ export class BattleView {
     params: BeyParams,
     accent: number,
     kind: LauncherKind = "string",
+    screenPullAxis: ScreenPullAxis = { x: 0, y: 1 },
   ): void {
     this.removeLauncher();
     const rig = buildLauncher(normalizeLauncherForSpin(kind, params.spinDir), accent);
@@ -465,7 +490,7 @@ export class BattleView {
     // Rotate each drive handedness so its real local withdrawal axis projects
     // down-screen. This keeps an L rack mechanically mirrored while giving
     // either hand the familiar downward launch gesture.
-    applyLauncherPreviewPose(rig);
+    applyLauncherPreviewPose(rig, screenPullAxis);
     const roll = g.rotation.z;
     this.camera.add(g);
     setLauncherClawOpen(rig, 0);
@@ -913,9 +938,13 @@ export class BattleView {
   }
 
   resize(): void {
-    this.camera.aspect = window.innerWidth / window.innerHeight;
+    const viewport = renderViewportSize(window.visualViewport, window.innerWidth, window.innerHeight);
+    this.camera.aspect = viewport.width / viewport.height;
     this.camera.updateProjectionMatrix();
-    this.renderer.setSize(window.innerWidth, window.innerHeight);
+    this.renderer.setSize(viewport.width, viewport.height);
+    // The ray-march composer owns independent color/normal/depth targets;
+    // resizing only the WebGLRenderer leaves those targets stretched and stale.
+    this.rt.setSize(viewport.width, viewport.height, this.renderer.getPixelRatio());
   }
 
   setStadium(s: StadiumSpec): void {
@@ -960,7 +989,10 @@ export class BattleView {
     }
     this.beyMeshes = list.map((e, i) => {
       const m = buildBeyMesh(e.rc, e.params, BattleView.SIDE_COLORS[i % BattleView.SIDE_COLORS.length]!);
-      markReflective(m, 0.72); // die-cast metal mirrors the dish and rivals
+      // Printed reference tops already contain photographic highlights. Only
+      // exposed metal receives a restrained live reflection; applying the old
+      // 0.72 mask to every child washed the whole spinning top white.
+      markBeyReflective(m);
       return m;
     });
     this.beyParams = list.map((e) => e.params);
@@ -1144,7 +1176,7 @@ export class BattleView {
         }
 
         // A knocked-out bey does not vanish. Pocket finishes follow the exact
-        // product throat/skew to a deterministic catch-tray target; top exits
+        // product throat/skew to a deterministic concave-basin target; top exits
         // land outside the rectangular product body. Neither path invents
         // random replay-only scatter or assumes BX-32 is circular.
         if (b.exited) {

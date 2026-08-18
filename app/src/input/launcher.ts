@@ -58,12 +58,24 @@ export interface LaunchGestureOptions {
   pullAxis?: PullAxis;
   /** physical travel available to this product's string/rack on this screen */
   maxTravelPx?: number;
+  /**
+   * Converts CSS-pixel movement back to the reference physical stroke used
+   * to calibrate Shoot Power.  Compact/mobile viewports can expose a shorter
+   * gesture lane without making the same complete, equally fast pull weaker.
+   */
+  powerPxScale?: number;
   /** Complete live gesture state for the hand, string/winder and meter. */
   onProgress?: (progress: LaunchGestureProgress) => void;
   /** resolves when the player gives up — the gesture then resolves as
    * `aborted` instead of hanging until the late-launch timeout, which is
    * what used to leave a "finished" match still running in the background */
   abortSignal?: Promise<unknown>;
+  /**
+   * Resolves when the current gesture surface becomes invalid (for example,
+   * a phone rotates and the physical pull axis changes). This is a free retry,
+   * exactly like `pointercancel`, and never incurs a mislaunch penalty.
+   */
+  cancelSignal?: Promise<unknown>;
 }
 
 export interface PullGestureAccumulator {
@@ -76,6 +88,65 @@ export interface PullGestureAccumulator {
 const CLICK_EVERY_PX = 26; // winder ratchet click spacing
 const SP_PER_PX_SPEED = 16; // (px/ms) * new physical extension -> SP
 export const DEFAULT_MAX_PULL_PX = 480;
+export const MAX_SCREEN_PULL_PX = 520;
+
+export interface LaunchViewport {
+  widthPx: number;
+  heightPx: number;
+}
+
+export interface LaunchGestureLayout {
+  orientation: "portrait" | "landscape";
+  /** The product's physical withdrawal direction expressed in screen axes. */
+  pullAxis: PullAxis;
+  /** Usable CSS-pixel stroke for this launcher's real rack/string length. */
+  maxTravelPx: number;
+  /** CSS-pixel normalization used only for power, never for rendered travel. */
+  powerPxScale: number;
+}
+
+/**
+ * Read the actually visible viewport.  `visualViewport` excludes dynamic
+ * browser chrome on mobile, unlike the sometimes stale layout viewport.
+ */
+export function visibleLaunchViewport(): LaunchViewport {
+  const visual = typeof window !== "undefined" ? window.visualViewport : null;
+  const width = visual?.width ?? (typeof window !== "undefined" ? window.innerWidth : 0);
+  const height = visual?.height ?? (typeof window !== "undefined" ? window.innerHeight : 0);
+  return {
+    widthPx: Math.max(1, Number.isFinite(width) ? width : 1),
+    heightPx: Math.max(1, Number.isFinite(height) ? height : 1),
+  };
+}
+
+/**
+ * Lay the physical pull guide along the viewport's long usable dimension.
+ * Portrait keeps the familiar downward stroke. In landscape R launchers pull
+ * right and L launchers pull left, matching their real rack/string exit.
+ *
+ * Power is calibrated by fraction and speed of a 480 CSS-pixel reference
+ * stroke. Thus a complete pull on a short landscape viewport can still reach
+ * the same SP as the same physical gesture in portrait, while each product's
+ * different rack/string length remains meaningful.
+ */
+export function launchGestureLayout(
+  viewport: LaunchViewport,
+  launcherDirection: -1 | 1,
+  productStrokeRatio = 1,
+): LaunchGestureLayout {
+  const width = Math.max(1, viewport.widthPx);
+  const height = Math.max(1, viewport.heightPx);
+  const landscape = width > height;
+  const usableDimension = landscape ? width : height;
+  const referenceLanePx = Math.max(120, Math.min(usableDimension * 0.62, MAX_SCREEN_PULL_PX));
+  const ratio = Number.isFinite(productStrokeRatio) ? Math.max(0.1, productStrokeRatio) : 1;
+  return {
+    orientation: landscape ? "landscape" : "portrait",
+    pullAxis: landscape ? { x: launcherDirection, y: 0 } : { x: 0, y: 1 },
+    maxTravelPx: Math.max(120, referenceLanePx * ratio),
+    powerPxScale: DEFAULT_MAX_PULL_PX / referenceLanePx,
+  };
+}
 
 /**
  * Project a screen displacement onto a launcher's real pull guide. This is
@@ -119,8 +190,10 @@ export function accumulatePullGesture(
   sample: PullProjection,
   sampleAtMs: number,
   maxTravelPx = DEFAULT_MAX_PULL_PX,
+  powerPxScale = 1,
 ): PullGestureAccumulator {
   const limit = Number.isFinite(maxTravelPx) ? Math.max(1, maxTravelPx) : DEFAULT_MAX_PULL_PX;
+  const pxScale = Number.isFinite(powerPxScale) ? Math.max(0.01, powerPxScale) : 1;
   const cappedAxial = Math.max(0, Math.min(limit, sample.axialPx));
   const peakAxialPx = Math.max(state.peakAxialPx, cappedAxial);
   const novelTravel = peakAxialPx - state.peakAxialPx;
@@ -129,7 +202,8 @@ export function accumulatePullGesture(
   const quality = sample.pullQuality * sample.pullQuality;
   const sp = Math.min(
     11000,
-    state.sp + novelTravel * Math.min(12, forwardSpeed) * SP_PER_PX_SPEED * quality,
+    state.sp +
+      novelTravel * pxScale * Math.min(12, forwardSpeed * pxScale) * SP_PER_PX_SPEED * quality,
   );
   return {
     sp,
@@ -167,6 +241,9 @@ export function captureLaunch(
     const maxTravelPx = Number.isFinite(opts.maxTravelPx)
       ? Math.max(1, opts.maxTravelPx!)
       : DEFAULT_MAX_PULL_PX;
+    const powerPxScale = Number.isFinite(opts.powerPxScale)
+      ? Math.max(0.01, opts.powerPxScale!)
+      : 1;
     let pointerId: number | null = null;
     let originX = 0;
     let originY = 0;
@@ -230,8 +307,16 @@ export function captureLaunch(
     const updatePointerSample = (e: PointerEvent): void => {
       const now = performance.now();
       projection = projectPullGesture(e.clientX - originX, e.clientY - originY, pullAxis);
-      accumulator = accumulatePullGesture(accumulator, projection, now, maxTravelPx);
-      const nextClickCount = Math.floor(accumulator.peakAxialPx / CLICK_EVERY_PX);
+      accumulator = accumulatePullGesture(
+        accumulator,
+        projection,
+        now,
+        maxTravelPx,
+        powerPxScale,
+      );
+      const nextClickCount = Math.floor(
+        (accumulator.peakAxialPx * powerPxScale) / CLICK_EVERY_PX,
+      );
       while (clickCount < nextClickCount) {
         clickCount++;
         sfx.click(0.8);
@@ -280,6 +365,9 @@ export function captureLaunch(
     el.addEventListener("pointercancel", onCancel);
     void opts.abortSignal?.then(() =>
       finish(resultFrom(0, null, { aborted: true })),
+    );
+    void opts.cancelSignal?.then(() =>
+      finish(resultFrom(Date.now() - opts.shootAtMs, "weak", { cancelled: true })),
     );
   });
 }

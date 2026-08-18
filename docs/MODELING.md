@@ -113,11 +113,16 @@ Lock Chip + Main + Assist, or Expand Lock Chip + Metal + Over + Assist.
   as **PP**. The pale battle tray and mostly transparent, faceted outer casing
   are shaded separately; no ABS or polycarbonate chemistry is inferred.
 - The continuous Xtreme Line follows a product-specific traced centerline,
-  including the asymmetric rear-right inward dogleg. Ordinary spans are
-  smooth XY cubics sampled at no more than 0.0015 rad (over 4,000 sections per
-  loop) and subdivided again when the tangent turns by more than 0.001 rad;
-  the authored release jogs remain sharp with bounded miter joins. Teeth are
-  spaced around the closed loop by arc length. The guide uses a 2.4 mm molded
+  including the centered inward release bay. Its topology was traced from the
+  user-supplied straight-on retail raster
+  `codex-clipboard-ac6833d8-5c2c-480c-8005-6b05608265a5.png`, normalized to a
+  138 mm ring and cross-checked against Takara Tomy's official product views.
+  The two circled bay elbows are finite-radius C1 cubic fillets—not line joins.
+  The shared XY curve is sampled at no more than 0.0015 rad (over 4,000 render
+  sections per loop) and subdivided again when its tangent turns by more than
+  0.001 rad. Teeth are spaced around the closed loop by arc length and follow
+  a local terrain frame; both ribbon edges sample the actual bowl below them.
+  The guide uses a 2.4 mm molded
   shoulder plus 2.2 mm teeth, for a nominal 4.6 mm local peak. The defensible
   photo/patent-scaled interval is about 4.3–5.0 mm: Takara Tomy does not publish
   the mold cross-section, so the 5.0 mm pitch and these vertical dimensions are
@@ -127,8 +132,10 @@ Lock Chip + Main + Assist, or Expand Lock Chip + Metal + Over + Assist.
   same-object Bit geometry in Fig. 11.
 - The official top-view play diagram has exactly three openings at the front:
   a broad center Xtreme Zone flanked by two Over Zones. Each is a real 2-D
-  sloped throat joined to a recessed catch tray, cheeks and backstop; there are
-  no invented rear openings or casing gaps.
+  concave depression in the same one-piece battle surface—not an inserted flat
+  tray with separate cheeks/backstop. The rendered basin and deterministic
+  terrain share one cached outline and C1 heightfield. There are no invented
+  rear openings or casing gaps.
 
 ### 2.2 BX-32 Wide Xtreme Stadium
 
@@ -136,11 +143,20 @@ Lock Chip + Main + Assist, or Expand Lock Chip + Metal + Over + Assist.
   official public page confirms the three-player role but does not state its
   dimensions). Its bowl, wall, launch aperture and traced indigo Xtreme Line
   are obround rather than circular.
-- Its two long outer X-Line sides are dense fitted semicircles joined by a
-  C1-smooth front connector. Only the two rear molded ramp/jog spans remain
-  deliberately sharp; physics and rendering sample the same curve.
+- Its wide plan silhouette is traced from the unobstructed upper half of the
+  user-supplied retail overhead raster
+  `codex-clipboard-11c8d883-8577-4d92-aebc-4db4b34113f9.png` and mirrored for
+  the packet-obscured lower half. The optical axis comes from the two visible
+  mirror-line crossings (midpoint x = 254.5 px), with body-envelope correction
+  of 1.330 × 1.140 mm/px. The long round sides, near-radial release shoulders
+  and their circled elbows are one high-density C1 curve. Each elbow retains a
+  physical bend radius greater than the 6.8 mm visible half-width, so neither
+  offset edge folds or reads as an angled polyline. Physics and rendering use
+  this identical centerline.
 - The official diagram shows exactly two narrow, rounded and tangential rear
   Xtreme openings plus one broad front-center trapezoidal Over opening. The
+  narrow mouths continue into broader rounded concavities in the same molded
+  battle surface; they are not separate catch trays. The
   cover has two red triangular shoot marks and a distinct rear molded shoot
   indicator. BX-32 plastic chemistry is left explicitly unspecified because
   the cited public material does not identify the resin.

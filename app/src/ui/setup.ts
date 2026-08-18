@@ -15,6 +15,7 @@ import { button, el, overlay, row, select } from "./dom";
 import type { GameApp } from "./app";
 import { runMatch } from "./match";
 import { showBracket } from "./bracket";
+import { versusThumb } from "../render/thumbs";
 
 export interface SlotConfig {
   kind: "human" | "bot";
@@ -57,6 +58,28 @@ export function resolveDeck(app: GameApp, s: SlotConfig, seed: number): ComboSel
   return [app.db.combos[0]!.parts];
 }
 
+const versusPrefetches = new Set<string>();
+
+/** Warm the exact first-battle overheads while the player is still in setup. */
+export function prefetchSlotVersus(app: GameApp, slot: SlotConfig): void {
+  const candidates = slot.kind === "bot" && slot.deckRefs.length === 0
+    ? [resolveDeck(app, slot, 501)[0], resolveDeck(app, slot, 502)[0]]
+    : [resolveDeck(app, slot, 501)[0]];
+  for (const combo of candidates) {
+    if (!combo) continue;
+    const fingerprint = JSON.stringify(combo);
+    if (versusPrefetches.has(fingerprint)) continue;
+    versusPrefetches.add(fingerprint);
+    const render = (): void => {
+      void versusThumb(app.index, combo, `setup-${fingerprint}`).then((url) => {
+        if (!url) versusPrefetches.delete(fingerprint);
+      });
+    };
+    if (window.requestIdleCallback) window.requestIdleCallback(render, { timeout: 500 });
+    else window.setTimeout(render, 0);
+  }
+}
+
 /** Editor card for one player slot. */
 export function slotEditor(
   app: GameApp,
@@ -96,9 +119,16 @@ export function slotEditor(
     cfg.bot = { ...b };
     skillSel.value = b.skill;
     charSel.value = b.character;
+    prefetchSlotVersus(app, cfg);
   });
-  skillSel.addEventListener("change", () => (cfg.bot.skill = skillSel.value as BotSkill));
-  charSel.addEventListener("change", () => (cfg.bot.character = charSel.value as BotCharacter));
+  skillSel.addEventListener("change", () => {
+    cfg.bot.skill = skillSel.value as BotSkill;
+    prefetchSlotVersus(app, cfg);
+  });
+  charSel.addEventListener("change", () => {
+    cfg.bot.character = charSel.value as BotCharacter;
+    prefetchSlotVersus(app, cfg);
+  });
 
   // bey picker: swipeable 3D gallery instead of a dropdown
   const deckVals: string[] = [];
@@ -133,6 +163,7 @@ export function slotEditor(
           },
           () => {},
           COMBO_FILTERS,
+          "grid",
         );
       }, "btn small");
       deckWrap.append(b);
@@ -265,6 +296,8 @@ export function showQuickSetup(app: GameApp): void {
       slotEditor(app, a, fmt(ZH.playerN, { n: 1 }), () => showQuickSetup(app)),
       slotEditor(app, b, fmt(ZH.playerN, { n: 2 }), () => showQuickSetup(app), "bot"),
     );
+    prefetchSlotVersus(app, a);
+    prefetchSlotVersus(app, b);
   };
   const picker = rulesPicker(app, renderSlots);
   renderSlots();

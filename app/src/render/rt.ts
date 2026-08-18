@@ -26,6 +26,43 @@ export function markReflective(obj: THREE.Object3D, reflectivity: number): void 
   });
 }
 
+/**
+ * Apply the screen-space reflection mask by physical Bey surface instead of
+ * painting the whole assembly with the same value.  Reference tops already
+ * contain the product photograph's highlights; reflecting the stadium over
+ * that baked image a second time washes the sticker and plastic islands white.
+ * Bare metal keeps a restrained dynamic reflection, coated metal keeps less,
+ * and ordinary plastic only receives a faint grazing response.
+ */
+export function markBeyReflective(obj: THREE.Object3D): void {
+  obj.userData.rtReflect = 0;
+  obj.traverse((child) => {
+    if (!(child instanceof THREE.Mesh)) {
+      child.userData.rtReflect = 0;
+      return;
+    }
+
+    const name = child.name;
+    if (
+      name === "blurRing" ||
+      name.endsWith(":reference-top") ||
+      name.endsWith(":fallback-sticker") ||
+      name.endsWith(":composite-reference")
+    ) {
+      child.userData.rtReflect = 0;
+      return;
+    }
+
+    const materials = Array.isArray(child.material) ? child.material : [child.material];
+    let metalness = 0;
+    for (const material of materials) {
+      const value = (material as THREE.MeshStandardMaterial).metalness;
+      if (Number.isFinite(value)) metalness = Math.max(metalness, value);
+    }
+    child.userData.rtReflect = metalness >= 0.8 ? 0.38 : metalness >= 0.35 ? 0.24 : 0.06;
+  });
+}
+
 const GBUFFER_VERT = /* glsl */ `
   varying vec3 vViewNormal;
   void main() {

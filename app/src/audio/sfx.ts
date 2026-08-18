@@ -582,6 +582,53 @@ export class Sfx {
 
 export const sfx = new Sfx();
 
+// This must be initialized before the ready-document startup path below. A
+// cached module can evaluate after DOMContentLoaded and call `autostart()`
+// synchronously; declaring the flag after that block caused a TDZ crash and a
+// blank page on reload.
+let audioUnlocked = false;
+
+interface AudioStartupEffects {
+  unlock(): void;
+  readonly contextRunning: boolean;
+}
+
+/** Install the two-stage audio bootstrap. Dependency injection keeps the
+ * already-ready/cached-module path directly regression-testable without a real
+ * AudioContext. Returns a cleanup hook for tests or future app teardown. */
+export function installAudioStartup(
+  doc: Pick<Document, "readyState" | "addEventListener" | "removeEventListener">,
+  win: Pick<Window, "dispatchEvent">,
+  effects: AudioStartupEffects = sfx,
+): () => void {
+  const events = ["pointerdown", "touchend", "keydown", "click"] as const;
+  const announce = (): void => {
+    audioUnlocked = true;
+    win.dispatchEvent(new Event("beyblade:audio"));
+  };
+  const kick = (): void => {
+    effects.unlock();
+    for (const event of events) doc.removeEventListener(event, kick, true);
+    announce();
+  };
+  for (const event of events) doc.addEventListener(event, kick, true);
+
+  const autostart = (): void => {
+    effects.unlock();
+    if (effects.contextRunning) {
+      for (const event of events) doc.removeEventListener(event, kick, true);
+      announce();
+    }
+  };
+  if (doc.readyState === "loading") doc.addEventListener("DOMContentLoaded", autostart, { once: true });
+  else autostart();
+
+  return () => {
+    for (const event of events) doc.removeEventListener(event, kick, true);
+    doc.removeEventListener("DOMContentLoaded", autostart);
+  };
+}
+
 // Audio startup, in two attempts.
 //
 // 1. TRY IMMEDIATELY at load. Plenty of situations allow it — a returning
@@ -592,31 +639,9 @@ export const sfx = new Sfx();
 // 2. If the browser refuses (context comes up suspended), the first
 //    interaction of ANY kind resumes it.
 if (typeof document !== "undefined") {
-  const EVENTS = ["pointerdown", "touchend", "keydown", "click"];
-  const kick = (): void => {
-    sfx.unlock();
-    audioUnlocked = true;
-    for (const ev of EVENTS) document.removeEventListener(ev, kick, true);
-    window.dispatchEvent(new CustomEvent("beyblade:audio"));
-  };
-  for (const ev of EVENTS) document.addEventListener(ev, kick, true);
-  // attempt 1 — harmless if the browser says no, the listener above covers it
-  const autostart = (): void => {
-    sfx.unlock();
-    if (sfx.contextRunning) {
-      audioUnlocked = true;
-      for (const ev of EVENTS) document.removeEventListener(ev, kick, true);
-      window.dispatchEvent(new CustomEvent("beyblade:audio"));
-    }
-  };
-  if (document.readyState === "loading") {
-    document.addEventListener("DOMContentLoaded", autostart, { once: true });
-  } else {
-    autostart();
-  }
+  installAudioStartup(document, window);
 }
 
-let audioUnlocked = false;
 /** True once audio is actually running. */
 export function isAudioUnlocked(): boolean {
   return audioUnlocked;

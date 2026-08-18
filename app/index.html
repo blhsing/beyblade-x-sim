@@ -23,7 +23,9 @@
         font-family: "Microsoft JhengHei", "PingFang TC", system-ui, sans-serif;
         overflow: hidden;
         height: 100%;
-        touch-action: none;
+        width: 100%;
+        overscroll-behavior: none;
+        touch-action: manipulation;
         -webkit-user-select: none;
         user-select: none;
         -webkit-tap-highlight-color: transparent;
@@ -31,9 +33,12 @@
       #app {
         position: fixed;
         inset: 0;
+        width: 100dvw;
+        height: 100dvh;
       }
       canvas {
         display: block;
+        touch-action: none;
       }
     </style>
   </head>

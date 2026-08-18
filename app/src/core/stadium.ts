@@ -15,7 +15,7 @@ import { datan2, dcos, dsin, PI, wrapAngle } from "./fxmath";
 export interface PocketThroatSpec {
   /** Product silhouette of the opening when viewed from above. */
   shape: "trapezoid" | "tangential-slot";
-  /** Half-widths at the bowl-side and catch-tray-side ends (m). */
+  /** Half-widths at the bowl-side and outer ends (m). */
   innerHalfWidth: number;
   outerHalfWidth: number;
   /** How far the throat reaches either side of the nominal bowl boundary. */
@@ -23,9 +23,10 @@ export interface PocketThroatSpec {
   outwardDepth: number;
   /** Rotation from the local outward wall normal. Used by BX-32's slots. */
   skew?: number;
-  /** Optional broader catch tray behind a narrow visible throat. */
-  catchHalfWidth?: number;
-  catchDepth?: number;
+  /** Optional broader continuation of the same concave molded basin behind
+   * a narrow visible throat. This is not a separate tray or floor. */
+  basinHalfWidth?: number;
+  basinDepth?: number;
 }
 
 export interface PocketSpec {
@@ -50,29 +51,27 @@ export interface RailDip {
   depth: number;
 }
 
-/** Photo-traced periodic X-Line control point. Ordinary spans use a smooth
- * cubic in the product's XY plane. `linearToNext` preserves the deliberately
- * sharp, near-radial molded release jogs instead of rounding them away. */
+/** Photo-traced periodic X-Line control point. `angle` is the monotonic loop
+ * parameter, not necessarily the point's polar bearing: the real molded
+ * release bays contain short near-radial/overhung runs. Explicit XY values
+ * therefore preserve the traced product silhouette without forcing it into
+ * the old one-radius-per-angle approximation. */
 export interface RailTracePoint {
   angle: number;
   radius: number;
+  x?: number;
+  y?: number;
   linearToNext?: boolean;
 }
 
-/** Audited near-semicircular product span. The dense deterministic trace is
- * still the source used by physics/rendering; this retains its fitted circle
- * for curvature and source-of-truth regressions. */
-export interface RailRoundSide {
-  id: string;
-  start: number;
-  end: number;
-  startRadius: number;
-  endRadius: number;
-  centerX: number;
-  centerY: number;
-  radius: number;
-  sweepRadians: number;
-  controlSamples: number;
+export interface RailTraceReference {
+  method: "raster-vector-catmull-rom";
+  /** Audit provenance only. The screenshot itself is not shipped. */
+  source: string;
+  calibration: string;
+  sourceControlPoints: number;
+  generatedControlPoints: number;
+  mirrored: boolean;
 }
 
 export interface StadiumSpec {
@@ -87,6 +86,8 @@ export interface StadiumSpec {
   rimBaseSlope: number; // constant extra slope on the rim band
   rRail: number; // xtreme line base radius (m)
   railHalfWidth: number; // radial capture band of the gear rack (m)
+  /** Visible molded strip half-width fitted independently for each product. */
+  railPhysicalHalfWidth?: number;
   railArcs: RailArc[];
   /** Traced inward ramp segments where the Bit leaves the line toward center. */
   railReleaseArcs?: RailArc[];
@@ -96,8 +97,7 @@ export interface StadiumSpec {
   railDips?: RailDip[];
   /** Product-specific centerline; supersedes ellipse/dip approximations. */
   railTrace?: RailTracePoint[];
-  /** Photo-fitted round side spans represented densely in `railTrace`. */
-  railRoundSides?: RailRoundSide[];
+  railTraceReference?: RailTraceReference;
   railColor: number; // render hint
   pockets: PocketSpec[];
   wallRestitution: number;
@@ -113,6 +113,202 @@ export interface StadiumSpec {
   coverHeight: number; // render: casing height above the rim (m)
 }
 
+interface RailVectorPoint {
+  x: number;
+  y: number;
+}
+
+/** Keep module-initialized physics geometry on the documented deterministic
+ * arithmetic subset instead of relying on engine-specific hypot reduction. */
+function railVectorLength(x: number, y: number): number {
+  return Math.sqrt(x * x + y * y);
+}
+
+/** Convert a closed raster-derived vector polyline into a dense, C1 loop.
+ * Chord-weighted Catmull-Rom/Hermite tangents pass through the fitted
+ * silhouette while giving every photographed elbow a real-radius transition.
+ * Weighting by adjacent pixel-chord length prevents a densely sampled corner
+ * beside a sparse circular span from collapsing into a sub-millimeter cusp.
+ * The seam is placed at the fitted loop's natural negative-X apex (rather
+ * than cutting a cubic at an arbitrary ray crossing), and the loop parameter
+ * is arc-length based, so rendering and deterministic contact use identical
+ * XY without a synthetic high-curvature seam. */
+function buildVectorRailTrace(
+  source: readonly RailVectorPoint[],
+  subdivisionsPerSpan = 16,
+  tangentScale = 0.76,
+): RailTracePoint[] {
+  const dense: RailVectorPoint[] = [];
+  const count = source.length;
+  const tangentAt = (index: number): RailVectorPoint => {
+    const previous = source[(index + count - 1) % count]!;
+    const current = source[index % count]!;
+    const next = source[(index + 1) % count]!;
+    const incomingLength = railVectorLength(current.x - previous.x, current.y - previous.y);
+    const outgoingLength = railVectorLength(next.x - current.x, next.y - current.y);
+    if (incomingLength <= 1e-12 || outgoingLength <= 1e-12) return { x: 0, y: 0 };
+    const directionX = (current.x - previous.x) / incomingLength +
+      (next.x - current.x) / outgoingLength;
+    const directionY = (current.y - previous.y) / incomingLength +
+      (next.y - current.y) / outgoingLength;
+    const directionLength = railVectorLength(directionX, directionY);
+    if (directionLength <= 1e-12) return { x: 0, y: 0 };
+    const harmonicChord = 2 * incomingLength * outgoingLength / (incomingLength + outgoingLength);
+    return {
+      x: directionX / directionLength * harmonicChord * tangentScale,
+      y: directionY / directionLength * harmonicChord * tangentScale,
+    };
+  };
+  for (let index = 0; index < count; index++) {
+    const p1 = source[index]!;
+    const p2 = source[(index + 1) % count]!;
+    const m1 = tangentAt(index);
+    const m2 = tangentAt(index + 1);
+    for (let step = 0; step < subdivisionsPerSpan; step++) {
+      const u = step / subdivisionsPerSpan;
+      const u2 = u * u;
+      const u3 = u2 * u;
+      const h00 = 2 * u3 - 3 * u2 + 1;
+      const h10 = u3 - 2 * u2 + u;
+      const h01 = -2 * u3 + 3 * u2;
+      const h11 = u3 - u2;
+      dense.push({
+        x: h00 * p1.x + h10 * m1.x + h01 * p2.x + h11 * m2.x,
+        y: h00 * p1.y + h10 * m1.y + h01 * p2.y + h11 * m2.y,
+      });
+    }
+  }
+
+  const signedArea = dense.reduce((area, point, index) => {
+    const next = dense[(index + 1) % dense.length]!;
+    return area + point.x * next.y - next.x * point.y;
+  }, 0);
+  if (signedArea < 0) dense.reverse();
+
+  let seamIndex = 0;
+  for (let index = 1; index < dense.length; index++) {
+    const candidate = dense[index]!;
+    const current = dense[seamIndex]!;
+    if (candidate.x < current.x || (candidate.x === current.x && Math.abs(candidate.y) < Math.abs(current.y))) {
+      seamIndex = index;
+    }
+  }
+  const orderedRaw: RailVectorPoint[] = [];
+  for (let offset = 0; offset < dense.length; offset++) {
+    orderedRaw.push(dense[(seamIndex + offset) % dense.length]!);
+  }
+  const seam = orderedRaw[0]!;
+  orderedRaw.push(seam);
+  // Remove any sub-micron duplicate source anchor so the closed cubic does not
+  // manufacture a curvature spike that no molded product contains.
+  const minimumControlSpacing = 0.000001;
+  const ordered: RailVectorPoint[] = [seam];
+  for (let index = 1; index < orderedRaw.length - 1; index++) {
+    const point = orderedRaw[index]!;
+    const previous = ordered[ordered.length - 1]!;
+    if (railVectorLength(point.x - previous.x, point.y - previous.y) <= minimumControlSpacing) continue;
+    if (railVectorLength(point.x - seam.x, point.y - seam.y) <= minimumControlSpacing) continue;
+    ordered.push(point);
+  }
+  ordered.push(seam);
+
+  const cumulative = [0];
+  for (let index = 1; index < ordered.length; index++) {
+    const a = ordered[index - 1]!;
+    const b = ordered[index]!;
+    cumulative.push(cumulative[index - 1]! + Math.sqrt((b.x - a.x) ** 2 + (b.y - a.y) ** 2));
+  }
+  const total = cumulative[cumulative.length - 1]!;
+  return ordered.map((point, index) => ({
+    angle: -PI + 2 * PI * cumulative[index]! / total,
+    radius: Math.sqrt(point.x * point.x + point.y * point.y),
+    x: point.x,
+    y: point.y,
+  }));
+}
+
+function polarVectorPoint(angle: number, radius: number): RailVectorPoint {
+  return { x: radius * dcos(angle), y: radius * dsin(angle) };
+}
+
+function polarVectorArc(
+  start: number,
+  end: number,
+  maximumStep: number,
+  includeStart: boolean,
+  includeEnd: boolean,
+): RailVectorPoint[] {
+  const segments = Math.max(1, Math.ceil((end - start) / maximumStep));
+  const first = includeStart ? 0 : 1;
+  const last = includeEnd ? segments : segments - 1;
+  const points: RailVectorPoint[] = [];
+  for (let index = first; index <= last; index++) {
+    points.push(polarVectorPoint(start + (end - start) * index / segments, BX10_RAIL_RADIUS));
+  }
+  return points;
+}
+
+// The supplied retail raster is a third-party package shot, so it supplies
+// topology rather than literal scale. Normalize its ordinary ring to the
+// 138 mm canonical BX-10 centerline cross-checked in the official TT views;
+// this also leaves one full 52.5 mm Bey diameter between rack and casing.
+const BX10_RAIL_RADIUS = 0.138;
+/** Full green centerline traced from the user-supplied straight-on retail
+ * image `codex-clipboard-ac6833d8-5c2c-480c-8005-6b05608265a5.png`.
+ * The bay anchors below follow the inner toothed silhouette in source pixels;
+ * anisotropic scale rectifies the photographed ring back to a circle. The
+ * ordinary ring is constrained to the same 138 mm centerline radius and was
+ * cross-checked against Takara Tomy's BX-10 product views. In particular, the
+ * two near-radial shoulders and their small molded elbow radii are preserved:
+ * there are deliberately no sharp/linear joins. */
+const BX10_RETAIL_CENTER_X_PX = 397.5;
+const BX10_RETAIL_CENTER_Y_PX = 436.5;
+const BX10_RETAIL_X_METERS_PER_PX = 0.000603;
+const BX10_RETAIL_Y_METERS_PER_PX = 0.000720;
+// The low-resolution raster resolves the corner as roughly ten pixels. Fit a
+// curvature-limited cubic from its measured ordinary-ring tangent through the
+// near-radial shoulder to the horizontal inner shelf. Unlike a polyline join,
+// this retains an >8 mm centerline radius across the full circled elbow while
+// still passing the traced ring and shelf endpoints. Mirror it exactly about
+// the product centerline.
+const BX10_ELBOW_RING_ANGLE = 1.24;
+const BX10_ELBOW_START = polarVectorPoint(BX10_ELBOW_RING_ANGLE, BX10_RAIL_RADIUS);
+const BX10_BAY_SHELF_Y = (BX10_RETAIL_CENTER_Y_PX - 288.5) * BX10_RETAIL_Y_METERS_PER_PX;
+const BX10_ELBOW_END: RailVectorPoint = { x: 0.008, y: BX10_BAY_SHELF_Y };
+const BX10_ELBOW_START_TANGENT = {
+  x: -dsin(BX10_ELBOW_RING_ANGLE),
+  y: dcos(BX10_ELBOW_RING_ANGLE),
+};
+const BX10_ELBOW_CONTROL_1 = {
+  x: BX10_ELBOW_START.x + BX10_ELBOW_START_TANGENT.x * 0.032,
+  y: BX10_ELBOW_START.y + BX10_ELBOW_START_TANGENT.y * 0.032,
+};
+const BX10_ELBOW_CONTROL_2 = { x: BX10_ELBOW_END.x + 0.02, y: BX10_ELBOW_END.y };
+const BX10_RIGHT_BAY_SOURCE: readonly RailVectorPoint[] = Array.from({ length: 65 }, (_, index) => {
+  const u = index / 64;
+  const v = 1 - u;
+  return {
+    x: v ** 3 * BX10_ELBOW_START.x + 3 * v * v * u * BX10_ELBOW_CONTROL_1.x +
+      3 * v * u * u * BX10_ELBOW_CONTROL_2.x + u ** 3 * BX10_ELBOW_END.x,
+    y: v ** 3 * BX10_ELBOW_START.y + 3 * v * v * u * BX10_ELBOW_CONTROL_1.y +
+      3 * v * u * u * BX10_ELBOW_CONTROL_2.y + u ** 3 * BX10_ELBOW_END.y,
+  };
+});
+const BX10_RAIL_BAY_SOURCE: readonly RailVectorPoint[] = [
+  ...BX10_RIGHT_BAY_SOURCE,
+  { x: 0, y: BX10_BAY_SHELF_Y },
+  ...BX10_RIGHT_BAY_SOURCE.slice().reverse().map((point) => ({ x: -point.x, y: point.y })),
+];
+const BX10_RAIL_SOURCE: readonly RailVectorPoint[] = [
+  ...polarVectorArc(-PI, BX10_ELBOW_RING_ANGLE, 0.03, true, false),
+  ...BX10_RAIL_BAY_SOURCE,
+  ...polarVectorArc(PI - BX10_ELBOW_RING_ANGLE, PI, 0.03, false, false),
+];
+// Every analytic arc/cubic above is already sampled below 3 mm chord length;
+// one interpolation stage (the shared compiled Hermite path) preserves its
+// measured curvature instead of fitting a spline through a spline.
+const BX10_RAIL_TRACE = buildVectorRailTrace(BX10_RAIL_SOURCE, 1);
+
 /** BX-10 Xtreme Stadium — the official 1v1 tournament stadium. */
 export const STADIUM_BX10: StadiumSpec = {
   name: "bx10",
@@ -126,44 +322,23 @@ export const STADIUM_BX10: StadiumSpec = {
   wallShape: { kind: "circle" },
   rimRise: 0.02,
   rimBaseSlope: 0.1,
-  rRail: 0.138,
+  rRail: BX10_RAIL_RADIUS,
   railHalfWidth: 0.011,
+  railPhysicalHalfWidth: 0.0062,
   // the gear ring circles the whole bowl; dashes release toward the exits
   railArcs: [{ start: -PI, end: PI }],
-  railReleaseArcs: [
-    { start: 0.56, end: 0.64 },
-    { start: 0.98, end: 1.06 },
-  ],
-  // Traced from the official top view: near-circular rack plus the distinctive
-  // rear-right inward dogleg that releases an attack toward center.
-  railTrace: [
-    { angle: -PI, radius: 0.139 },
-    { angle: -2.8, radius: 0.139 },
-    { angle: -2.45, radius: 0.139 },
-    { angle: -2.1, radius: 0.139 },
-    { angle: -1.75, radius: 0.138 },
-    { angle: -1.4, radius: 0.138 },
-    { angle: -1.05, radius: 0.138 },
-    { angle: -0.7, radius: 0.138 },
-    { angle: -0.35, radius: 0.138 },
-    { angle: 0, radius: 0.138 },
-    { angle: 0.35, radius: 0.138 },
-    { angle: 0.56, radius: 0.138, linearToNext: true },
-    // Abrupt, near-radial molded jog into the bay. This segment—not a
-    // target-seeking impulse—aims a clockwise X-Dash through the center.
-    { angle: 0.64, radius: 0.105 },
-    { angle: 0.78, radius: 0.104 },
-    { angle: 0.92, radius: 0.104 },
-    { angle: 0.98, radius: 0.105, linearToNext: true },
-    // Mirrored outward jog supplies the counter-clockwise inward release.
-    { angle: 1.06, radius: 0.138 },
-    { angle: 1.4, radius: 0.139 },
-    { angle: 1.75, radius: 0.139 },
-    { angle: 2.1, radius: 0.139 },
-    { angle: 2.45, radius: 0.139 },
-    { angle: 2.8, radius: 0.139 },
-    { angle: PI, radius: 0.139 },
-  ],
+  // Release eligibility is curve-derived: only a traced tangent pointing
+  // strongly inward can release, even though the whole loop is searchable.
+  railReleaseArcs: [{ start: -PI, end: PI }],
+  railTrace: BX10_RAIL_TRACE,
+  railTraceReference: {
+    method: "raster-vector-catmull-rom",
+    source: "user:codex-clipboard-ac6833d8-5c2c-480c-8005-6b05608265a5.png",
+    calibration: "bay rectified about (397.5,436.5)px, normalized to 138mm TT-cross-checked ring; 440x455mm body",
+    sourceControlPoints: BX10_RAIL_SOURCE.length,
+    generatedControlPoints: BX10_RAIL_TRACE.length,
+    mirrored: false,
+  },
   railColor: 0x35b24a,
   // The official play diagram has exactly three front-side openings:
   // Over / Xtreme / Over. There are no corresponding rear pockets.
@@ -221,110 +396,41 @@ export const STADIUM_BX10: StadiumSpec = {
   coverHeight: 0.09,
 };
 
-const BX32_RIGHT_ROUND_SIDE: RailRoundSide = {
-  id: "right-long-semicircle",
-  start: -1.52182369385743,
-  end: 1.1,
-  startRadius: 0.146907257293108,
-  endRadius: 0.146,
-  centerX: 0.0367082967510313,
-  centerY: -0.00830742635643844,
-  radius: 0.141535715420746,
-  sweepRadians: PI,
-  controlSamples: 192,
-};
-
-const BX32_LEFT_ROUND_SIDE: RailRoundSide = {
-  id: "left-long-semicircle",
-  start: 2.02,
-  end: -1.61391183320248,
-  startRadius: 0.148,
-  endRadius: 0.146595313503218,
-  centerX: -0.0352936641654428,
-  centerY: -0.00657084290654358,
-  radius: 0.142857531351441,
-  sweepRadians: PI,
-  controlSamples: 192,
-};
-
-function pointFromPolar(angle: number, radius: number): Point2 {
-  return { x: radius * dcos(angle), y: radius * dsin(angle) };
-}
-
-/** Deterministically sample the fitted circle between its exact audited polar
- * endpoints. Endpoints are supplied by the trace so release arc angles remain
- * byte-for-byte stable; this helper emits only dense interior controls. */
-function roundSideInteriorControls(side: RailRoundSide): RailTracePoint[] {
-  const start = pointFromPolar(side.start, side.startRadius);
-  const end = pointFromPolar(side.end, side.endRadius);
-  const startPhase = datan2(start.y - side.centerY, start.x - side.centerX);
-  let endPhase = datan2(end.y - side.centerY, end.x - side.centerX);
-  while (endPhase <= startPhase) endPhase += PI * 2;
-  const controls: RailTracePoint[] = [];
-  for (let index = 1; index < side.controlSamples; index++) {
-    const phase = startPhase + (endPhase - startPhase) * index / side.controlSamples;
-    const x = side.centerX + side.radius * dcos(phase);
-    const y = side.centerY + side.radius * dsin(phase);
-    controls.push({ angle: datan2(y, x), radius: Math.sqrt(x * x + y * y) });
-  }
-  return controls;
-}
-
-function circleTangentAt(side: RailRoundSide, angle: number, radius: number): Point2 {
-  const point = pointFromPolar(angle, radius);
-  const dx = point.x - side.centerX;
-  const dy = point.y - side.centerY;
-  const length = Math.sqrt(dx * dx + dy * dy);
-  return length > 1e-12 ? { x: -dy / length, y: dx / length } : { x: 1, y: 0 };
-}
-
-/** Dense cubic connector with authored endpoint tangents. It keeps the broad
- * front run and cap transitions smooth without inventing extra sharp ramps. */
-function bezierInteriorControls(
-  start: Point2,
-  end: Point2,
-  startTangent: Point2,
-  endTangent: Point2,
-  startHandle: number,
-  endHandle: number,
-  samples: number,
-): RailTracePoint[] {
-  const control1 = {
-    x: start.x + startTangent.x * startHandle,
-    y: start.y + startTangent.y * startHandle,
-  };
-  const control2 = {
-    x: end.x - endTangent.x * endHandle,
-    y: end.y - endTangent.y * endHandle,
-  };
-  const controls: RailTracePoint[] = [];
-  for (let index = 1; index < samples; index++) {
-    const u = index / samples;
-    const v = 1 - u;
-    const x = v * v * v * start.x + 3 * v * v * u * control1.x +
-      3 * v * u * u * control2.x + u * u * u * end.x;
-    const y = v * v * v * start.y + 3 * v * v * u * control1.y +
-      3 * v * u * u * control2.y + u * u * u * end.y;
-    controls.push({ angle: datan2(y, x), radius: Math.sqrt(x * x + y * y) });
-  }
-  return controls;
-}
-
-const BX32_RIGHT_SIDE_CONTROLS = roundSideInteriorControls(BX32_RIGHT_ROUND_SIDE);
-const BX32_LEFT_SIDE_CONTROLS = roundSideInteriorControls(BX32_LEFT_ROUND_SIDE);
-const BX32_LEFT_LOWER_CONTROLS = BX32_LEFT_SIDE_CONTROLS.filter((point) => point.angle < 0);
-const BX32_LEFT_UPPER_CONTROLS = BX32_LEFT_SIDE_CONTROLS.filter((point) => point.angle >= 0);
-const BX32_FRONT_LEFT = pointFromPolar(BX32_LEFT_ROUND_SIDE.end, BX32_LEFT_ROUND_SIDE.endRadius);
-const BX32_FRONT_RIGHT = pointFromPolar(BX32_RIGHT_ROUND_SIDE.start, BX32_RIGHT_ROUND_SIDE.startRadius);
-const BX32_FRONT_CONTROLS = bezierInteriorControls(
-  BX32_FRONT_LEFT,
-  BX32_FRONT_RIGHT,
-  circleTangentAt(BX32_LEFT_ROUND_SIDE, BX32_LEFT_ROUND_SIDE.end, BX32_LEFT_ROUND_SIDE.endRadius),
-  circleTangentAt(BX32_RIGHT_ROUND_SIDE, BX32_RIGHT_ROUND_SIDE.start, BX32_RIGHT_ROUND_SIDE.startRadius),
-  0.0048,
-  0.0048,
-  32,
-);
+/** Upper-half indigo centerline sampled from the exact user-supplied 500 px
+ * retail overhead image
+ * `codex-clipboard-11c8d883-8577-4d92-aebc-4db4b34113f9.png`.
+ * Pixel Y is the product's 600 mm axis. The unobstructed upper half is traced
+ * once, perspective-rectified against the 600 x 440 mm body, then mirrored
+ * about y=282.5 px as requested because the lower rail is packet-obscured.
+ * These anchors follow the center of the blue inner/outer silhouette; the
+ * Catmull-Rom conversion makes the photographed shoulders and elbows round. */
+const BX32_RETAIL_UPPER_RAIL_PX: readonly [number, number][] = [
+  [155, 282.5], [155, 252], [156, 228], [153, 219], [143, 213], [130, 204],
+  [127, 192], [127, 177], [132, 165], [145, 153], [162, 145], [181, 137],
+  [205, 131], [232, 128], [257, 131], [278, 138], [298, 150], [314, 164],
+  [326, 181], [336, 201], [344, 221], [349, 244], [352, 266], [354, 282.5],
+];
+// The two unobstructed rail crossings at the trace mirror line are x=155 and
+// x=354, fixing the photographed stadium short-axis center at their midpoint.
+// Do not translate this origin to make a release tangent aim at the center.
+const BX32_RETAIL_CENTER_X_PX = 254.5;
+const BX32_RETAIL_MIRROR_Y_PX = 282.5;
+// A single body-calibrated uniform fit would push the photographed ribbon
+// through the simulated wall once the widest 52.5 mm Bey clearance is
+// included. The product photo has residual perspective foreshortening, so fit
+// each body axis independently inside that physical envelope while retaining
+// the measured endpoint midpoint and all traced relative control positions.
+const BX32_RETAIL_LONG_AXIS_METERS_PER_PX = 0.00133;
+const BX32_RETAIL_SHORT_AXIS_METERS_PER_PX = 0.00114;
+const BX32_RAIL_UPPER_SOURCE: readonly RailVectorPoint[] = BX32_RETAIL_UPPER_RAIL_PX.map(([x, y]) => ({
+  x: (BX32_RETAIL_MIRROR_Y_PX - y) * BX32_RETAIL_LONG_AXIS_METERS_PER_PX,
+  y: (x - BX32_RETAIL_CENTER_X_PX) * BX32_RETAIL_SHORT_AXIS_METERS_PER_PX,
+}));
+const BX32_RAIL_SOURCE: readonly RailVectorPoint[] = [
+  ...BX32_RAIL_UPPER_SOURCE,
+  ...BX32_RAIL_UPPER_SOURCE.slice(1, -1).reverse().map((point) => ({ x: -point.x, y: point.y })),
+];
+const BX32_RAIL_TRACE = buildVectorRailTrace(BX32_RAIL_SOURCE, 18, 1);
 
 /** BX-32 Wide Xtreme Stadium — the official 3-player stadium (600 × 440 mm),
  * which is exactly what the free-for-all mode wants. Bowl/rail proportions
@@ -334,48 +440,30 @@ export const STADIUM_BX32: StadiumSpec = {
   labelZh: "BX-32 寬型X戰鬥盤",
   rDish: 0.15,
   dishDepth: 0.014,
-  // The bowl has to leave a deck margin for the exit trays: at 0.21 it came
+  // The bowl has to leave a deck margin for the concave loss zones: at 0.21 it came
   // within 10 mm of the 440 mm body's short edge, which left no room for a
   // pocket at all (and no real stadium has its wall flush to the shell).
   rWall: 0.19,
   wallShape: { kind: "obround", halfStraight: 0.055 },
   rimRise: 0.022,
   rimBaseSlope: 0.09,
-  rRail: 0.152,
+  // Nominal mean radius is retained for legacy/debug callers; all product
+  // contact and rendering use the explicit 600 mm-axis vector trace below.
+  rRail: 0.205,
   railHalfWidth: 0.012,
+  railPhysicalHalfWidth: 0.0068,
   // one continuous indigo loop following the wide oval bowl…
   railArcs: [{ start: -PI, end: PI }],
-  railReleaseArcs: [
-    { start: 1.1, end: 1.16 },
-    { start: 1.96, end: 2.02 },
-  ],
-  railRoundSides: [BX32_RIGHT_ROUND_SIDE, BX32_LEFT_ROUND_SIDE],
-  // Photo-traced obround loop and deep rear-center dogleg. The trace is the
-  // shared simulation/render centerline; it is not a stretched circle.
-  railTrace: [
-    { angle: -PI, radius: 0.178 },
-    ...BX32_LEFT_LOWER_CONTROLS,
-    {
-      angle: BX32_LEFT_ROUND_SIDE.end,
-      radius: BX32_LEFT_ROUND_SIDE.endRadius,
-    },
-    ...BX32_FRONT_CONTROLS,
-    {
-      angle: BX32_RIGHT_ROUND_SIDE.start,
-      radius: BX32_RIGHT_ROUND_SIDE.startRadius,
-    },
-    ...BX32_RIGHT_SIDE_CONTROLS,
-    { angle: 1.1, radius: 0.146, linearToNext: true },
-    // The Wide Stadium also uses sharp XY doglegs, not an elliptical cosine
-    // depression. Its long inner run forms the rear-center attack bay.
-    { angle: 1.16, radius: 0.119 },
-    { angle: 1.4, radius: 0.118 },
-    { angle: 1.7, radius: 0.118 },
-    { angle: 1.96, radius: 0.119, linearToNext: true },
-    { angle: 2.02, radius: 0.148 },
-    ...BX32_LEFT_UPPER_CONTROLS,
-    { angle: PI, radius: 0.178 },
-  ],
+  railReleaseArcs: [{ start: -PI, end: PI }],
+  railTrace: BX32_RAIL_TRACE,
+  railTraceReference: {
+    method: "raster-vector-catmull-rom",
+    source: "user:codex-clipboard-11c8d883-8577-4d92-aebc-4db4b34113f9.png",
+    calibration: "upper half rectified 1.330x1.140mm/px about endpoint midpoint x=254.5px; 600x440mm body; mirrored",
+    sourceControlPoints: BX32_RETAIL_UPPER_RAIL_PX.length,
+    generatedControlPoints: BX32_RAIL_TRACE.length,
+    mirrored: true,
+  },
   railColor: 0x5246c9,
   // Product photography shows two narrow, tangential rear Xtreme slots and
   // a single trapezoidal front Over opening. No extra corner pockets.
@@ -392,8 +480,8 @@ export const STADIUM_BX32: StadiumSpec = {
         inwardDepth: 0.025,
         outwardDepth: 0.046,
         skew: 1.02,
-        catchHalfWidth: 0.05,
-        catchDepth: 0.095,
+        basinHalfWidth: 0.05,
+        basinDepth: 0.095,
       },
     },
     {
@@ -408,8 +496,8 @@ export const STADIUM_BX32: StadiumSpec = {
         inwardDepth: 0.025,
         outwardDepth: 0.046,
         skew: -1.02,
-        catchHalfWidth: 0.05,
-        catchDepth: 0.095,
+        basinHalfWidth: 0.05,
+        basinDepth: 0.095,
       },
     },
     {
@@ -460,8 +548,11 @@ export const STADIUM_GEOMETRY = Object.freeze({
   railChannelThicknessM: 0.0024,
   railPhysicalHalfWidthM: 0.0036,
   casingThicknessM: 0.002,
-  pocketFloorThicknessM: 0.0035,
-  pocketRecessM: 0.028,
+  // The loss zones are depressions in the one-piece battle surface. Public
+  // drawings do not dimension their section, so this is photo-scaled from
+  // the official product views rather than claimed as a factory dimension.
+  pocketBasinDepthM: 0.024,
+  pocketBasinShoulderM: 0.014,
 });
 
 export interface Point2 {
@@ -546,7 +637,26 @@ export interface PocketPath {
   outerCenter: Point2;
 }
 
+const POCKET_PATH_CACHE = new WeakMap<StadiumSpec, WeakMap<PocketSpec, PocketPath>>();
+const POCKET_THROAT_CACHE = new WeakMap<StadiumSpec, WeakMap<PocketSpec, readonly Point2[]>>();
+const POCKET_BASIN_CACHE = new WeakMap<StadiumSpec, WeakMap<PocketSpec, readonly Point2[]>>();
+
+function pocketCache<T>(
+  cache: WeakMap<StadiumSpec, WeakMap<PocketSpec, T>>,
+  stadium: StadiumSpec,
+): WeakMap<PocketSpec, T> {
+  let entries = cache.get(stadium);
+  if (!entries) {
+    entries = new WeakMap<PocketSpec, T>();
+    cache.set(stadium, entries);
+  }
+  return entries;
+}
+
 export function pocketPath(s: StadiumSpec, pocket: PocketSpec): PocketPath {
+  const entries = pocketCache(POCKET_PATH_CACHE, s);
+  const cached = entries.get(pocket);
+  if (cached) return cached;
   const boundary = stadiumBoundaryPointAt(s, pocket.angleCenter);
   const normal = stadiumBoundaryNormalAt(s, boundary.x, boundary.y);
   const tangent = { x: -normal.y, y: normal.x };
@@ -562,7 +672,7 @@ export function pocketPath(s: StadiumSpec, pocket: PocketSpec): PocketPath {
     y: (normal.y * c + tangent.y * sn) / axisLength,
   };
   const across = { x: -axis.y, y: axis.x };
-  return {
+  const path = {
     boundary,
     axis,
     across,
@@ -575,10 +685,15 @@ export function pocketPath(s: StadiumSpec, pocket: PocketSpec): PocketPath {
       y: boundary.y + axis.y * pocket.throat.outwardDepth,
     },
   };
+  entries.set(pocket, path);
+  return path;
 }
 
 /** Exact top-view throat used by simulation, rendering, and burst debris. */
 export function pocketPolygon(s: StadiumSpec, pocket: PocketSpec): readonly Point2[] {
+  const entries = pocketCache(POCKET_THROAT_CACHE, s);
+  const cached = entries.get(pocket);
+  if (cached) return cached;
   const f = pocketPath(s, pocket);
   const iw = pocket.throat.innerHalfWidth;
   const ow = pocket.throat.outerHalfWidth;
@@ -614,39 +729,84 @@ export function pocketPolygon(s: StadiumSpec, pocket: PocketSpec): readonly Poin
         y: innerCap.y + f.axis.y * along + f.across.y * across,
       });
     }
+    entries.set(pocket, points);
     return points;
   }
-  return [
+  const points = [
     { x: f.innerCenter.x + f.across.x * iw, y: f.innerCenter.y + f.across.y * iw },
     { x: f.outerCenter.x + f.across.x * ow, y: f.outerCenter.y + f.across.y * ow },
     { x: f.outerCenter.x - f.across.x * ow, y: f.outerCenter.y - f.across.y * ow },
     { x: f.innerCenter.x - f.across.x * iw, y: f.innerCenter.y - f.across.y * iw },
   ];
+  entries.set(pocket, points);
+  return points;
 }
 
-/** Catch-tray footprint. Usually identical to the throat; BX-32 widens
- * behind each narrow rounded slot so a complete Bey can be retained. */
-export function pocketCatchPolygon(s: StadiumSpec, pocket: PocketSpec): readonly Point2[] {
-  const catchHalfWidth = pocket.throat.catchHalfWidth;
-  const catchDepth = pocket.throat.catchDepth;
-  if (catchHalfWidth === undefined || catchDepth === undefined) return pocketPolygon(s, pocket);
+function cross2(origin: Point2, a: Point2, b: Point2): number {
+  return (a.x - origin.x) * (b.y - origin.y) - (a.y - origin.y) * (b.x - origin.x);
+}
+
+/** Deterministic clockwise convex hull. Official loss-zone basins are convex
+ * molded depressions; using one outline avoids an artificial throat/floor
+ * overlap seam in collision, terrain, and rendering. */
+function convexHullClockwise(points: readonly Point2[]): Point2[] {
+  const sorted = [...points].sort((a, b) => a.x - b.x || a.y - b.y);
+  const unique = sorted.filter((point, index) =>
+    index === 0 || point.x !== sorted[index - 1]!.x || point.y !== sorted[index - 1]!.y
+  );
+  if (unique.length <= 2) return unique.reverse();
+  const lower: Point2[] = [];
+  for (const point of unique) {
+    while (lower.length >= 2 && cross2(lower[lower.length - 2]!, lower[lower.length - 1]!, point) <= 0) {
+      lower.pop();
+    }
+    lower.push(point);
+  }
+  const upper: Point2[] = [];
+  for (let index = unique.length - 1; index >= 0; index--) {
+    const point = unique[index]!;
+    while (upper.length >= 2 && cross2(upper[upper.length - 2]!, upper[upper.length - 1]!, point) <= 0) {
+      upper.pop();
+    }
+    upper.push(point);
+  }
+  lower.pop();
+  upper.pop();
+  return lower.concat(upper).reverse();
+}
+
+/** Complete top-view footprint of the one-piece concave loss-zone basin.
+ * BX-32 continues its narrow rounded mouth into a broader rounded depression;
+ * both portions are molded as one surface, never as a separate catch tray. */
+export function pocketBasinPolygon(s: StadiumSpec, pocket: PocketSpec): readonly Point2[] {
+  const entries = pocketCache(POCKET_BASIN_CACHE, s);
+  const cached = entries.get(pocket);
+  if (cached) return cached;
+  const throat = pocketPolygon(s, pocket);
+  const basinHalfWidth = pocket.throat.basinHalfWidth;
+  const basinDepth = pocket.throat.basinDepth;
+  if (basinHalfWidth === undefined || basinDepth === undefined) {
+    entries.set(pocket, throat);
+    return throat;
+  }
   const f = pocketPath(s, pocket);
-  const innerAlong = pocket.throat.outwardDepth * 0.22;
-  const inner = {
-    x: f.boundary.x + f.axis.x * innerAlong,
-    y: f.boundary.y + f.axis.y * innerAlong,
-  };
-  const outer = {
-    x: f.boundary.x + f.axis.x * catchDepth,
-    y: f.boundary.y + f.axis.y * catchDepth,
-  };
-  const innerWidth = pocket.throat.outerHalfWidth * 0.95;
-  return [
-    { x: inner.x + f.across.x * innerWidth, y: inner.y + f.across.y * innerWidth },
-    { x: outer.x + f.across.x * catchHalfWidth, y: outer.y + f.across.y * catchHalfWidth },
-    { x: outer.x - f.across.x * catchHalfWidth, y: outer.y - f.across.y * catchHalfWidth },
-    { x: inner.x - f.across.x * innerWidth, y: inner.y - f.across.y * innerWidth },
-  ];
+  const innerAlong = pocket.throat.outwardDepth * 0.2;
+  const capRadius = Math.min(basinHalfWidth, Math.max(0.001, basinDepth - innerAlong));
+  const capCenterAlong = basinDepth - capRadius;
+  const basinPoints: Point2[] = [];
+  const capDivisions = 32;
+  for (let division = 0; division <= capDivisions; division++) {
+    const angle = (PI * division) / capDivisions;
+    const along = capCenterAlong + dsin(angle) * capRadius;
+    const across = dcos(angle) * basinHalfWidth;
+    basinPoints.push({
+      x: f.boundary.x + f.axis.x * along + f.across.x * across,
+      y: f.boundary.y + f.axis.y * along + f.across.y * across,
+    });
+  }
+  const basin = convexHullClockwise([...throat, ...basinPoints]);
+  entries.set(pocket, basin);
+  return basin;
 }
 
 /** Allocation-free convex containment used with precomputed product polygons
@@ -673,31 +833,28 @@ export function pocketThroatAtPoint(s: StadiumSpec, x: number, y: number): Pocke
   return null;
 }
 
-/** Entire live pocket terrain (throat plus any broader catch tray). */
+/** Entire live pocket terrain: one continuous concave basin. */
 export function pocketAtPoint(s: StadiumSpec, x: number, y: number): PocketSpec | null {
   for (const pocket of s.pockets) {
-    if (
-      pointInConvexPolygon(pocketPolygon(s, pocket), x, y) ||
-      pointInConvexPolygon(pocketCatchPolygon(s, pocket), x, y)
-    ) return pocket;
+    if (pointInConvexPolygon(pocketBasinPolygon(s, pocket), x, y)) return pocket;
   }
   return null;
 }
 
-function pointSegmentDistance(point: Point2, a: Point2, b: Point2): number {
+function pointSegmentDistance(x: number, y: number, a: Point2, b: Point2): number {
   const dx = b.x - a.x;
   const dy = b.y - a.y;
   const denom = dx * dx + dy * dy;
   const t = denom > 1e-14
-    ? Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / denom))
+    ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / denom))
     : 0;
   const px = a.x + dx * t;
   const py = a.y + dy * t;
-  return Math.sqrt((point.x - px) ** 2 + (point.y - py) ** 2);
+  return Math.sqrt((x - px) ** 2 + (y - py) ** 2);
 }
 
-/** True only when the Bey center is deep enough for its footprint to be
- * retained by the catch tray, not balanced in the narrow mouth. */
+/** True only when the Bey's complete footprint is retained by the concave
+ * basin rather than balancing across its open inner mouth. */
 export function pocketSecureAtPoint(
   s: StadiumSpec,
   pocket: PocketSpec,
@@ -705,23 +862,18 @@ export function pocketSecureAtPoint(
   y: number,
   clearance: number,
 ): boolean {
-  const polygon = pocketCatchPolygon(s, pocket);
+  const polygon = pocketBasinPolygon(s, pocket);
   if (!pointInConvexPolygon(polygon, x, y)) return false;
   let edgeDistance = Infinity;
   for (let i = 0; i < polygon.length; i++) {
     edgeDistance = Math.min(edgeDistance, pointSegmentDistance(
-      { x, y },
+      x,
+      y,
       polygon[i]!,
       polygon[(i + 1) % polygon.length]!,
     ));
   }
   return edgeDistance >= clearance;
-}
-
-/** Top of a modeled catch tray. Kept in core to prevent render/debris drift. */
-export function pocketFloorTopZ(s: StadiumSpec): number {
-  return surfaceZ(s, s.rWall) - STADIUM_GEOMETRY.pocketRecessM +
-    STADIUM_GEOMETRY.pocketFloorThicknessM;
 }
 
 /** Bowl height at an actual point. BX-32 maps the radial fraction of its
@@ -741,34 +893,101 @@ export function surfaceGradientAt(s: StadiumSpec, x: number, y: number): Point2 
   };
 }
 
-function pocketProgress(s: StadiumSpec, pocket: PocketSpec, x: number, y: number): number {
-  const f = pocketPath(s, pocket);
-  const dx = x - f.innerCenter.x;
-  const dy = y - f.innerCenter.y;
-  const length = pocket.throat.inwardDepth + pocket.throat.outwardDepth;
-  return Math.max(0, Math.min(1, (dx * f.axis.x + dy * f.axis.y) / length));
+function smooth01(value: number): number {
+  const clamped = Math.max(0, Math.min(1, value));
+  return clamped * clamped * (3 - 2 * clamped);
 }
 
-/** Height of the sloped pocket throat or recessed tray at a point. */
+interface PocketSurfaceFrame {
+  target: Point2;
+  path: PocketPath;
+  halfAlong: number;
+  halfAcross: number;
+}
+
+const POCKET_SURFACE_CACHE = new WeakMap<StadiumSpec, WeakMap<PocketSpec, PocketSurfaceFrame>>();
+
+function pocketSurfaceFrame(s: StadiumSpec, pocket: PocketSpec): PocketSurfaceFrame {
+  const entries = pocketCache(POCKET_SURFACE_CACHE, s);
+  const cached = entries.get(pocket);
+  if (cached) return cached;
+  const target = pocketExitTarget(s, pocket);
+  const path = pocketPath(s, pocket);
+  let halfAlong = 0;
+  let halfAcross = 0;
+  for (const point of pocketBasinPolygon(s, pocket)) {
+    const dx = point.x - target.x;
+    const dy = point.y - target.y;
+    halfAlong = Math.max(halfAlong, Math.abs(dx * path.axis.x + dy * path.axis.y));
+    halfAcross = Math.max(halfAcross, Math.abs(dx * path.across.x + dy * path.across.y));
+  }
+  const frame = { target, path, halfAlong, halfAcross };
+  entries.set(pocket, frame);
+  return frame;
+}
+
+function pocketBoundaryDistance(s: StadiumSpec, pocket: PocketSpec, x: number, y: number): number {
+  const polygon = pocketBasinPolygon(s, pocket);
+  let distance = Infinity;
+  for (let index = 0; index < polygon.length; index++) {
+    distance = Math.min(distance, pointSegmentDistance(
+      x,
+      y,
+      polygon[index]!,
+      polygon[(index + 1) % polygon.length]!,
+    ));
+  }
+  return distance;
+}
+
+function pocketSurroundingZ(s: StadiumSpec, x: number, y: number): number {
+  const boundaryDistance = stadiumBoundarySignedDistance(s, x, y);
+  const rimZ = surfaceZ(s, s.rWall);
+  if (boundaryDistance >= 0) return rimZ;
+  const bowlZ = surfaceZAt(s, x, y);
+  const blendWidth = 0.008;
+  if (boundaryDistance <= -blendWidth) return bowlZ;
+  // Flatten the last 8 mm of the basin mouth into the coplanar deck. The
+  // smoothstep has zero derivative at both ends, giving C1 continuity at the
+  // raw bowl boundary rather than the former 0.5 mm step/slope kink.
+  const flatten = smooth01((boundaryDistance + blendWidth) / blendWidth);
+  return bowlZ + (rimZ - bowlZ) * flatten;
+}
+
+/** Height of the one-piece concave loss-zone surface. It meets the bowl/deck
+ * at identical height with zero shoulder derivative, so there is no inserted
+ * floor, vertical internal seam, or invisible step at the mouth. */
 export function pocketSurfaceZ(s: StadiumSpec, pocket: PocketSpec, x: number, y: number): number {
-  const t = pocketProgress(s, pocket, x, y);
-  const inner = pocketPath(s, pocket).innerCenter;
-  const innerZ = surfaceZAt(s, inner.x, inner.y) - 0.002;
-  const smooth = t * t * (3 - 2 * t);
-  return innerZ + (pocketFloorTopZ(s) - innerZ) * smooth;
+  const rimZ = pocketSurroundingZ(s, x, y);
+  const edgeDistance = pocketBoundaryDistance(s, pocket, x, y);
+  const shoulder = smooth01(edgeDistance / STADIUM_GEOMETRY.pocketBasinShoulderM);
+  const frame = pocketSurfaceFrame(s, pocket);
+  const dx = x - frame.target.x;
+  const dy = y - frame.target.y;
+  const along = (dx * frame.path.axis.x + dy * frame.path.axis.y) / Math.max(frame.halfAlong, 1e-6);
+  const across = (dx * frame.path.across.x + dy * frame.path.across.y) / Math.max(frame.halfAcross, 1e-6);
+  const centerBias = smooth01(1 - Math.min(1, along * along + across * across));
+  const depression = STADIUM_GEOMETRY.pocketBasinDepthM * shoulder * (0.82 + centerBias * 0.18);
+  return rimZ - depression;
 }
 
-/** Deterministic visual/rigid-body rest target within the real catch tray. */
+/** Deterministic visual/rigid-body rest target at the concave basin center. */
 export function pocketExitTarget(s: StadiumSpec, pocket: PocketSpec): Point2 {
   const path = pocketPath(s, pocket);
-  const catchDepth = pocket.throat.catchDepth;
-  const along = catchDepth === undefined
+  const basinDepth = pocket.throat.basinDepth;
+  const along = basinDepth === undefined
     ? (pocket.throat.outwardDepth - pocket.throat.inwardDepth) / 2
-    : (pocket.throat.outwardDepth * 0.22 + catchDepth) / 2;
+    : (pocket.throat.outwardDepth * 0.2 + basinDepth) / 2;
   return {
     x: path.boundary.x + path.axis.x * along,
     y: path.boundary.y + path.axis.y * along,
   };
+}
+
+/** Canonical basin-bottom height used by presentation/tests. */
+export function pocketBasinBottomZ(s: StadiumSpec, pocket: PocketSpec): number {
+  const target = pocketExitTarget(s, pocket);
+  return pocketSurfaceZ(s, pocket, target.x, target.y);
 }
 
 function terrainHeightAt(s: StadiumSpec, x: number, y: number): Pick<StadiumTerrainSample, "height" | "region" | "pocket"> {
@@ -792,7 +1011,7 @@ function terrainHeightAt(s: StadiumSpec, x: number, y: number): Pick<StadiumTerr
     const closestRail = railClosestPoint(s, x, y);
     const railDistance = closestRail.distance;
     const onRailArc = s.railArcs.some((arc) => inArc(arc, closestRail.theta));
-    if (onRailArc && railDistance <= STADIUM_GEOMETRY.railPhysicalHalfWidthM) {
+    if (onRailArc && railDistance <= (s.railPhysicalHalfWidth ?? STADIUM_GEOMETRY.railPhysicalHalfWidthM)) {
       const toothHalfDepth = STADIUM_GEOMETRY.railToothDepthM / 2;
       const toothProfile = Math.max(0, 1 - railDistance / toothHalfDepth);
       height += STADIUM_GEOMETRY.railChannelThicknessM +
@@ -806,7 +1025,9 @@ function terrainHeightAt(s: StadiumSpec, x: number, y: number): Pick<StadiumTerr
 /** Canonical terrain sample shared by rendered geometry and rigid debris. */
 export function stadiumTerrainAt(s: StadiumSpec, x: number, y: number): StadiumTerrainSample {
   const center = terrainHeightAt(s, x, y);
-  const h = 0.00025;
+  // Fine enough to resolve the C1 shoulder of a molded loss-zone basin
+  // without turning its position-matched rim into an artificial normal seam.
+  const h = 0.0001;
   // Differentiate the complete physical envelope, including pocket ramps and
   // the narrow trapezoidal rack profile—not merely the underlying bowl.
   const dzdx = (terrainHeightAt(s, x + h, y).height - terrainHeightAt(s, x - h, y).height) / (2 * h);
@@ -865,7 +1086,24 @@ interface CompiledRailSegment {
 }
 
 const COMPILED_RAIL_TRACES = new WeakMap<readonly RailTracePoint[], readonly CompiledRailSegment[]>();
-const COMPILED_LINEAR_RAIL_SEGMENTS = new WeakMap<readonly RailTracePoint[], readonly number[]>();
+interface RailBvhNode {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  left: number;
+  right: number;
+  start: number;
+  count: number;
+}
+interface RailBvh {
+  nodes: readonly RailBvhNode[];
+  segmentIndices: readonly number[];
+  /** Reused by synchronous deterministic queries; avoids hot-path garbage. */
+  queryStack: Int32Array;
+}
+const RAIL_BVH_LEAF_SEGMENTS = 1;
+const COMPILED_RAIL_BVHS = new WeakMap<readonly RailTracePoint[], RailBvh>();
 
 function compiledRailTrace(trace: readonly RailTracePoint[]): readonly CompiledRailSegment[] {
   const cached = COMPILED_RAIL_TRACES.get(trace);
@@ -944,10 +1182,70 @@ function compiledRailTrace(trace: readonly RailTracePoint[]): readonly CompiledR
     });
   }
   COMPILED_RAIL_TRACES.set(trace, compiled);
-  COMPILED_LINEAR_RAIL_SEGMENTS.set(
-    trace,
-    compiled.flatMap((segment, index) => segment.linear ? [index] : []),
-  );
+  // Parametric raster traces contain inset/radial shoulders, so neither polar
+  // bearing nor loop parameter identifies the globally nearest span for an
+  // interior query. Build a deterministic flat BVH over exact cubic Bezier
+  // control-hull AABBs. Point-to-box lower bounds make the result global while
+  // the nearer-child-first traversal avoids scanning hundreds of dense spans.
+  const segmentBounds = compiled.map((segment) => {
+    const controls = segment.linear
+      ? [segment.pa, segment.pb]
+      : [
+          segment.pa,
+          { x: segment.pa.x + segment.m0x / 3, y: segment.pa.y + segment.m0y / 3 },
+          { x: segment.pb.x - segment.m1x / 3, y: segment.pb.y - segment.m1y / 3 },
+          segment.pb,
+        ];
+    const minX = Math.min(...controls.map((point) => point.x));
+    const maxX = Math.max(...controls.map((point) => point.x));
+    const minY = Math.min(...controls.map((point) => point.y));
+    const maxY = Math.max(...controls.map((point) => point.y));
+    return { minX, maxX, minY, maxY };
+  });
+  const nodes: RailBvhNode[] = [];
+  const orderedLeafSegments: number[] = [];
+  const buildNode = (indices: number[]): number => {
+    let minX = Infinity;
+    let maxX = -Infinity;
+    let minY = Infinity;
+    let maxY = -Infinity;
+    for (const index of indices) {
+      const bounds = segmentBounds[index]!;
+      minX = Math.min(minX, bounds.minX);
+      maxX = Math.max(maxX, bounds.maxX);
+      minY = Math.min(minY, bounds.minY);
+      maxY = Math.max(maxY, bounds.maxY);
+    }
+    const nodeIndex = nodes.length;
+    nodes.push({ minX, maxX, minY, maxY, left: -1, right: -1, start: -1, count: 0 });
+    if (indices.length <= RAIL_BVH_LEAF_SEGMENTS) {
+      indices.sort((a, b) => a - b);
+      const start = orderedLeafSegments.length;
+      orderedLeafSegments.push(...indices);
+      nodes[nodeIndex] = { minX, maxX, minY, maxY, left: -1, right: -1, start, count: indices.length };
+      return nodeIndex;
+    }
+    const splitX = maxX - minX >= maxY - minY;
+    indices.sort((a, b) => {
+      const first = segmentBounds[a]!;
+      const second = segmentBounds[b]!;
+      const delta = splitX
+        ? first.minX + first.maxX - second.minX - second.maxX
+        : first.minY + first.maxY - second.minY - second.maxY;
+      return delta || a - b;
+    });
+    const middle = indices.length >>> 1;
+    const left = buildNode(indices.slice(0, middle));
+    const right = buildNode(indices.slice(middle));
+    nodes[nodeIndex] = { minX, maxX, minY, maxY, left, right, start: -1, count: 0 };
+    return nodeIndex;
+  };
+  buildNode(compiled.map((_segment, index) => index));
+  COMPILED_RAIL_BVHS.set(trace, {
+    nodes,
+    segmentIndices: orderedLeafSegments,
+    queryStack: new Int32Array(nodes.length),
+  });
   return compiled;
 }
 
@@ -972,6 +1270,7 @@ function railTraceSegmentAt(trace: readonly RailTracePoint[], theta: number): Ra
 }
 
 function traceControlPoint(point: RailTracePoint): Point2 {
+  if (point.x !== undefined && point.y !== undefined) return { x: point.x, y: point.y };
   return {
     x: point.radius * dcos(point.angle),
     y: point.radius * dsin(point.angle),
@@ -1024,7 +1323,7 @@ function tracedRailPointAt(trace: readonly RailTracePoint[], theta: number): Poi
   return pointOnRailSegment(segment, u);
 }
 
-/** Radial distance of the Xtreme Line at polar parameter θ. */
+/** Radial distance of the Xtreme Line at periodic path parameter θ. */
 export function railRadiusAt(s: StadiumSpec, theta: number): number {
   const trace = s.railTrace;
   if (trace && trace.length >= 2) {
@@ -1137,7 +1436,15 @@ function nearestPointOnRailSegment(segment: CompiledRailSegment, x: number, y: n
   return { u, point, tangent, distance2 };
 }
 
-/** Deterministic local closest-point solve on the shared traced centerline. */
+function railBvhNodeDistance2(node: RailBvhNode, x: number, y: number): number {
+  const dx = x < node.minX ? node.minX - x : x > node.maxX ? x - node.maxX : 0;
+  const dy = y < node.minY ? node.minY - y : y > node.maxY ? y - node.maxY : 0;
+  return dx * dx + dy * dy;
+}
+
+/** Deterministic globally closest-point solve on the shared traced centerline.
+ * The flat Bezier-hull BVH bounds the hot-path candidate set without
+ * assuming the nearest bay/shoulder shares the query's polar bearing. */
 export function railClosestPoint(s: StadiumSpec, x: number, y: number): RailClosestPoint {
   let theta: number;
   let point: Point2;
@@ -1145,41 +1452,43 @@ export function railClosestPoint(s: StadiumSpec, x: number, y: number): RailClos
   let bestDistance2 = Infinity;
   if (s.railTrace && s.railTrace.length >= 2) {
     const compiled = compiledRailTrace(s.railTrace);
-    const local = railTraceSegmentAt(s.railTrace, datan2(y, x));
-    theta = local.segment.a.angle;
-    point = local.segment.pa;
+    const bvh = COMPILED_RAIL_BVHS.get(s.railTrace)!;
+    theta = compiled[0]!.a.angle;
+    point = compiled[0]!.pa;
     tangent = { x: 1, y: 0 };
-    // The authored rails are star-shaped. Ordinary contact resolves on the
-    // polar span (plus an endpoint neighbour); cached direct checks of the two
-    // authored linear jogs cover their larger angular normal offsets.
-    const accept = (index: number, nearest: RailSegmentNearest): void => {
-      if (nearest.distance2 >= bestDistance2) return;
-      const segment = compiled[index]!;
-      bestDistance2 = nearest.distance2;
-      theta = segment.a.angle + segment.angleWidth * nearest.u;
-      point = nearest.point;
-      tangent = nearest.tangent;
-    };
-    const nearest = nearestPointOnRailSegment(local.segment, x, y);
-    accept(local.index, nearest);
-    // Ordinary points solve on their polar span alone. Only a projection at
-    // a span endpoint can belong to a neighbour; this keeps terrain builds
-    // and the 240 Hz contact path bounded to one cubic in the common case.
-    if (nearest.u <= 0.02) {
-      const previous = (local.index + compiled.length - 1) % compiled.length;
-      accept(previous, nearestPointOnRailSegment(compiled[previous]!, x, y));
-    }
-    if (nearest.u >= 0.98) {
-      const next = (local.index + 1) % compiled.length;
-      accept(next, nearestPointOnRailSegment(compiled[next]!, x, y));
-    }
-    // A normal offset from a near-radial jog can change polar angle by more
-    // than one sparse control span. There are only two authored jogs per
-    // product, so test those cached straight segments directly rather than
-    // widening every query into a dense/global scan.
-    for (const index of COMPILED_LINEAR_RAIL_SEGMENTS.get(s.railTrace) ?? []) {
-      if (index === local.index) continue;
-      accept(index, nearestPointOnRailSegment(compiled[index]!, x, y));
+    const stack = bvh.queryStack;
+    let stackSize = 1;
+    stack[0] = 0;
+    while (stackSize > 0) {
+      const node = bvh.nodes[stack[--stackSize]!]!;
+      if (railBvhNodeDistance2(node, x, y) >= bestDistance2) continue;
+      if (node.count > 0) {
+        const end = node.start + node.count;
+        for (let offset = node.start; offset < end; offset++) {
+          const index = bvh.segmentIndices[offset]!;
+          const segment = compiled[index]!;
+          const nearest = nearestPointOnRailSegment(segment, x, y);
+          if (nearest.distance2 >= bestDistance2) continue;
+          bestDistance2 = nearest.distance2;
+          theta = segment.a.angle + segment.angleWidth * nearest.u;
+          point = nearest.point;
+          tangent = nearest.tangent;
+        }
+        continue;
+      }
+      const left = bvh.nodes[node.left]!;
+      const right = bvh.nodes[node.right]!;
+      const leftDistance2 = railBvhNodeDistance2(left, x, y);
+      const rightDistance2 = railBvhNodeDistance2(right, x, y);
+      // Stack is LIFO: append the farther child first so the nearer child can
+      // tighten the best bound before the farther subtree is reconsidered.
+      if (leftDistance2 <= rightDistance2) {
+        if (rightDistance2 < bestDistance2) stack[stackSize++] = node.right;
+        if (leftDistance2 < bestDistance2) stack[stackSize++] = node.left;
+      } else {
+        if (leftDistance2 < bestDistance2) stack[stackSize++] = node.left;
+        if (rightDistance2 < bestDistance2) stack[stackSize++] = node.right;
+      }
     }
   } else {
     theta = datan2(y, x);
@@ -1231,9 +1540,10 @@ export function railReleaseDirectionAt(
   const tangent = railTangentAt(s, theta);
   const travel = { x: tangent.x * direction, y: tangent.y * direction };
   const radialDot = travel.x * point.x / radius + travel.y * point.y / radius;
-  // Only the nearly radial product jog may release. A loose threshold made
-  // ordinary obround tangents look like false sling ramps at the ±Y ends.
-  return radialDot < -0.7 ? travel : null;
+  // Only the near-radial, photo-traced shoulder may release. This threshold
+  // excludes the round elbow itself: the departing tangent then intersects a
+  // centered Bey envelope instead of merely skimming the inner bowl.
+  return radialDot < -0.97 ? travel : null;
 }
 
 export function inArc(arc: RailArc, angle: number): boolean {

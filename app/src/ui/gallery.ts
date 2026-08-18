@@ -1,12 +1,11 @@
-// Swipeable gallery picker: horizontally scroll-snapped cards with lazy
-// high-fidelity 3D thumbnails, a live detail panel (stat bars + description),
-// tap or swipe to focus, 選擇 to confirm. Used for bey/deck pickers and the
-// 零件庫 part pickers.
+// Lazy high-fidelity 3D gallery picker with a live detail panel (stat bars +
+// description). Bey/deck pickers use a responsive grid so the roster can be
+// scanned at a glance; the narrower 零件庫 picker retains the swipe strip.
 
 import { resolveCombo } from "../core/derive";
 import type { PartCategory, PartEntry } from "../core/types";
 import { ZH } from "../i18n/zh";
-import { comboThumb, partThumb } from "../render/thumbs";
+import { comboThumb, partThumb, versusThumb } from "../render/thumbs";
 import { button, el, overlay } from "./dom";
 import type { GameApp } from "./app";
 
@@ -19,11 +18,19 @@ export interface GalleryItem {
   /** filter-chip tags, e.g. type/line/source */
   tags?: string[];
   thumb: (() => string | Promise<string>) | null;
+  /** Optional high-cost asset warmup for the item the player commits to. */
+  prefetch?: () => void;
 }
 
 export interface GalleryFilter {
   label: string;
   tag: string;
+}
+
+export type GalleryLayout = "strip" | "grid";
+
+export function galleryLayoutClass(layout: GalleryLayout): string {
+  return layout === "grid" ? "gstrip ggrid" : "gstrip";
 }
 
 export function openGallery(
@@ -33,10 +40,11 @@ export function openGallery(
   onPick: (key: string) => void,
   onBack: () => void,
   filters?: GalleryFilter[],
+  layout: GalleryLayout = "strip",
 ): void {
   const o = overlay();
   o.style.zIndex = "40";
-  const strip = el("div", { class: "gstrip" });
+  const strip = el("div", { class: galleryLayoutClass(layout) });
   const detail = el("div", { class: "panel gdetail" });
   let focusKey = currentKey ?? items[0]?.key ?? "";
 
@@ -86,7 +94,7 @@ export function openGallery(
         }
       }
     },
-    { root: strip, rootMargin: "0px 300px" },
+    { root: strip, rootMargin: layout === "grid" ? "240px 0px" : "0px 300px" },
   );
 
   const setFocus = (key: string): void => {
@@ -107,21 +115,25 @@ export function openGallery(
     io.observe(card);
   }
 
-  // focus follows the card nearest the strip center while swiping
-  let raf = 0;
-  strip.addEventListener("scroll", () => {
-    cancelAnimationFrame(raf);
-    raf = requestAnimationFrame(() => {
-      const mid = strip.scrollLeft + strip.clientWidth / 2;
-      let best: { key: string; d: number } | null = null;
-      for (const [k, c] of cards) {
-        if (c.style.display === "none") continue;
-        const d = Math.abs(c.offsetLeft + c.offsetWidth / 2 - mid);
-        if (!best || d < best.d) best = { key: k, d };
-      }
-      if (best && best.key !== focusKey) setFocus(best.key);
+  // The swipe strip follows the nearest horizontal card. A grid changes focus
+  // only on an explicit tap/click, so vertical browsing never changes the
+  // player's pending selection by accident.
+  if (layout === "strip") {
+    let raf = 0;
+    strip.addEventListener("scroll", () => {
+      cancelAnimationFrame(raf);
+      raf = requestAnimationFrame(() => {
+        const mid = strip.scrollLeft + strip.clientWidth / 2;
+        let best: { key: string; d: number } | null = null;
+        for (const [k, c] of cards) {
+          if (c.style.display === "none") continue;
+          const d = Math.abs(c.offsetLeft + c.offsetWidth / 2 - mid);
+          if (!best || d < best.d) best = { key: k, d };
+        }
+        if (best && best.key !== focusKey) setFocus(best.key);
+      });
     });
-  });
+  }
 
   // filter chips: quickly narrow the strip (type / line / custom …)
   const chipRow = el("div", { class: "gchips" });
@@ -166,6 +178,7 @@ export function openGallery(
       "div",
       { class: "row", style: "width:min(92vw,420px)" },
       button(ZH.ready, () => {
+        items.find((item) => item.key === focusKey)?.prefetch?.();
         io.disconnect();
         o.remove();
         onPick(focusKey);
@@ -260,6 +273,7 @@ export function comboItems(app: GameApp, includeAuto: boolean): GalleryItem[] {
         { label: "耐久", v: stats.burst, max: 110, color: BAR_COLORS.burst },
       ],
       thumb: () => comboThumb(app.index, sel, opt.value),
+      prefetch: () => { void versusThumb(app.index, sel, `picker-${opt.value}`); },
     });
   }
   return out;

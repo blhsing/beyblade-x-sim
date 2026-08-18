@@ -22,7 +22,7 @@ import { fingertipOffset } from "../src/render/hand";
 import { sfx } from "../src/audio/sfx";
 import { beastOf } from "../src/render/materials";
 import {
-  pocketCatchPolygon,
+  pocketBasinPolygon,
   stadiumBodyRadiusAt,
   STADIUM_BX10,
   STADIUM_BX32,
@@ -255,14 +255,13 @@ describe("stadium bodies match the published dimensions", () => {
   });
 
   it("exit pockets fit inside the stadium body on every stadium", () => {
-    // The pocket tray is cut THROUGH the deck; if it reached past the deck
-    // edge the hole would hang off the body and render as broken geometry
-    // instead of a pocket.
+    // The concave basin continues through the deck region; if it reached past
+    // the body edge the molded surface would render as broken geometry.
     for (const s of [STADIUM_BX10, STADIUM_BX32]) {
       expect(s.pockets.length).toBeGreaterThan(0);
       for (const pocket of s.pockets) {
         expect(pocket.throat.outwardDepth).toBeGreaterThanOrEqual(0.012);
-        for (const vertex of pocketCatchPolygon(s, pocket)) {
+        for (const vertex of pocketBasinPolygon(s, pocket)) {
           const angle = Math.atan2(vertex.y, vertex.x);
           expect(Math.hypot(vertex.x, vertex.y)).toBeLessThanOrEqual(stadiumBodyRadiusAt(s, angle) + 1e-8);
         }

@@ -133,6 +133,38 @@ describe("fully settled Spin Finish", () => {
     expect(slowing.stoppedTick).toBe(world.tick);
   });
 
+  it("settles a toppled zero-spin Bey without repeated center-crossing glides", () => {
+    const { world, cfg } = fixture();
+    const [slowing, opponent] = world.beys;
+    Object.assign(slowing!, {
+      x: 0.15,
+      y: 0,
+      vx: -0.32,
+      vy: 0,
+      omega: 0,
+      stopDwell: 0,
+      stoppedTick: -1,
+    });
+    // Keep the rival staged so this fixture measures toppled-body contact,
+    // not collision response.
+    opponent!.pendingTicks = 10_000;
+    let previousSide = Math.sign(slowing!.x);
+    let centerCrossings = 0;
+    for (let tick = 0; tick < 720 && slowing!.stoppedTick < 0; tick++) {
+      if (Math.hypot(slowing!.vx, slowing!.vy) >= STOP_LINEAR_SPEED) {
+        expect(slowing!.stoppedTick).toBe(-1);
+      }
+      step(world, cfg, STADIUM_BX10, true);
+      const side = Math.sign(slowing!.x);
+      if (side && previousSide && side !== previousSide) centerCrossings++;
+      if (side) previousSide = side;
+    }
+    expect(centerCrossings).toBeLessThanOrEqual(1);
+    expect(slowing!.vx).toBe(0);
+    expect(slowing!.vy).toBe(0);
+    expect(slowing!.stoppedTick).toBeGreaterThan(0);
+  });
+
   it("revalidates settle after a same-tick collision wakes the bey", () => {
     const { world, cfg } = fixture();
     const [slowing, opponent] = world.beys;

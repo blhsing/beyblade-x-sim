@@ -2,11 +2,12 @@ import { describe, expect, it } from "vitest";
 
 import {
   pocketAtPoint,
-  pocketCatchPolygon,
+  pocketBasinPolygon,
   pocketExitTarget,
   pocketPath,
   pocketPolygon,
   pocketSecureAtPoint,
+  pocketSurfaceZ,
   railClosestPoint,
   railPointAt,
   railReleaseDirectionAt,
@@ -102,6 +103,27 @@ function properSegmentsCross(
   return abC * abD < -1e-14 && cdA * cdB < -1e-14;
 }
 
+function minimumSampledRailCurvatureRadius(stadium: StadiumSpec, sampleCount = 32_768): number {
+  const delta = Math.PI * 2 / sampleCount;
+  let minimum = Infinity;
+  for (let index = 0; index < sampleCount; index++) {
+    const theta = -Math.PI + delta * index;
+    const before = railPointAt(stadium, theta - delta);
+    const point = railPointAt(stadium, theta);
+    const after = railPointAt(stadium, theta + delta);
+    const ax = point.x - before.x;
+    const ay = point.y - before.y;
+    const bx = after.x - point.x;
+    const by = after.y - point.y;
+    const lengthA = Math.sqrt(ax * ax + ay * ay);
+    const lengthB = Math.sqrt(bx * bx + by * by);
+    if (lengthA <= 1e-12 || lengthB <= 1e-12) continue;
+    const turn = Math.acos(Math.max(-1, Math.min(1, (ax * bx + ay * by) / (lengthA * lengthB))));
+    if (turn > 1e-10) minimum = Math.min(minimum, (lengthA + lengthB) * 0.5 / turn);
+  }
+  return minimum;
+}
+
 describe("product-accurate stadium openings", () => {
   it("has exactly the official three apertures and no invented cover gaps", () => {
     expect(STADIUM_BX10.pockets.map((pocket) => pocket.kind)).toEqual(["over", "xtreme", "over"]);
@@ -128,19 +150,19 @@ describe("product-accurate stadium openings", () => {
     }
   });
 
-  it.each([STADIUM_BX10, STADIUM_BX32])("securely contains the widest authored Bey at every tray target in %s", (stadium) => {
+  it.each([STADIUM_BX10, STADIUM_BX32])("securely contains the widest authored Bey at every basin target in %s", (stadium) => {
     for (const pocket of stadium.pockets) {
       const target = pocketExitTarget(stadium, pocket);
       expect(pocketAtPoint(stadium, target.x, target.y)).toBe(pocket);
       expect(pocketSecureAtPoint(stadium, pocket, target.x, target.y, params.radiusM)).toBe(true);
-      for (const vertex of pocketCatchPolygon(stadium, pocket)) {
+      for (const vertex of pocketBasinPolygon(stadium, pocket)) {
         const angle = Math.atan2(vertex.y, vertex.x);
         expect(Math.hypot(vertex.x, vertex.y)).toBeLessThanOrEqual(stadiumBodyRadiusAt(stadium, angle) + 1e-8);
       }
     }
   });
 
-  it.each([STADIUM_BX10, STADIUM_BX32])("keeps an uninterrupted open throat-to-catch route in %s", (stadium) => {
+  it.each([STADIUM_BX10, STADIUM_BX32])("keeps an uninterrupted open throat-to-basin route in %s", (stadium) => {
     for (const pocket of stadium.pockets) {
       const path = pocketPath(stadium, pocket);
       const target = pocketExitTarget(stadium, pocket);
@@ -153,7 +175,47 @@ describe("product-accurate stadium openings", () => {
     }
   });
 
-  it.each([STADIUM_BX10, STADIUM_BX32])("uses only explicit traced ramps whose actual first release reaches a center Bey in %s", (stadium) => {
+  it.each([STADIUM_BX10, STADIUM_BX32])("caches canonical basin outlines and keeps the raw bowl join C1 in %s", (stadium) => {
+    for (const pocket of stadium.pockets) {
+      expect(pocketBasinPolygon(stadium, pocket)).toBe(pocketBasinPolygon(stadium, pocket));
+      const path = pocketPath(stadium, pocket);
+      const epsilon = 0.00002;
+      const sample = (offset: number) => pocketSurfaceZ(
+        stadium,
+        pocket,
+        path.boundary.x + path.axis.x * offset,
+        path.boundary.y + path.axis.y * offset,
+      );
+      const behind = sample(-epsilon);
+      const joined = sample(0);
+      const ahead = sample(epsilon);
+      expect(Math.abs(ahead - behind)).toBeLessThan(0.0001);
+      const inwardDerivative = (joined - behind) / epsilon;
+      const outwardDerivative = (ahead - joined) / epsilon;
+      expect(Math.abs(inwardDerivative - outwardDerivative)).toBeLessThan(0.08);
+    }
+  });
+
+  it("keeps cached pocket terrain queries bounded", () => {
+    const pocket = STADIUM_BX32.pockets[0]!;
+    const target = pocketExitTarget(STADIUM_BX32, pocket);
+    const started = performance.now();
+    let checksum = 0;
+    for (let index = 0; index < 50_000; index++) {
+      const angle = index * 0.017;
+      const x = target.x + Math.cos(angle) * 0.008;
+      const y = target.y + Math.sin(angle) * 0.008;
+      checksum += stadiumTerrainAt(STADIUM_BX32, x, y).height;
+    }
+    const elapsed = performance.now() - started;
+    expect(checksum).toBeGreaterThan(0);
+    expect(elapsed).toBeLessThan(2_500);
+  });
+
+  it.each([
+    ["BX-10", STADIUM_BX10],
+    ["BX-32", STADIUM_BX32],
+  ] as const)("uses only photo-traced shoulders whose actual first release reaches a center Bey in %s", (_label, stadium) => {
     expect(stadium.railTrace?.length).toBeGreaterThan(10);
     let releases = 0;
     for (let i = 0; i <= 720; i++) {
@@ -167,7 +229,7 @@ describe("product-accurate stadium openings", () => {
         const point = railPointAt(stadium, angle);
         const radius = Math.hypot(point.x, point.y);
         const radialDot = (release.x * point.x + release.y * point.y) / radius;
-        expect(radialDot).toBeLessThan(-0.7);
+        expect(radialDot).toBeLessThan(-0.97);
         const forward = -(point.x * release.x + point.y * release.y);
         expect(forward).toBeGreaterThan(0);
       }
@@ -193,29 +255,21 @@ describe("product-accurate stadium openings", () => {
     }
   });
 
-  it.each([STADIUM_BX10, STADIUM_BX32])("smooths ordinary X-Line knots but preserves only the authored sharp release jogs in %s", (stadium) => {
+  it.each([
+    ["BX-10", STADIUM_BX10],
+    ["BX-32", STADIUM_BX32],
+  ] as const)("keeps every photo-vector X-Line knot and the closed seam C1 in %s", (_label, stadium) => {
     const trace = stadium.railTrace!;
     const uniqueCount = trace.length - 1;
-    expect(trace.filter((point) => point.linearToNext)).toHaveLength(2);
-    expect(trace.filter((point) => point.linearToNext).map((point) => point.angle)).toEqual(
-      stadium.railReleaseArcs!.map((arc) => arc.start),
-    );
-    let sharpKnots = 0;
+    expect(trace.filter((point) => point.linearToNext)).toHaveLength(0);
+    expect(uniqueCount).toBeGreaterThan(300);
     for (let index = 0; index < uniqueCount; index++) {
       const point = trace[index]!;
-      const previous = trace[(index + uniqueCount - 1) % uniqueCount]!;
-      const sharp = Boolean(point.linearToNext || previous.linearToNext);
       const incoming = railTangentAt(stadium, point.angle - 1e-6);
       const outgoing = railTangentAt(stadium, point.angle + 1e-6);
       const tangentDot = incoming.x * outgoing.x + incoming.y * outgoing.y;
-      if (sharp) {
-        sharpKnots++;
-        expect(tangentDot, `rounded authored jog at ${point.angle}`).toBeLessThan(0.9);
-      } else {
-        expect(tangentDot, `faceted ordinary knot at ${point.angle}`).toBeGreaterThan(0.9999);
-      }
+      expect(tangentDot, `faceted photo-vector knot at ${point.angle}`).toBeGreaterThan(0.9999);
     }
-    expect(sharpKnots).toBe(4);
     const start = railPointAt(stadium, -Math.PI);
     const end = railPointAt(stadium, Math.PI - 1e-9);
     expect(Math.hypot(start.x - end.x, start.y - end.y)).toBeLessThan(1e-7);
@@ -224,50 +278,71 @@ describe("product-accurate stadium openings", () => {
     expect(seamBefore.x * seamAfter.x + seamBefore.y * seamAfter.y).toBeGreaterThan(0.9999);
   });
 
-  it("uses two densely traced genuine round side lobes on BX-32", () => {
-    expect(STADIUM_BX32.railRoundSides).toHaveLength(2);
-    expect(STADIUM_BX32.railTrace!.length).toBeGreaterThan(250);
-    for (const side of STADIUM_BX32.railRoundSides!) {
-      expect(side.controlSamples).toBeGreaterThanOrEqual(128);
-      expect(Math.abs(side.sweepRadians - Math.PI)).toBeLessThan(0.08);
-      expect(side.radius).toBeGreaterThan(0.14);
-      const span = side.end > side.start
-        ? side.end - side.start
-        : side.end + Math.PI * 2 - side.start;
-      let maximumRadiusError = 0;
-      let maximumTangentStep = 0;
-      let maximumTangentStepAngle = side.start;
-      let previousTangent: { x: number; y: number } | null = null;
-      for (let index = 0; index < 512; index++) {
-        // Half-step samples exclude the intentionally sharp release boundary.
-        const theta = side.start + span * (index + 0.5) / 512;
-        const point = railPointAt(STADIUM_BX32, theta);
-        maximumRadiusError = Math.max(
-          maximumRadiusError,
-          Math.abs(Math.hypot(point.x - side.centerX, point.y - side.centerY) - side.radius),
-        );
-        const tangent = railTangentAt(STADIUM_BX32, theta);
-        if (previousTangent) {
-          const tangentStep = Math.acos(
-            Math.max(-1, Math.min(1, previousTangent.x * tangent.x + previousTangent.y * tangent.y)),
-          );
-          if (tangentStep > maximumTangentStep) {
-            maximumTangentStep = tangentStep;
-            maximumTangentStepAngle = theta;
-          }
-        }
-        previousTangent = tangent;
+  it("uses the mirrored upper-half retail trace for a wide, continuously round BX-32 rail", () => {
+    const trace = STADIUM_BX32.railTrace!;
+    expect(trace.length).toBeGreaterThan(800);
+    expect(STADIUM_BX32.railTraceReference).toMatchObject({
+      method: "raster-vector-catmull-rom",
+      source: "user:codex-clipboard-11c8d883-8577-4d92-aebc-4db4b34113f9.png",
+      calibration: expect.stringContaining("1.330x1.140mm/px about endpoint midpoint x=254.5px"),
+      sourceControlPoints: 24,
+      mirrored: true,
+    });
+    expect(STADIUM_BX32.railPhysicalHalfWidth).toBeGreaterThan(STADIUM_BX10.railPhysicalHalfWidth!);
+
+    let minimumX = Infinity;
+    let maximumX = -Infinity;
+    let minimumY = Infinity;
+    let maximumY = -Infinity;
+    let maximumTangentStep = 0;
+    let previousTangent: { x: number; y: number } | null = null;
+    for (let index = 0; index < 8192; index++) {
+      const theta = -Math.PI + Math.PI * 2 * index / 8192;
+      const point = railPointAt(STADIUM_BX32, theta);
+      minimumX = Math.min(minimumX, point.x);
+      maximumX = Math.max(maximumX, point.x);
+      minimumY = Math.min(minimumY, point.y);
+      maximumY = Math.max(maximumY, point.y);
+      const mirrored = railClosestPoint(STADIUM_BX32, -point.x, point.y);
+      expect(mirrored.distance).toBeLessThan(0.00001);
+      const tangent = railTangentAt(STADIUM_BX32, theta);
+      if (previousTangent) {
+        maximumTangentStep = Math.max(maximumTangentStep, Math.acos(Math.max(
+          -1,
+          Math.min(1, previousTangent.x * tangent.x + previousTangent.y * tangent.y),
+        )));
       }
-      expect(maximumRadiusError, `${side.id} departed from its fitted circle`).toBeLessThan(0.0002);
-      expect(maximumTangentStep, `${side.id} contains a faceted tangent join near ${maximumTangentStepAngle}`)
-        .toBeLessThan(0.02);
+      previousTangent = tangent;
     }
-    const frontPoint = railPointAt(STADIUM_BX32, -Math.PI / 2);
-    expect(Math.abs(frontPoint.x)).toBeLessThan(0.0002);
-    expect(frontPoint.y).toBeLessThan(-0.145);
-    const frontBefore = railTangentAt(STADIUM_BX32, -Math.PI / 2 - 0.0001);
-    const frontAfter = railTangentAt(STADIUM_BX32, -Math.PI / 2 + 0.0001);
-    expect(frontBefore.x * frontAfter.x + frontBefore.y * frontAfter.y).toBeGreaterThan(0.99999);
+    expect(maximumX).toBeCloseTo(-minimumX, 5);
+    expect(maximumX - minimumX).toBeGreaterThan(0.4);
+    expect(maximumY - minimumY).toBeGreaterThan(0.25);
+    expect((maximumX - minimumX) / (maximumY - minimumY)).toBeGreaterThan(1.5);
+    // At this sampling density a faceted polyline would retain visible jumps;
+    // the traced semicircular ends stay below 1.5 degrees per sample.
+    expect(maximumTangentStep).toBeLessThan(0.027);
+
+    // The unobstructed mirror-line endpoints, x=155 and x=354 in the supplied
+    // raster, fix the optical axis at their midpoint 254.5 px. Their equal
+    // offsets prove the trace was rectified about the body rather than shifted
+    // to make a release tangent home toward center.
+    const endpointOffset = (354 - 254.5) * 0.00114;
+    const left = railClosestPoint(STADIUM_BX32, 0, -endpointOffset);
+    const right = railClosestPoint(STADIUM_BX32, 0, endpointOffset);
+    expect(left.distance).toBeLessThan(1e-8);
+    expect(right.distance).toBeLessThan(1e-8);
+    expect(stadiumBoundarySignedDistance(STADIUM_BX32, left.point.x, left.point.y))
+      .toBeCloseTo(stadiumBoundarySignedDistance(STADIUM_BX32, right.point.x, right.point.y), 8);
+  });
+
+  it.each([
+    ["BX-10", STADIUM_BX10],
+    ["BX-32", STADIUM_BX32],
+  ] as const)("keeps every rounded X-Line elbow wider than its rendered strip in %s", (_label, stadium) => {
+    const halfWidth = stadium.railPhysicalHalfWidth ?? STADIUM_GEOMETRY.railPhysicalHalfWidthM;
+    // If centerline radius falls below strip half-width, the offset ribbon
+    // folds through itself and a highly tessellated elbow still looks sharp.
+    expect(minimumSampledRailCurvatureRadius(stadium)).toBeGreaterThan(halfWidth * 1.1);
   });
 
   it.each([STADIUM_BX10, STADIUM_BX32])("uses the shared inferred 4.6 mm guide/tooth envelope in %s", (stadium) => {
@@ -279,15 +354,19 @@ describe("product-accurate stadium openings", () => {
     expect(STADIUM_GEOMETRY.railToothHeightM).toBeCloseTo(0.0022, 7);
   });
 
-  it.each([STADIUM_BX10, STADIUM_BX32])("keeps the dense shared X-Line simple, inside the bowl, and clear of pocket apertures in %s", (stadium) => {
+  it.each([
+    ["BX-10", STADIUM_BX10],
+    ["BX-32", STADIUM_BX32],
+  ] as const)("keeps the dense shared X-Line simple and its full product width inside the bowl in %s", (_label, stadium) => {
     const sampleCount = 480;
     const points = Array.from({ length: sampleCount }, (_, index) =>
       railPointAt(stadium, -Math.PI + (Math.PI * 2 * index) / sampleCount)
     );
-    for (const point of points) {
+    const widestBeyWallClearance = params.radiusM * 0.6;
+    for (let index = 0; index < 8192; index++) {
+      const point = railPointAt(stadium, -Math.PI + Math.PI * 2 * index / 8192);
       expect(stadiumBoundarySignedDistance(stadium, point.x, point.y))
-        .toBeLessThan(-STADIUM_GEOMETRY.railPhysicalHalfWidthM);
-      expect(pocketAtPoint(stadium, point.x, point.y)).toBeNull();
+        .toBeLessThan(-(widestBeyWallClearance + 0.001));
     }
     let intersection: [number, number] | null = null;
     for (let first = 0; first < sampleCount && !intersection; first++) {
@@ -304,43 +383,114 @@ describe("product-accurate stadium openings", () => {
     expect(intersection).toBeNull();
   });
 
-  it.each([STADIUM_BX10, STADIUM_BX32])("matches a dense closest-point reference across the full physical rack width in %s", (stadium) => {
-    const angleSamples = 72;
+  it.each([
+    ["BX-10", STADIUM_BX10],
+    ["BX-32", STADIUM_BX32],
+  ] as const)("matches a global dense closest-point reference across the full physical rack width in %s", (_label, stadium) => {
+    const angleSamples = 128;
+    const referencePoints = Array.from({ length: 8192 }, (_, index) =>
+      railPointAt(stadium, -Math.PI + Math.PI * 2 * index / 8192)
+    );
+    const physicalHalfWidth = stadium.railPhysicalHalfWidth ?? STADIUM_GEOMETRY.railPhysicalHalfWidthM;
     for (let index = 0; index < angleSamples; index++) {
       const angle = -Math.PI + (Math.PI * 2 * index) / angleSamples;
       const point = railPointAt(stadium, angle);
       const tangent = railTangentAt(stadium, angle);
       let normal = { x: -tangent.y, y: tangent.x };
       if (normal.x * point.x + normal.y * point.y < 0) normal = { x: -normal.x, y: -normal.y };
-      for (const offset of [-stadium.railHalfWidth, 0, stadium.railHalfWidth]) {
+      for (const offset of [-stadium.railHalfWidth, -physicalHalfWidth, 0, physicalHalfWidth, stadium.railHalfWidth]) {
         const x = point.x + normal.x * offset;
         const y = point.y + normal.y * offset;
         let reference = Infinity;
-        for (let stepIndex = -240; stepIndex <= 240; stepIndex++) {
-          const candidate = railPointAt(stadium, angle + stepIndex * 0.000625);
+        for (const candidate of referencePoints) {
           reference = Math.min(reference, Math.hypot(candidate.x - x, candidate.y - y));
         }
         const actual = railClosestPoint(stadium, x, y);
         expect(Math.abs(actual.distance - reference), `closest mismatch at ${angle}/${offset}`)
-          .toBeLessThan(0.0002);
+          .toBeLessThan(0.00016);
         expect(Math.abs(Math.hypot(actual.normal.x, actual.normal.y) - 1)).toBeLessThan(1e-9);
       }
     }
   });
+
+  it.each([
+    ["BX-10", STADIUM_BX10],
+    ["BX-32", STADIUM_BX32],
+  ] as const)("matches a dense global closest-point reference across a 41x41 bowl grid in %s", (_label, stadium) => {
+    const referenceX = new Float64Array(16_384);
+    const referenceY = new Float64Array(16_384);
+    for (let index = 0; index < referenceX.length; index++) {
+      const point = railPointAt(stadium, -Math.PI + Math.PI * 2 * index / referenceX.length);
+      referenceX[index] = point.x;
+      referenceY[index] = point.y;
+    }
+    const halfX = stadium.rWall + (stadium.wallShape?.kind === "obround" ? stadium.wallShape.halfStraight : 0);
+    const halfY = stadium.rWall;
+    for (let column = 0; column <= 40; column++) {
+      const x = -halfX + halfX * 2 * column / 40;
+      for (let row = 0; row <= 40; row++) {
+        const y = -halfY + halfY * 2 * row / 40;
+        let referenceSquared = Infinity;
+        for (let index = 0; index < referenceX.length; index++) {
+          const dx = referenceX[index]! - x;
+          const dy = referenceY[index]! - y;
+          const distanceSquared = dx * dx + dy * dy;
+          if (distanceSquared < referenceSquared) referenceSquared = distanceSquared;
+        }
+        const reference = Math.sqrt(referenceSquared);
+        const actual = railClosestPoint(stadium, x, y).distance;
+        expect(Math.abs(actual - reference), `global closest mismatch at (${x},${y})`)
+          // The discrete reference has at most half of its ~48 micrometre
+          // sample chord to spare; 25 micrometres still catches the former
+          // 29-103 mm bearing-bin failures by over three orders of magnitude.
+          .toBeLessThan(0.000025);
+      }
+    }
+  });
+
+  it.each([
+    ["BX-10", STADIUM_BX10],
+    ["BX-32", STADIUM_BX32],
+  ] as const)("keeps 50k capture-band nearest-rail queries bounded in %s", (_label, stadium) => {
+    const started = performance.now();
+    let checksum = 0;
+    for (let index = 0; index < 50_000; index++) {
+      const theta = -Math.PI + Math.PI * 2 * (index % 8192) / 8192;
+      const point = railPointAt(stadium, theta);
+      const tangent = railTangentAt(stadium, theta);
+      const offset = ((index % 17) - 8) / 8 * stadium.railHalfWidth;
+      checksum += railClosestPoint(
+        stadium,
+        point.x - tangent.y * offset,
+        point.y + tangent.x * offset,
+      ).distance;
+    }
+    expect(checksum).toBeGreaterThan(0);
+    expect(performance.now() - started).toBeLessThan(2_500);
+  });
 });
 
 describe("reversible live pocket simulation", () => {
-  it.each([STADIUM_BX10, STADIUM_BX32])("releases an engaged attack Bit along the traced inward ramp in %s", (stadium) => {
+  it.each([
+    ["BX-10", STADIUM_BX10],
+    ["BX-32", STADIUM_BX32],
+  ] as const)("releases an engaged attack Bit along the traced inward shoulder in %s", (_label, stadium) => {
     const cfg = config();
     cfg.xtremeDashEnabled = true;
     cfg.beys[0] = { ...cfg.beys[0]!, dashFactor: 1.4, grip: 1.2 };
     const world = createWorld(cfg);
     const bey = world.beys[0]!;
-    const startAngle = stadium.railReleaseArcs![0]!.start - 0.2;
-    const start = railPointAt(stadium, startAngle);
-    const next = railPointAt(stadium, startAngle + 0.001);
-    const length = Math.hypot(next.x - start.x, next.y - start.y);
-    const tangent = { x: (next.x - start.x) / length, y: (next.y - start.y) / length };
+    let startAngle: number | null = null;
+    for (let index = 0; index <= 16_384; index++) {
+      const candidate = -Math.PI + Math.PI * 2 * index / 16_384;
+      if (railReleaseDirectionAt(stadium, candidate, 1)) {
+        startAngle = candidate;
+        break;
+      }
+    }
+    expect(startAngle).not.toBeNull();
+    const start = railPointAt(stadium, startAngle!);
+    const tangent = railTangentAt(stadium, startAngle!);
     Object.assign(bey, {
       x: start.x,
       y: start.y,
@@ -456,7 +606,8 @@ describe("reversible live pocket simulation", () => {
     const cfg = { ...config(), xtremeDashEnabled: true };
     const world = createWorld(cfg);
     const bey = world.beys[0]!;
-    const rail = railClosestPoint(stadium, 0, -stadium.rRail);
+    const railPoint = railPointAt(stadium, 0);
+    const rail = railClosestPoint(stadium, railPoint.x, railPoint.y);
     const inner = -stadium.railHalfWidth * 0.75;
     Object.assign(bey, {
       x: rail.point.x + rail.normal.x * (inner - 0.0002),
@@ -481,6 +632,46 @@ describe("reversible live pocket simulation", () => {
     } else {
       expect(afterNormalSpeed).toBeLessThanOrEqual(0);
     }
+  });
+
+  it.each([
+    ["BX-10", STADIUM_BX10],
+    ["BX-32", STADIUM_BX32],
+  ] as const)("keeps a widest-Bey rail rider meshed at the tightest wall clearance in %s", (_label, stadium) => {
+    const cfg = config();
+    cfg.beys[0] = { ...cfg.beys[0]!, dashFactor: 1.4, grip: 1.2 };
+    const world = createWorld(cfg);
+    const bey = world.beys[0]!;
+    let tightestTheta = -Math.PI;
+    let tightestBoundaryDistance = -Infinity;
+    for (let index = 0; index < 8192; index++) {
+      const theta = -Math.PI + Math.PI * 2 * index / 8192;
+      const point = railPointAt(stadium, theta);
+      const distance = stadiumBoundarySignedDistance(stadium, point.x, point.y);
+      if (distance > tightestBoundaryDistance) {
+        tightestBoundaryDistance = distance;
+        tightestTheta = theta;
+      }
+    }
+    const point = railPointAt(stadium, tightestTheta);
+    const rail = railClosestPoint(stadium, point.x, point.y);
+    Object.assign(bey, {
+      x: point.x,
+      y: point.y,
+      vx: rail.tangent.x * 1.25,
+      vy: rail.tangent.y * 1.25,
+      airborne: false,
+      pendingTicks: 0,
+      omega: 520,
+      railTicks: 239,
+      railDir: 1,
+    });
+    step(world, cfg, stadium, true);
+    const after = railClosestPoint(stadium, bey.x, bey.y);
+    expect(bey.railTicks).toBeGreaterThan(0);
+    expect(after.distance).toBeLessThan(0.001);
+    expect(stadiumBoundarySignedDistance(stadium, bey.x, bey.y, params.radiusM * 0.6))
+      .toBeLessThanOrEqual(0);
   });
 
   it("allows a fast entry to rebound and escape back through the open throat", () => {
@@ -523,7 +714,7 @@ describe("reversible live pocket simulation", () => {
     expect(bey.omega).toBeGreaterThan(240);
   });
 
-  it("crosses the BX-32 throat/catch overlap seam without an invisible impulse", () => {
+  it("crosses from the BX-32 mouth into its single basin without an invisible impulse", () => {
     const cfg = config();
     const { world, bey, pocket } = groundBey(cfg, STADIUM_BX32, 0, 260);
     const path = pocketPath(STADIUM_BX32, pocket);
@@ -533,9 +724,8 @@ describe("reversible live pocket simulation", () => {
     bey.vy = path.axis.y * 1.3 + path.across.y * 0.1;
     const entrySpeed = Math.hypot(bey.vx, bey.vy);
 
-    // The expanded catch begins 10.1 mm beyond the wall and overlaps the
-    // rounded throat. Crossing that internal union seam must not look like a
-    // collision with an imaginary narrow-slot edge.
+    // The widened concavity continues beyond the rounded mouth. Crossing that
+    // one-piece surface must not look like a collision with an imaginary seam.
     for (let tick = 0; tick < 3; tick++) step(world, cfg, STADIUM_BX32, true);
     expect(Math.hypot(bey.vx, bey.vy)).toBeGreaterThan(entrySpeed * 0.95);
     expect(bey.vx * path.axis.x + bey.vy * path.axis.y).toBeGreaterThan(1.2);
@@ -644,7 +834,7 @@ describe("reversible live pocket simulation", () => {
     expect(bey.pocketDwell).toBe(0);
   });
 
-  it("keeps reversible tray motion and disturbance state deterministic and hashed", () => {
+  it("keeps reversible basin motion and disturbance state deterministic and hashed", () => {
     const cfg = config();
     const first = groundBey(cfg, STADIUM_BX32, 0, 210);
     const second = groundBey(cfg, STADIUM_BX32, 0, 210);

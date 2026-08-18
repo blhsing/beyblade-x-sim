@@ -2,12 +2,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import * as THREE from "three";
 
 import {
-  pocketCatchPolygon,
-  pocketPolygon,
+  pocketBasinPolygon,
+  pocketExitTarget,
   pointInConvexPolygon,
   railPointAt,
   railTangentAt,
-  stadiumBoundarySignedDistance,
+  stadiumTerrainAt,
+  surfaceZAt,
   STADIUM_BX10,
   STADIUM_BX32,
   type StadiumSpec,
@@ -15,6 +16,7 @@ import {
 import {
   buildStadiumModel,
   disposeStadiumModel,
+  POCKET_SURFACE_STITCH_OVERLAP_M,
   RAIL_RENDER_MAX_ANGLE_STEP,
   RAIL_RENDER_MAX_TANGENT_STEP,
   STADIUM_MODEL_DIMENSIONS,
@@ -36,31 +38,47 @@ function materialOf(target: THREE.Mesh): THREE.MeshPhysicalMaterial {
   return target.material as THREE.MeshPhysicalMaterial;
 }
 
-function strictlyInsideConvex(
-  polygon: readonly { x: number; y: number }[],
+function projectedGeometryCoversPoint(
+  geometry: THREE.BufferGeometry,
   x: number,
   y: number,
 ): boolean {
-  let sign = 0;
-  for (let index = 0; index < polygon.length; index++) {
-    const a = polygon[index]!;
-    const b = polygon[(index + 1) % polygon.length]!;
-    const cross = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
-    if (Math.abs(cross) <= 1e-8) return false;
-    const current = cross > 0 ? 1 : -1;
-    if (sign && sign !== current) return false;
-    sign = current;
+  const position = geometry.getAttribute("position") as THREE.BufferAttribute;
+  const index = geometry.index;
+  const vertexAt = (offset: number): number => index ? index.getX(offset) : offset;
+  const cross = (ax: number, ay: number, bx: number, by: number, px: number, py: number): number =>
+    (bx - ax) * (py - ay) - (by - ay) * (px - ax);
+  const elementCount = index?.count ?? position.count;
+  for (let offset = 0; offset < elementCount; offset += 3) {
+    const a = vertexAt(offset);
+    const b = vertexAt(offset + 1);
+    const c = vertexAt(offset + 2);
+    const ax = position.getX(a);
+    const ay = position.getY(a);
+    const bx = position.getX(b);
+    const by = position.getY(b);
+    const cx = position.getX(c);
+    const cy = position.getY(c);
+    const ab = cross(ax, ay, bx, by, x, y);
+    const bc = cross(bx, by, cx, cy, x, y);
+    const ca = cross(cx, cy, ax, ay, x, y);
+    const hasNegative = ab < -1e-12 || bc < -1e-12 || ca < -1e-12;
+    const hasPositive = ab > 1e-12 || bc > 1e-12 || ca > 1e-12;
+    if (!(hasNegative && hasPositive)) return true;
   }
-  return sign !== 0;
+  return false;
 }
 
 describe("reference-driven stadium models", () => {
   let bx10Model: THREE.Group;
   let bx32Model: THREE.Group;
+  let modelBuildMs = 0;
 
   beforeAll(() => {
+    const started = performance.now();
     bx10Model = buildStadiumModel(STADIUM_BX10);
     bx32Model = buildStadiumModel(STADIUM_BX32);
+    modelBuildMs = performance.now() - started;
   }, 30_000);
 
   afterAll(() => {
@@ -69,6 +87,10 @@ describe("reference-driven stadium models", () => {
 
   const modelFor = (spec: StadiumSpec): THREE.Group =>
     spec.name === STADIUM_BX32.name ? bx32Model : bx10Model;
+
+  it("builds both cached-outline high-density stadiums within the render budget", () => {
+    expect(modelBuildMs).toBeLessThan(25_000);
+  });
 
   it.each([
     [STADIUM_BX10, "BX-10", 8],
@@ -99,7 +121,10 @@ describe("reference-driven stadium models", () => {
     expect(model.getObjectByName(`stadium:casing-panel:${panelCount}`)).toBeUndefined();
   });
 
-  it.each([STADIUM_BX10, STADIUM_BX32])("uses real trapezoidal Xtreme Line rack teeth on %s", (spec) => {
+  it.each([
+    ["BX-10", STADIUM_BX10],
+    ["BX-32", STADIUM_BX32],
+  ] as const)("uses real trapezoidal teeth on the shared high-density photo-vector Xtreme Line in %s", (_label, spec) => {
     const model = modelFor(spec);
     const line = object(model, "stadium:xtreme-line");
     expect(line.userData).toMatchObject({
@@ -129,21 +154,26 @@ describe("reference-driven stadium models", () => {
     expect(channel.geometry.userData).toMatchObject({
       shape: "thickness-bearing-rack-channel",
       thicknessM: STADIUM_MODEL_DIMENSIONS.railChannelThicknessM,
-      cornerJoin: "bounded-miter",
+      halfWidthM: spec.railPhysicalHalfWidth,
+      cornerJoin: "c1-rounded-photo-vector",
       closedLoop: true,
       seamWelded: true,
       normalSource: "area-weighted-centered-ribbon-frame",
+      baseHeightSource: "core:surfaceZAt-each-corner",
     });
     expect(line.userData).toMatchObject({
-      centerlineInterpolation: "xy-cubic-hermite-with-authored-linear-jogs",
+      centerlineInterpolation: "xy-cubic-hermite-photo-vector",
       maxAngularStepRad: RAIL_RENDER_MAX_ANGLE_STEP,
-      roundSideCount: spec.name === "wide" ? 2 : 0,
+      visibleHalfWidthM: spec.railPhysicalHalfWidth,
+      traceMethod: "raster-vector-catmull-rom",
+      traceSource: spec.railTraceReference?.source,
+      traceControlPoints: spec.railTraceReference?.generatedControlPoints,
+      traceMirrored: spec.railTraceReference?.mirrored,
     });
-    expect(line.userData.roundSideControlSamples).toEqual(spec.name === "wide" ? [192, 192] : []);
     expect(channel.userData).toMatchObject({
-      interpolation: "core:xy-cubic-hermite-with-authored-linear-jogs",
-      cornerJoin: "bounded-miter",
-      authoredSharpKnots: 4,
+      interpolation: "core:xy-cubic-hermite-photo-vector",
+      cornerJoin: "c1-rounded-photo-vector",
+      authoredSharpKnots: 0,
     });
     expect(channel.userData.sampleCount).toBeGreaterThan(4_000);
     expect(channel.userData.maxAngularStepRad).toBeLessThanOrEqual(RAIL_RENDER_MAX_ANGLE_STEP + 1e-12);
@@ -153,6 +183,19 @@ describe("reference-driven stadium models", () => {
     const channelNormal = channel.geometry.getAttribute("normal") as THREE.BufferAttribute;
     const channelIndex = channel.geometry.index!;
     const crossSectionCount = channel.geometry.userData.crossSectionCount as number;
+    let maximumChannelBaseError = 0;
+    for (let vertex = 0; vertex < channelPosition.count; vertex++) {
+      const top = vertex % 4 < 2;
+      const expected = surfaceZAt(spec, channelPosition.getX(vertex), channelPosition.getY(vertex)) +
+        (top ? STADIUM_MODEL_DIMENSIONS.railChannelThicknessM : 0);
+      maximumChannelBaseError = Math.max(
+        maximumChannelBaseError,
+        Math.abs(channelPosition.getZ(vertex) - expected),
+      );
+    }
+    // Every generated edge/corner sits on the same underlying heightfield as
+    // physics. The remaining nanometres are Float32 storage error only.
+    expect(maximumChannelBaseError).toBeLessThan(0.00000002);
     const closingFaceOffset = (crossSectionCount - 1) * 24;
     const wrappedSeamVertex = channelIndex.getX(closingFaceOffset + 1);
     expect(wrappedSeamVertex).toBe(0);
@@ -202,7 +245,11 @@ describe("reference-driven stadium models", () => {
     ).toBeCloseTo(0.0046, 7);
     const placementAngles = teeth.userData.placementAngles as number[];
     const placementDistances = teeth.userData.placementArcDistancesM as number[];
-    expect(teeth.userData.spacingMethod).toBe("closed-loop-arc-length");
+    expect(teeth.userData).toMatchObject({
+      spacingMethod: "closed-loop-arc-length",
+      baseFrame: "core:surfaceZAt-tangent-plane",
+      frameDifferenceStepM: 0.0001,
+    });
     expect(placementAngles).toHaveLength(teeth.count);
     expect(placementDistances).toHaveLength(teeth.count);
     expect(teeth.userData.actualPitchM).toBeCloseTo(channel.userData.arcLengthM / teeth.count, 12);
@@ -213,16 +260,47 @@ describe("reference-driven stadium models", () => {
     const instanceMatrix = new THREE.Matrix4();
     const instancePosition = new THREE.Vector3();
     const instanceTangent = new THREE.Vector3();
-    for (let index = 0; index < teeth.count; index += 11) {
+    const instanceAcross = new THREE.Vector3();
+    const instanceUp = new THREE.Vector3();
+    const localToothPosition = teeth.geometry.getAttribute("position") as THREE.BufferAttribute;
+    const worldCorner = new THREE.Vector3();
+    let maximumToothBaseError = 0;
+    for (let index = 0; index < teeth.count; index++) {
       teeth.getMatrixAt(index, instanceMatrix);
       instancePosition.setFromMatrixPosition(instanceMatrix);
-      instanceTangent.set(1, 0, 0).transformDirection(instanceMatrix);
+      instanceTangent.setFromMatrixColumn(instanceMatrix, 0);
+      instanceAcross.setFromMatrixColumn(instanceMatrix, 1);
+      instanceUp.setFromMatrixColumn(instanceMatrix, 2);
       const theta = placementAngles[index]!;
       const corePoint = railPointAt(spec, theta);
       const coreTangent = railTangentAt(spec, theta);
       expect(Math.hypot(instancePosition.x - corePoint.x, instancePosition.y - corePoint.y)).toBeLessThan(1e-7);
-      expect(instanceTangent.x * coreTangent.x + instanceTangent.y * coreTangent.y).toBeGreaterThan(0.999999);
+      expect(instancePosition.z).toBeCloseTo(
+        surfaceZAt(spec, corePoint.x, corePoint.y) + STADIUM_MODEL_DIMENSIONS.railChannelThicknessM,
+        7,
+      );
+      expect(instanceTangent.length()).toBeCloseTo(1, 6);
+      expect(instanceAcross.length()).toBeCloseTo(1, 6);
+      expect(instanceUp.length()).toBeCloseTo(1, 6);
+      expect(Math.abs(instanceTangent.dot(instanceAcross))).toBeLessThan(1e-6);
+      expect(Math.abs(instanceTangent.dot(instanceUp))).toBeLessThan(1e-6);
+      expect(Math.abs(instanceAcross.dot(instanceUp))).toBeLessThan(1e-6);
+      expect(instanceTangent.clone().cross(instanceAcross).dot(instanceUp)).toBeGreaterThan(0.999999);
+      expect(instanceUp.z).toBeGreaterThan(0);
+      const horizontalLength = Math.sqrt(
+        instanceTangent.x * instanceTangent.x + instanceTangent.y * instanceTangent.y,
+      );
+      expect(
+        (instanceTangent.x * coreTangent.x + instanceTangent.y * coreTangent.y) / horizontalLength,
+      ).toBeGreaterThan(0.999999);
+      for (let corner = 0; corner < 4; corner++) {
+        worldCorner.fromBufferAttribute(localToothPosition, corner).applyMatrix4(instanceMatrix);
+        const expected = surfaceZAt(spec, worldCorner.x, worldCorner.y) +
+          STADIUM_MODEL_DIMENSIONS.railChannelThicknessM;
+        maximumToothBaseError = Math.max(maximumToothBaseError, Math.abs(worldCorner.z - expected));
+      }
     }
+    expect(maximumToothBaseError).toBeLessThan(spec.name === "wide" ? 0.00015 : 0.0001);
     expect(materialOf(channel).name).toBe(
       spec.name === "bx10"
         ? "stadium:material:xtreme-line-pa"
@@ -234,64 +312,112 @@ describe("reference-driven stadium models", () => {
     });
   });
 
-  it.each([STADIUM_BX10, STADIUM_BX32])("models open, recessed catch trays on %s", (spec) => {
+  it.each([STADIUM_BX10, STADIUM_BX32])("models each loss zone as one continuous concave surface on %s", (spec) => {
     const model = modelFor(spec);
-    const rimZ = spec.dishDepth + spec.rimRise + spec.rimBaseSlope * (spec.rWall - spec.rDish);
-    expect(object(model, "stadium:pockets").userData.count).toBe(spec.pockets.length);
+    expect(object(model, "stadium:pockets").userData).toMatchObject({
+      count: spec.pockets.length,
+      construction: "one-piece-concave-battle-surface",
+    });
     spec.pockets.forEach((pocket, index) => {
       const group = object(model, `stadium:pocket:${index}`);
       expect(group.userData).toMatchObject({
         kind: pocket.kind,
         depthM: pocket.throat.outwardDepth,
-        recessM: STADIUM_MODEL_DIMENSIONS.pocketRecessM,
-        source: "core:pocketPolygon",
+        recessM: STADIUM_MODEL_DIMENSIONS.pocketBasinDepthM,
+        source: "core:pocketBasinPolygon+pocketSurfaceZ",
+        continuousWithBattleSurface: true,
+        separateTray: false,
+        internalSeams: 0,
+        topologicallyWelded: false,
       });
-      const floor = mesh(model, `stadium:pocket-floor:${index}`);
-      const throat = mesh(model, `stadium:pocket-throat:${index}`);
-      const backstop = object(model, `stadium:pocket-backstop:${index}`);
-      object(model, `stadium:pocket-cheek:${index}:0`);
-      object(model, `stadium:pocket-cheek:${index}:1`);
-      expect(floor.userData.recessed).toBe(true);
-      expect(floor.userData.floorZ).toBeCloseTo(rimZ - STADIUM_MODEL_DIMENSIONS.pocketRecessM, 6);
-      expect(floor.userData).toMatchObject({
-        source: "core:pocketCatchPolygon",
-        outlinePoints: pocketCatchPolygon(spec, pocket).length,
-      });
-      expect(throat.userData).toMatchObject({
+      const basin = mesh(model, `stadium:pocket-basin:${index}`);
+      expect(basin.userData).toMatchObject({
         opening: true,
-        bridgeFree: true,
-        shape: "open-sloped-pocket-throat",
+        shape: "continuous-concave-basin-heightfield",
         throatShape: pocket.throat.shape,
-        source: "core:pocketPolygon+pocketSurfaceZ",
+        source: "core:pocketBasinPolygon+pocketSurfaceZ",
+        outlinePoints: pocketBasinPolygon(spec, pocket).length,
+        continuousWithBattleSurface: true,
       });
-      expect(throat.geometry.userData).toMatchObject({
-        bridgeFree: true,
-        outlinePoints: pocketPolygon(spec, pocket).length,
-        source: "core:pocketPolygon+pocketSurfaceZ",
+      expect(basin.geometry.userData).toMatchObject({
+        shape: "continuous-concave-basin-heightfield",
+        source: "core:pocketBasinPolygon+pocketSurfaceZ",
+        rimPositionMatched: true,
+        rimNormalsFromCanonicalTerrain: true,
+        topologicallyWelded: false,
+        stitchOverlapM: POCKET_SURFACE_STITCH_OVERLAP_M,
+        stitchMethod: "coplanar-overlap-collar",
+        separateFloor: false,
+        verticalInternalSeams: 0,
       });
-      if (pocket.throat.shape === "tangential-slot") {
-        expect(throat.geometry.userData.outlinePoints).toBeGreaterThan(4);
-      } else {
-        expect(throat.geometry.userData.outlinePoints).toBe(4);
+      expect(model.getObjectByName(`stadium:pocket-floor:${index}`)).toBeUndefined();
+      expect(model.getObjectByName(`stadium:pocket-throat:${index}`)).toBeUndefined();
+      expect(model.getObjectByName(`stadium:pocket-backstop:${index}`)).toBeUndefined();
+      expect(model.getObjectByName(`stadium:pocket-cheek:${index}:0`)).toBeUndefined();
+
+      const position = basin.geometry.getAttribute("position") as THREE.BufferAttribute;
+      const normal = basin.geometry.getAttribute("normal") as THREE.BufferAttribute;
+      const outlinePoints = Number(basin.geometry.userData.outlinePoints);
+      const radialSegments = Number(basin.geometry.userData.radialSegments);
+      const boundaryStart = 1 + (radialSegments - 1) * outlinePoints;
+      const target = pocketExitTarget(spec, pocket);
+      for (let outlineIndex = 0; outlineIndex < outlinePoints; outlineIndex += Math.max(1, Math.floor(outlinePoints / 24))) {
+        const vertex = boundaryStart + outlineIndex;
+        const x = position.getX(vertex);
+        const y = position.getY(vertex);
+        const canonical = stadiumTerrainAt(spec, x, y);
+        expect(position.getZ(vertex)).toBeCloseTo(canonical.height, 6);
+        const normalDot = normal.getX(vertex) * canonical.normalX +
+          normal.getY(vertex) * canonical.normalY +
+          normal.getZ(vertex) * canonical.normalZ;
+        expect(normalDot).toBeGreaterThan(0.99999);
+
+        // Adjacent canonical normals on either side of the position-matched
+        // rim remain aligned; this is the C1 lighting-seam regression.
+        const dx = x - target.x;
+        const dy = y - target.y;
+        const length = Math.max(1e-9, Math.hypot(dx, dy));
+        const epsilon = 0.00002;
+        const inside = stadiumTerrainAt(spec, x - dx / length * epsilon, y - dy / length * epsilon);
+        const outside = stadiumTerrainAt(spec, x + dx / length * epsilon, y + dy / length * epsilon);
+        expect(
+          inside.normalX * outside.normalX + inside.normalY * outside.normalY + inside.normalZ * outside.normalZ,
+        ).toBeGreaterThan(0.995);
       }
-      expect(backstop.userData.heightM).toBeGreaterThan(0.015);
-      expect(group.userData).toMatchObject({
-        wallSource: "core:pocketPolygon+pocketCatchPolygon union",
-        internalSeamsRemoved: true,
-      });
-      expect(group.userData.wallSegmentCount).toBeGreaterThan(0);
-      const throatPolygon = pocketPolygon(spec, pocket);
-      const catchPolygon = pocketCatchPolygon(spec, pocket);
-      group.traverse((entry) => {
-        if (!entry.name.startsWith(`stadium:pocket-wall:${index}:`)) return;
-        expect(entry.userData.externalUnionBoundary).toBe(true);
-        const x = Number(entry.userData.midpointX);
-        const y = Number(entry.userData.midpointY);
-        expect(strictlyInsideConvex(throatPolygon, x, y)).toBe(false);
-        expect(strictlyInsideConvex(catchPolygon, x, y)).toBe(false);
-        expect(stadiumBoundarySignedDistance(spec, x, y)).toBeGreaterThanOrEqual(-0.00051);
-      });
     });
+  });
+
+  it("bridges every basin rim beyond the dish/deck grid cut without an open mesh sliver", () => {
+    for (const spec of [STADIUM_BX10, STADIUM_BX32]) {
+      const model = modelFor(spec);
+      spec.pockets.forEach((pocket, pocketIndex) => {
+        const basin = mesh(model, `stadium:pocket-basin:${pocketIndex}`);
+        expect((basin.material as THREE.Material).polygonOffset).toBe(true);
+        const outline = pocketBasinPolygon(spec, pocket);
+        const target = pocketExitTarget(spec, pocket);
+        for (let edgeIndex = 0; edgeIndex < outline.length; edgeIndex++) {
+          const a = outline[edgeIndex]!;
+          const b = outline[(edgeIndex + 1) % outline.length]!;
+          for (const u of [0.2, 0.5, 0.8]) {
+            const rimX = THREE.MathUtils.lerp(a.x, b.x, u);
+            const rimY = THREE.MathUtils.lerp(a.y, b.y, u);
+            const dx = rimX - target.x;
+            const dy = rimY - target.y;
+            const length = Math.max(1e-9, Math.hypot(dx, dy));
+            // This covers the auditor's 0.1/0.5/1.0 mm crack probes and
+            // verifies actual projected triangles, not optimistic metadata.
+            for (const outward of [0.0001, 0.0005, 0.001]) {
+              const x = rimX + dx / length * outward;
+              const y = rimY + dy / length * outward;
+              expect(
+                projectedGeometryCoversPoint(basin.geometry, x, y),
+                `${spec.name}/${pocket.id} leaves an uncovered rim sliver at edge ${edgeIndex}, u=${u}, offset=${outward}`,
+              ).toBe(true);
+            }
+          }
+        }
+      });
+    }
   });
 
   it.each([STADIUM_BX10, STADIUM_BX32])("cuts every real pocket aperture out of the visible dish on %s", (spec) => {
@@ -303,11 +429,7 @@ describe("reference-driven stadium models", () => {
     expect(dish.geometry.userData.omittedApertureTriangles).toBeGreaterThan(0);
     const position = dish.geometry.getAttribute("position") as THREE.BufferAttribute;
     const index = dish.geometry.index!;
-    const footprints = spec.pockets.flatMap((pocket) => {
-      const throat = pocketPolygon(spec, pocket);
-      if (pocket.throat.catchHalfWidth === undefined || pocket.throat.catchDepth === undefined) return [throat];
-      return [throat, pocketCatchPolygon(spec, pocket)];
-    });
+    const footprints = spec.pockets.map((pocket) => pocketBasinPolygon(spec, pocket));
     for (let triangle = 0; triangle < index.count; triangle += 3) {
       const a = index.getX(triangle);
       const b = index.getX(triangle + 1);

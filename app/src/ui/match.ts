@@ -10,13 +10,20 @@ import type { LauncherKind, LaunchParams, WorldConfig, WorldState } from "../cor
 import { MatchEngine, pointsForFinish, type PlayerSetup } from "../game/rules";
 import { botChooseLaunch, botChooseLaunchAdaptive } from "../game/bots";
 import { bumpProfile, launchStats, recordLaunch, recordMatch, type ReplayBattle } from "../game/persist";
-import { captureLaunch, LAUNCH_WINDOWS } from "../input/launcher";
+import {
+  captureLaunch,
+  launchGestureLayout,
+  LAUNCH_WINDOWS,
+  visibleLaunchViewport,
+} from "../input/launcher";
 import { LAUNCHER_MODELS, launcherAimTiltFromGesture } from "../render/launcher";
+import { versusThumb } from "../render/thumbs";
 import { ZH, fmt } from "../i18n/zh";
 import { button, el, overlay } from "./dom";
 import { sfx } from "../audio/sfx";
 import type { GameApp } from "./app";
 import { resolveDeck, slotDisplayName, type SlotConfig } from "./setup";
+import { playVersusIntro } from "./versus-intro";
 
 const sleep = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms));
 
@@ -108,19 +115,71 @@ export async function humanLaunch(
   app.view.synchronizeWideLaunchCamera();
   sfx.setScore("launch"); // tense hold through the countdown
   const physicalLauncher = normalizeLauncherForSpin(launcher, beyParams?.spinDir ?? 1);
-  const pullInstruction = LAUNCHER_MODELS[physicalLauncher].mechanism === "string"
+  const product = LAUNCHER_MODELS[physicalLauncher];
+  const gestureLayout = launchGestureLayout(
+    visibleLaunchViewport(),
+    product.direction,
+    product.maxPullM / LAUNCHER_MODELS.string.maxPullM,
+  );
+  // A phone rotation changes the real screen-space pull axis. Continuing the
+  // old pointer capture would turn a valid horizontal pull into a weak vertical
+  // one (or vice versa), so cancel this attempt for a free, freshly laid-out
+  // retry. Browser-chrome resizes that keep the same orientation do not cancel.
+  let orientationCancel: (() => void) | null = null;
+  let orientationWatchActive = true;
+  const orientationCancelSignal = new Promise<void>((resolve) => {
+    orientationCancel = resolve;
+  });
+  const onLaunchViewportResize = (): void => {
+    if (!orientationWatchActive) return;
+    const next = launchGestureLayout(
+      visibleLaunchViewport(),
+      product.direction,
+      product.maxPullM / LAUNCHER_MODELS.string.maxPullM,
+    );
+    if (next.orientation !== gestureLayout.orientation) {
+      orientationWatchActive = false;
+      orientationCancel?.();
+    }
+  };
+  window.addEventListener("resize", onLaunchViewportResize);
+  window.visualViewport?.addEventListener("resize", onLaunchViewportResize);
+  const stopOrientationWatch = (): void => {
+    orientationWatchActive = false;
+    window.removeEventListener("resize", onLaunchViewportResize);
+    window.visualViewport?.removeEventListener("resize", onLaunchViewportResize);
+  };
+  const pullInstruction = product.mechanism === "string"
     ? ZH.pullStringToLaunch
     : ZH.pullWinderToLaunch;
   if (rc && beyParams) {
     // the player's real launcher type, held in both hands at screen bottom
-    app.view.attachLauncher(rc, beyParams, side === 0 ? 0x3f7bff : 0xff5b4d, launcher);
+    app.view.attachLauncher(
+      rc,
+      beyParams,
+      side === 0 ? 0x3f7bff : 0xff5b4d,
+      launcher,
+      gestureLayout.pullAxis,
+    );
   }
   // the opponent launches at the countdown too — their launcher hovers over
   // their corner and releases exactly on GO SHOOT
   if (opp) app.view.attachOpponentLauncher(opp.rc, opp.params, opp.side, opp.launcher ?? "string");
 
-  const zone = el("div", { class: "launchzone" });
-  const hint = el("div", { class: "banner-big", style: "font-size:20px" }, `${playerName}｜${pullInstruction}`);
+  const zone = el("div", {
+    class: `launchzone ${gestureLayout.orientation}`,
+    "data-pull-direction": gestureLayout.pullAxis.x < 0
+      ? "left"
+      : gestureLayout.pullAxis.x > 0
+        ? "right"
+        : "down",
+  });
+  const pullArrow = gestureLayout.pullAxis.x < 0 ? "←" : gestureLayout.pullAxis.x > 0 ? "→" : "↓";
+  const hint = el(
+    "div",
+    { class: "banner-big", style: "font-size:20px" },
+    `${playerName}｜${pullInstruction} ${pullArrow}`,
+  );
   const calHint = el("div", { class: "label", style: "text-align:center" }, ZH.calibrateHint);
   const count = el("div", { class: "countdown" }, "");
   const meter = el("div", { class: "spmeter" }, el("div", { class: "spfill" }));
@@ -128,6 +187,7 @@ export async function humanLaunch(
   zone.append(count, hint, calHint);
   document.body.append(zone, meter);
   activeLaunchTeardown = () => {
+    stopOrientationWatch();
     stopTimers();
     app.view.removeLauncher();
     app.view.removeOpponentLauncher();
@@ -167,24 +227,20 @@ export async function humanLaunch(
     timers.length = 0;
   };
 
-  // One physical rack/string length maps to one usable screen stroke. Short
-  // Entry winders reach their stop sooner; UX long winders travel farther.
-  const product = LAUNCHER_MODELS[physicalLauncher];
-  const maxTravelPx = Math.max(
-    120,
-    Math.min(window.innerHeight * 0.62, 520) * (product.maxPullM / LAUNCHER_MODELS.string.maxPullM),
-  );
   const result = await captureLaunch(zone, {
     shootAtMs: shootAt,
     ...LAUNCH_WINDOWS,
-    pullAxis: { x: 0, y: 1 },
-    maxTravelPx,
+    pullAxis: gestureLayout.pullAxis,
+    maxTravelPx: gestureLayout.maxTravelPx,
+    powerPxScale: gestureLayout.powerPxScale,
+    cancelSignal: orientationCancelSignal,
     abortSignal,
     onProgress: (progress) => {
       fill.style.width = `${Math.min(100, (progress.sp / 11000) * 100)}%`;
       app.view.setLauncherGesture(progress);
     },
   });
+  stopOrientationWatch();
 
   if (result.cancelled) {
     // OS/browser pointer cancellation is not a match abort. Cleanly remove
@@ -454,10 +510,12 @@ export async function runMatch(
   // await cannot keep the "aborted" match running behind the menu — racing
   // the promise alone only unblocked runMatch, it never stopped the loser.
   const abortFlag = { requested: false };
+  const abortController = new AbortController();
   let fireAbort: () => void = () => {};
   const abortPromise = new Promise<"aborted">((res) => {
     fireAbort = () => {
       abortFlag.requested = true;
+      abortController.abort();
       res("aborted");
     };
   });
@@ -484,11 +542,41 @@ export async function runMatch(
     };
   };
 
-  await flashBanner(ZH.battleStart, 1000);
+  // hooks.setup has already installed any remote decks, so these are the
+  // actual opening matchup. Online call sites mark only this phone's slot as
+  // human; hot-seat (two humans) and bot demos intentionally default to P1.
+  const playerSide: 0 | 1 = slots[0].kind === "human" || slots[1].kind !== "human" ? 0 : 1;
+  const opponentSide = (1 - playerSide) as 0 | 1;
+  const playerCombo = engine.deckOf(playerSide);
+  const opponentCombo = engine.deckOf(opponentSide);
+  const reducedMotion = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  const introResult = await playVersusIntro({
+    player: {
+      name: names[playerSide],
+      image: ({ signal, deadlineMs }) => versusThumb(
+        app.index,
+        playerCombo,
+        `opening-${playerSide}-${app.comboLabel(playerCombo)}`,
+        { signal, deadlineMs },
+      ),
+    },
+    opponent: {
+      name: names[opponentSide],
+      image: ({ signal, deadlineMs }) => versusThumb(
+        app.index,
+        opponentCombo,
+        `opening-${opponentSide}-${app.comboLabel(opponentCombo)}`,
+        { signal, deadlineMs },
+      ),
+    },
+    signal: abortController.signal,
+    reducedMotion,
+  });
+  if (introResult === "aborted") abortFlag.requested = true;
   const replayBattles: ReplayBattle[] = [];
   let lastWorld: WorldState | null = null;
   let lastCfg: WorldConfig | null = null;
-  while (engine.winner === null) {
+  while (engine.winner === null && !abortFlag.requested) {
     const combo0 = engine.deckOf(0);
     const combo1 = engine.deckOf(1);
     const rc0 = resolveCombo(app.index, combo0);

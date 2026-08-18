@@ -1,5 +1,5 @@
 // Offscreen thumbnail renders of beys and single parts (cached dataURLs)
-// for the swipeable gallery pickers. Uses the same parametric mesh builders
+// for the grid/swipe gallery pickers. Uses the same parametric mesh builders
 // as the battle view, so what you pick is exactly what you get.
 
 import * as THREE from "three";
@@ -27,13 +27,20 @@ import {
 let renderer: THREE.WebGLRenderer | null = null;
 let scene: THREE.Scene | null = null;
 let camera: THREE.PerspectiveCamera | null = null;
+let overheadCamera: THREE.OrthographicCamera | null = null;
 const cache = new Map<string, string>();
+
+const CATALOG_THUMB_SIZE = 224;
+export const VERSUS_THUMB_SIZE = 448;
+/** 62 mm square framing fits the widest 52.5 mm catalog Blade with margin. */
+export const VERSUS_THUMB_HALF_FRAME_M = 0.031;
+const VERSUS_CAPTURE_MIN_BUDGET_MS = 90;
 
 function ensure(): boolean {
   if (renderer) return true;
   try {
     renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, preserveDrawingBuffer: true });
-    renderer.setSize(224, 224);
+    renderer.setSize(CATALOG_THUMB_SIZE, CATALOG_THUMB_SIZE);
     renderer.toneMapping = THREE.ACESFilmicToneMapping;
     renderer.outputColorSpace = THREE.SRGBColorSpace;
     scene = new THREE.Scene();
@@ -47,23 +54,32 @@ function ensure(): boolean {
     camera = new THREE.PerspectiveCamera(35, 1, 0.005, 5);
     camera.position.set(0, -0.075, 0.062);
     camera.lookAt(0, 0, 0.012);
+    // A dedicated camera, but deliberately the same renderer/context. Versus
+    // cards need a true overhead product view rather than enlarging the
+    // gallery's three-quarter 224 px capture.
+    overheadCamera = new THREE.OrthographicCamera(
+      -VERSUS_THUMB_HALF_FRAME_M,
+      VERSUS_THUMB_HALF_FRAME_M,
+      VERSUS_THUMB_HALF_FRAME_M,
+      -VERSUS_THUMB_HALF_FRAME_M,
+      0.005,
+      5,
+    );
+    overheadCamera.position.set(0, 0, 0.15);
+    overheadCamera.lookAt(0, 0, 0.009);
     return true;
   } catch {
     return false;
   }
 }
 
-function snapshot(group: THREE.Group): string {
-  if (!ensure()) return "";
-  group.rotation.z = 0.5;
-  scene!.add(group);
-  renderer!.render(scene!, camera!);
-  const url = renderer!.domElement.toDataURL("image/png");
-  scene!.remove(group);
+function snapshot(
+  group: THREE.Group,
+  options: { size?: number; overhead?: boolean } = {},
+): string {
   const materials = new Set<THREE.Material>();
   group.traverse((o) => {
     const m = o as THREE.Mesh;
-    if (m.geometry) m.geometry.dispose();
     if (Array.isArray(m.material)) {
       for (const material of m.material) materials.add(material);
     } else if (m.material) {
@@ -73,8 +89,32 @@ function snapshot(group: THREE.Group): string {
   // Catalog image textures are deliberately shared by the global texture
   // cache, but each thumbnail owns its materials/programs. Release those GPU
   // resources after capture so browsing the whole catalog stays bounded.
-  for (const material of materials) material.dispose();
-  return url;
+  const dispose = (): void => {
+    group.traverse((o) => {
+      const m = o as THREE.Mesh;
+      if (m.geometry) m.geometry.dispose();
+    });
+    for (const material of materials) material.dispose();
+  };
+  if (!ensure()) {
+    dispose();
+    return "";
+  }
+  const size = options.size ?? CATALOG_THUMB_SIZE;
+  try {
+    renderer!.setSize(size, size, false);
+    group.rotation.z = options.overhead ? 0.18 : 0.5;
+    scene!.add(group);
+    renderer!.render(scene!, options.overhead ? overheadCamera! : camera!);
+    return renderer!.domElement.toDataURL("image/png");
+  } finally {
+    scene!.remove(group);
+    // Leave the singleton at its normal catalog size for subsequent callers.
+    if (size !== CATALOG_THUMB_SIZE) {
+      renderer!.setSize(CATALOG_THUMB_SIZE, CATALOG_THUMB_SIZE, false);
+    }
+    dispose();
+  }
 }
 
 /** Thumbnail of a full assembled combo. */
@@ -100,6 +140,59 @@ export async function comboThumb(index: PartIndex, sel: ComboSelection, key: str
       ]),
     ]);
     const url = snapshot(buildBeyMesh(rc, deriveBeyParams(rc), 0x5a70d6));
+    cache.set(cacheKey, url);
+    return url;
+  } catch {
+    return "";
+  }
+}
+
+/** High-resolution, true overhead capture for the pre-match versus splash.
+ * Reuses the catalog renderer/context and the same canonical mesh pipeline. */
+export async function versusThumb(
+  index: PartIndex,
+  sel: ComboSelection,
+  _key: string,
+  options: { signal?: AbortSignal; deadlineMs?: number } = {},
+): Promise<string> {
+  const selectionFingerprint = JSON.stringify(sel);
+  // Unlike gallery labels, the resolved selection fully identifies this
+  // render. Setup prefetches and match startup must converge on one cache hit.
+  const cacheKey = `v:${selectionFingerprint}`;
+  const hit = cache.get(cacheKey);
+  if (hit) return hit;
+  try {
+    const rc = resolveCombo(index, sel);
+    await Promise.all([
+      preloadStickerImage(
+        rc.isCx ? lockChipStickerUrl(rc.parts.lockChip) : bladeStickerUrl(rc.parts.blade),
+      ),
+      preloadUpperReferences([
+        rc.compositeBlade,
+        rc.parts.blade,
+        rc.parts.lockChip,
+        rc.parts.mainBlade,
+        rc.parts.assistBlade,
+        rc.parts.metalBlade,
+        rc.parts.overBlade,
+      ]),
+    ]);
+    // Another setup/gallery prefetch may have completed while references were
+    // loading. Reuse it instead of issuing a duplicate 448 px capture.
+    const warmed = cache.get(cacheKey);
+    if (warmed) return warmed;
+    // Upper-part reference loading can outlive the intro's fast preparation
+    // slot. This check only avoids STARTING a capture after its budget is too
+    // low; once build/render starts it is synchronous and is not preemptible.
+    // The caller follows a miss with an uncapped, abort-aware real-image retry.
+    const remainingMs = options.deadlineMs === undefined
+      ? Number.POSITIVE_INFINITY
+      : options.deadlineMs - performance.now();
+    if (options.signal?.aborted || remainingMs < VERSUS_CAPTURE_MIN_BUDGET_MS) return "";
+    const url = snapshot(
+      buildBeyMesh(rc, deriveBeyParams(rc), 0x5a70d6),
+      { size: VERSUS_THUMB_SIZE, overhead: true },
+    );
     cache.set(cacheKey, url);
     return url;
   } catch {
