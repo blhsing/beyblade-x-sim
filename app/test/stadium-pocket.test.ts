@@ -193,7 +193,20 @@ describe("product-accurate stadium openings", () => {
         // oblique shadow edges, not guessed from the nearly invisible top view.
         expect(peak).toBeCloseTo(0.0168, 5);
         expect(pocket.trace?.guard.halfThickness).toBeCloseTo(0.0105, 6);
+        expect(pocket.trace?.guard.profile).toEqual({
+          kind: "molded-wedge",
+          bowlApron: 0.026,
+          pocketApron: 0.012,
+          crestHalfWidth: 0.0075,
+        });
         expect(pocket.trace?.reference.source).toContain("61mev0MM2vL.jpg");
+      } else if (stadium === STADIUM_BX10 && index !== 1) {
+        expect(peak).toBeCloseTo(0.0105, 5);
+        expect(pocket.trace?.guard.halfThickness).toBeCloseTo(0.0075, 6);
+        expect(pocket.trace?.guard.collision).toMatchObject({
+          kind: "solid",
+          vaultSpeed: 1.65,
+        });
       } else {
         expect(peak).toBeGreaterThanOrEqual(0.0054);
         expect(peak).toBeLessThanOrEqual(0.0066);
@@ -228,12 +241,14 @@ describe("product-accurate stadium openings", () => {
       expect(pocketBasinPolygon(stadium, pocket)).toBe(pocketBasinPolygon(stadium, pocket));
       const path = pocketPath(stadium, pocket);
       const epsilon = 0.00002;
-      const sample = (offset: number) => pocketSurfaceZ(
-        stadium,
-        pocket,
-        path.boundary.x + path.axis.x * offset,
-        path.boundary.y + path.axis.y * offset,
-      );
+      // Remove the separately authored retaining rise: this assertion covers
+      // the raw bowl-to-basin join, while solid divider profiles intentionally
+      // rise across that route.
+      const sample = (offset: number) => {
+        const x = path.boundary.x + path.axis.x * offset;
+        const y = path.boundary.y + path.axis.y * offset;
+        return pocketSurfaceZ(stadium, pocket, x, y) - pocketGuardRiseAt(stadium, x, y);
+      };
       const behind = sample(-epsilon);
       const joined = sample(0);
       const ahead = sample(epsilon);
@@ -670,8 +685,8 @@ describe("reversible live pocket simulation", () => {
     )).toHaveLength(1);
   });
 
-  it("fills the traced BX-32 divider footprint without a centerline hole", () => {
-    expect(STADIUM_BX10.hasSolidPocketGuards).not.toBe(true);
+  it("fills the traced solid-divider footprints without a centerline hole", () => {
+    expect(STADIUM_BX10.hasSolidPocketGuards).toBe(true);
     expect(STADIUM_BX32.hasSolidPocketGuards).toBe(true);
     expect(STADIUM_BX32.pockets.some((pocket) => pocket.trace?.guard.collision?.kind === "solid"))
       .toBe(true);
@@ -681,6 +696,16 @@ describe("reversible live pocket simulation", () => {
         const contact = pocketGuardContactAt(STADIUM_BX32, point.x, point.y, 0.003);
         expect(contact?.pocket).toBe(pocket);
         expect(contact?.penetration).toBeGreaterThanOrEqual(0.0134);
+      }
+    }
+    expect(STADIUM_BX10.pockets[1]!.trace?.guard.collision).toBeUndefined();
+    for (const pocket of [STADIUM_BX10.pockets[0]!, STADIUM_BX10.pockets[2]!]) {
+      expect(pocket.trace?.guard.collision?.kind).toBe("solid");
+      expect(pocket.trace?.guard.height).toBeCloseTo(0.0105, 6);
+      for (const point of pocketGuardCenterline(STADIUM_BX10, pocket)) {
+        const contact = pocketGuardContactAt(STADIUM_BX10, point.x, point.y, 0.003);
+        expect(contact?.pocket).toBe(pocket);
+        expect(contact?.penetration).toBeGreaterThanOrEqual(0.0104);
       }
     }
   });
@@ -702,6 +727,26 @@ describe("reversible live pocket simulation", () => {
         }
         expect(blocked, `${pocket.id} lane ${across.toFixed(3)} m`).toBe(true);
       }
+    }
+  });
+
+  it("models each BX-32 divider as a broad asymmetric molded rise, not a thin bar", () => {
+    for (const pocket of STADIUM_BX32.pockets.slice(0, 2)) {
+      const path = pocketPath(STADIUM_BX32, pocket);
+      const centerline = pocketGuardCenterline(STADIUM_BX32, pocket);
+      const center = centerline[Math.floor(centerline.length / 2)]!;
+      const at = (offset: number) => pocketGuardRiseAt(
+        STADIUM_BX32,
+        center.x + path.axis.x * offset,
+        center.y + path.axis.y * offset,
+      );
+      expect(at(0)).toBeCloseTo(0.0168, 5);
+      // Negative is the broad bowl-side apron; positive is the shorter,
+      // steeper pocket-side cheek.
+      expect(at(-0.020)).toBeGreaterThan(0.002);
+      expect(at(0.010)).toBeGreaterThan(0.002);
+      expect(at(-0.010)).toBeGreaterThan(at(0.010));
+      expect(at(0.014)).toBe(0);
     }
   });
 

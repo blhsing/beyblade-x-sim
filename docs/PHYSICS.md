@@ -6,13 +6,18 @@ part stats, and *bit-exact determinism* across devices.
 
 ## Determinism contract
 
-Current deterministic replay/lockstep version: **9**. Version 9 makes the two
-photo-traced BX-32 rear-pocket dividers true solid obstacles. Their complete
-21 mm-wide plan footprint and near-vertical 16.8 mm face are shared by live
-Beys, debris and rendering; ordinary 1.7--2.0 m/s approaches rebound into the
-bowl instead of riding a smooth hill straight into a corner pocket. Only an
-exceptional impact above the calibrated 2.2 m/s vault threshold crosses the
-divider, and that crossing pays the wall-climb energy once. Version 8 replaced
+Current deterministic replay/lockstep version: **10**. Version 10 replaces the
+thin-looking BX-32 divider extrusion with the actual asymmetric molded form:
+a 38 mm plan-view apron blends into the bowl, rises to a 15 mm-wide crest and
+drops more steeply into the pocket. That same continuous 16.8 mm heightfield is
+used by rendering and physics, while its 21 mm lower-support collision envelope
+still blocks ordinary approaches. It also raises the two BX-10 side-Over lips
+from 6.0 to 10.5 mm and makes them solid retaining barriers; the exact deployed
+1.21 m/s side-pocket shortcut now rebounds, while the broad center Xtreme mouth
+remains open. Version 9 first made the two photo-traced BX-32 rear-pocket
+dividers solid obstacles. Only an exceptional impact above the calibrated
+2.2 m/s vault threshold crosses a BX-32 divider, and that crossing pays the
+wall-climb energy once. Version 8 replaced
 the generic rear-pocket lips with the broader, taller molded forms derived
 from the supplied overhead trace and oblique shadow-bearing product view.
 Version 7 removes the
@@ -102,12 +107,14 @@ own-finish rule), visual phase.
    linear and angular momentum continue into the basin; it can circulate,
    collide, climb or rebound from the molded rim, and return through the open
    mouth when it carries enough momentum uphill. A traced retaining wall
-   precedes each mouth. Low BX-10 lips remain climbable terrain; BX-32's two
-   rear dividers instead use their full photo-derived solid footprint and
-   near-vertical face, so ordinary approaches rebound. A rare impact above
-   2.2 m/s can vault one only after paying the climb energy. These broad, tall
-   dividers come from the overhead plan and oblique shadow-bearing reference
-   views; they are not generic low lips. Entry alone is not a finish.
+   precedes each mouth. BX-10's two side-Over lips are 10.5 mm solid rounded
+   barriers, while its broad center Xtreme lip remains a low climbable part of
+   the floor. BX-32's two rear dividers use a 38 mm-wide asymmetric molded
+   apron, 15 mm crest and near-vertical collision face, so ordinary approaches
+   rebound. A rare impact above 2.2 m/s can vault one only after paying the
+   climb energy. These forms come from the overhead plan and oblique
+   shadow-bearing reference views; they are not generic bars. Entry alone is
+   not a finish.
    Official stadiums have no invented angular side gaps.
 7. **Collisions** (circle-circle): normal impulse (restitution 0.25,
    mass-weighted) + two directed "smash" impulses derived from **rim slip**

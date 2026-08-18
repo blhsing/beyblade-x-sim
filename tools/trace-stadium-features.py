@@ -62,8 +62,13 @@ GUIDE_BOTTOM_RANGE = (685, 705)
 GUARD_PROBE_XS = (550, 555, 560, 580, 585)
 GUARD_TOP_RANGE = (630, 680)
 GUARD_BOTTOM_RANGE = (730, 780)
-# Plan-view shadow width converted on the photograph's short-axis calibration.
+# Plan-view crest/collision width converted on the photograph's short-axis
+# calibration. The oblique silhouette also shows a much broader asymmetric
+# molded apron; it is not a constant-width extruded bar.
 GUARD_FULL_THICKNESS_PX = 18.42
+GUARD_BOWL_APRON_M = 0.026
+GUARD_POCKET_APRON_M = 0.012
+GUARD_CREST_HALF_WIDTH_M = 0.0075
 
 
 def boundary_radius(theta: float) -> float:
@@ -182,6 +187,9 @@ def check_typescript(path: Path, result: dict[str, object]) -> None:
         raise SystemExit(f"TypeScript does not contain derived height {height:.4f} m")
     if 'kind: "solid"' not in source or f"vaultSpeed: {GUARD_VAULT_SPEED_MPS:.1f}" not in source:
         raise SystemExit("TypeScript does not contain the solid BX-32 guard collision contract")
+    for value in (GUARD_BOWL_APRON_M, GUARD_POCKET_APRON_M, GUARD_CREST_HALF_WIDTH_M):
+        if f"{value:.4g}" not in source:
+            raise SystemExit(f"TypeScript does not contain molded-wedge dimension {value:.4g} m")
 
 
 def main() -> None:
@@ -205,6 +213,11 @@ def main() -> None:
         "method": "mirrored-overhead-plan+oblique-shadow-edge-ratio",
         "planControlPoints": plan_trace(),
         "halfThicknessM": GUARD_FULL_THICKNESS_PX * SHORT_AXIS_M_PER_PX / 2,
+        "moldedWedgeProfile": {
+            "bowlApronM": GUARD_BOWL_APRON_M,
+            "pocketApronM": GUARD_POCKET_APRON_M,
+            "crestHalfWidthM": GUARD_CREST_HALF_WIDTH_M,
+        },
         "heightFit": fit,
         "collisionModel": {
             "kind": "solid",

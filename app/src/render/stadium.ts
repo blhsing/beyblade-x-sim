@@ -13,6 +13,7 @@ import {
   pocketExitTarget,
   pocketGuardCenterline,
   pocketGuardRiseAt,
+  pocketPath,
   pocketPolygon,
   pointInConvexPolygon,
   pocketSurfaceZ as corePocketSurfaceZ,
@@ -1055,12 +1056,19 @@ function pocketGuardGeometry(s: StadiumSpec, pocket: PocketSpec): THREE.BufferGe
   const guard = pocket.trace?.guard;
   const halfThickness = guard?.halfThickness ?? 0;
   const solid = guard?.collision?.kind === "solid";
-  const acrossSegments = 32;
+  const wedge = guard?.profile?.kind === "molded-wedge" ? guard.profile : null;
+  const acrossSegments = wedge ? 64 : 32;
   const positions: number[] = [];
   const indices: number[] = [];
+  const path = pocketPath(s, pocket);
   const baseHeight = (x: number, y: number) =>
     stadiumTerrainAt(s, x, y).height - pocketGuardRiseAt(s, x, y);
-  for (let pathIndex = 0; pathIndex < centerline.length; pathIndex++) {
+
+  // Positive offsets point out into the loss-zone basin. The real BX-32
+  // divider has a broad bowl-side apron and a much shorter pocket-side cheek;
+  // orienting every section against the pocket frame prevents a curved trace
+  // from accidentally flipping that asymmetric profile.
+  const frameAt = (pathIndex: number) => {
     const previous = centerline[Math.max(0, pathIndex - 1)]!;
     const next = centerline[Math.min(centerline.length - 1, pathIndex + 1)]!;
     let tangentX = next.x - previous.x;
@@ -1068,23 +1076,30 @@ function pocketGuardGeometry(s: StadiumSpec, pocket: PocketSpec): THREE.BufferGe
     const tangentLength = Math.sqrt(tangentX * tangentX + tangentY * tangentY) || 1;
     tangentX /= tangentLength;
     tangentY /= tangentLength;
-    const normalX = -tangentY;
-    const normalY = tangentX;
+    let normalX = -tangentY;
+    let normalY = tangentX;
+    if (normalX * path.axis.x + normalY * path.axis.y < 0) {
+      normalX *= -1;
+      normalY *= -1;
+    }
+    return { normalX, normalY };
+  };
+  const offsetAt = (across: number): number => {
+    const u = across / acrossSegments;
+    return wedge
+      ? THREE.MathUtils.lerp(-wedge.bowlApron, wedge.pocketApron, u)
+      : (u * 2 - 1) * halfThickness;
+  };
+  for (let pathIndex = 0; pathIndex < centerline.length; pathIndex++) {
+    const { normalX, normalY } = frameAt(pathIndex);
     for (let across = 0; across <= acrossSegments; across++) {
-      const offset = (across / acrossSegments * 2 - 1) * halfThickness;
+      const offset = offsetAt(across);
       const x = centerline[pathIndex]!.x + normalX * offset;
       const y = centerline[pathIndex]!.y + normalY * offset;
-      if (solid && guard) {
-        // The oblique reference shows a near-vertical retaining face. Keep a
-        // gently crowned top for the moulded plastic, but do not turn its
-        // 16.8 mm height into the broad climbable hill that caused the replay
-        // regressions.
-        const normalized = Math.abs(offset) / Math.max(halfThickness, 1e-9);
-        const crown = (1 - normalized * normalized) * 0.00035;
-        positions.push(x, y, baseHeight(x, y) + guard.height + crown + 0.00003);
-      } else {
-        positions.push(x, y, stadiumTerrainAt(s, x, y).height + 0.00003);
-      }
+      // Sample the canonical heightfield at the actual apron coordinate. The
+      // broad visible wedge is therefore the exact surface the physics sees,
+      // with no hidden thin bar or early mesh penetration.
+      positions.push(x, y, stadiumTerrainAt(s, x, y).height + 0.00003);
     }
   }
   const row = acrossSegments + 1;
@@ -1097,23 +1112,17 @@ function pocketGuardGeometry(s: StadiumSpec, pocket: PocketSpec): THREE.BufferGe
       indices.push(a, c, b, b, c, d);
     }
   }
+
   let verticalFaceTriangles = 0;
-  if (solid && guard && centerline.length >= 2) {
-    const appendSide = (edgeAcross: number, reverse: boolean) => {
+  if (wedge && guard && centerline.length >= 2) {
+    const appendSide = (edgeOffset: number, topAcross: number, reverse: boolean) => {
       const bottomStart = positions.length / 3;
       for (let pathIndex = 0; pathIndex < centerline.length; pathIndex++) {
-        const previous = centerline[Math.max(0, pathIndex - 1)]!;
-        const next = centerline[Math.min(centerline.length - 1, pathIndex + 1)]!;
-        let tangentX = next.x - previous.x;
-        let tangentY = next.y - previous.y;
-        const tangentLength = Math.sqrt(tangentX * tangentX + tangentY * tangentY) || 1;
-        tangentX /= tangentLength;
-        tangentY /= tangentLength;
-        const x = centerline[pathIndex]!.x - tangentY * edgeAcross;
-        const y = centerline[pathIndex]!.y + tangentX * edgeAcross;
+        const { normalX, normalY } = frameAt(pathIndex);
+        const x = centerline[pathIndex]!.x + normalX * edgeOffset;
+        const y = centerline[pathIndex]!.y + normalY * edgeOffset;
         positions.push(x, y, baseHeight(x, y) + 0.00002);
       }
-      const topAcross = edgeAcross < 0 ? 0 : acrossSegments;
       for (let pathIndex = 0; pathIndex < centerline.length - 1; pathIndex++) {
         const topA = pathIndex * row + topAcross;
         const topB = (pathIndex + 1) * row + topAcross;
@@ -1124,22 +1133,16 @@ function pocketGuardGeometry(s: StadiumSpec, pocket: PocketSpec): THREE.BufferGe
         verticalFaceTriangles += 2;
       }
     };
-    appendSide(-halfThickness, false);
-    appendSide(halfThickness, true);
+    appendSide(offsetAt(0), 0, false);
+    appendSide(offsetAt(acrossSegments), acrossSegments, true);
 
     const appendEnd = (pathIndex: number, reverse: boolean) => {
       const bottomStart = positions.length / 3;
-      const previous = centerline[Math.max(0, pathIndex - 1)]!;
-      const next = centerline[Math.min(centerline.length - 1, pathIndex + 1)]!;
-      let tangentX = next.x - previous.x;
-      let tangentY = next.y - previous.y;
-      const tangentLength = Math.sqrt(tangentX * tangentX + tangentY * tangentY) || 1;
-      tangentX /= tangentLength;
-      tangentY /= tangentLength;
+      const { normalX, normalY } = frameAt(pathIndex);
       for (let across = 0; across <= acrossSegments; across++) {
-        const offset = (across / acrossSegments * 2 - 1) * halfThickness;
-        const x = centerline[pathIndex]!.x - tangentY * offset;
-        const y = centerline[pathIndex]!.y + tangentX * offset;
+        const offset = offsetAt(across);
+        const x = centerline[pathIndex]!.x + normalX * offset;
+        const y = centerline[pathIndex]!.y + normalY * offset;
         positions.push(x, y, baseHeight(x, y) + 0.00002);
       }
       for (let across = 0; across < acrossSegments; across++) {
@@ -1155,18 +1158,26 @@ function pocketGuardGeometry(s: StadiumSpec, pocket: PocketSpec): THREE.BufferGe
     appendEnd(0, true);
     appendEnd(centerline.length - 1, false);
   }
+
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   geometry.userData = {
-    shape: solid ? "solid-pocket-retaining-wall" : "rounded-pocket-entry-wall",
+    shape: wedge
+      ? "molded-pocket-divider-wedge"
+      : solid ? "solid-rounded-pocket-lip" : "rounded-pocket-entry-wall",
     source: "core:pocketGuardCenterline+pocketGuardRiseAt",
     pathSamples: centerline.length,
     acrossSegments,
     halfThicknessM: halfThickness,
     heightM: pocket.trace?.guard.height ?? 0,
     solidBarrier: solid,
+    profile: wedge?.kind ?? "canonical-heightfield",
+    bowlApronM: wedge?.bowlApron ?? null,
+    pocketApronM: wedge?.pocketApron ?? null,
+    crestWidthM: wedge ? wedge.crestHalfWidth * 2 : null,
+    footprintWidthM: wedge ? wedge.bowlApron + wedge.pocketApron : halfThickness * 2,
     verticalFaceTriangles,
     vaultSpeedMps: guard?.collision?.vaultSpeed ?? null,
     photoDerived: true,

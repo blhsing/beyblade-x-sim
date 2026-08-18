@@ -374,22 +374,47 @@ describe("reference-driven stadium models", () => {
         solidBarrier: pocket.trace?.guard.collision?.kind === "solid",
       });
       const solidBarrier = pocket.trace?.guard.collision?.kind === "solid";
+      const moldedWedge = pocket.trace?.guard.profile?.kind === "molded-wedge";
       expect(guard.geometry.userData).toMatchObject({
-        shape: solidBarrier ? "solid-pocket-retaining-wall" : "rounded-pocket-entry-wall",
+        shape: moldedWedge
+          ? "molded-pocket-divider-wedge"
+          : solidBarrier ? "solid-rounded-pocket-lip" : "rounded-pocket-entry-wall",
         source: "core:pocketGuardCenterline+pocketGuardRiseAt",
-        acrossSegments: 32,
+        acrossSegments: moldedWedge ? 64 : 32,
         solidBarrier,
         photoDerived: true,
       });
       expect(guard.geometry.userData.pathSamples).toBeGreaterThanOrEqual(26);
       const guardPosition = guard.geometry.getAttribute("position") as THREE.BufferAttribute;
-      if (solidBarrier) {
+      if (moldedWedge) {
         expect(guard.geometry.userData.verticalFaceTriangles).toBeGreaterThan(100);
         expect(guard.geometry.userData.vaultSpeedMps).toBe(pocket.trace?.guard.collision?.vaultSpeed);
+        expect(guard.geometry.userData).toMatchObject({
+          profile: "molded-wedge",
+          bowlApronM: 0.026,
+          pocketApronM: 0.012,
+          crestWidthM: 0.015,
+          footprintWidthM: 0.038,
+        });
+        expect(guard.geometry.userData.footprintWidthM / guard.geometry.userData.heightM)
+          .toBeGreaterThan(2);
+        const topVertexCount = guard.geometry.userData.pathSamples *
+          (guard.geometry.userData.acrossSegments + 1);
+        for (let vertex = 0; vertex < topVertexCount; vertex += Math.max(1, Math.floor(topVertexCount / 100))) {
+          const x = guardPosition.getX(vertex);
+          const y = guardPosition.getY(vertex);
+          expect(guardPosition.getZ(vertex)).toBeCloseTo(stadiumTerrainAt(spec, x, y).height + 0.00003, 5);
+        }
         guard.geometry.computeBoundingBox();
         expect(guard.geometry.boundingBox!.max.z - guard.geometry.boundingBox!.min.z)
           .toBeGreaterThan((pocket.trace?.guard.height ?? 0) * 0.9);
       } else {
+        if (solidBarrier) {
+          expect(guard.geometry.userData.shape).toBe("solid-rounded-pocket-lip");
+          expect(guard.geometry.userData.verticalFaceTriangles).toBe(0);
+          expect(guard.geometry.userData.vaultSpeedMps).toBe(pocket.trace?.guard.collision?.vaultSpeed);
+          expect(pocket.trace?.guard.height).toBeGreaterThanOrEqual(0.010);
+        }
         for (let vertex = 0; vertex < guardPosition.count; vertex += Math.max(1, Math.floor(guardPosition.count / 80))) {
           const x = guardPosition.getX(vertex);
           const y = guardPosition.getY(vertex);

@@ -35,7 +35,7 @@ import type {
 export const DT = 1 / 240;
 export const TICKS_PER_SECOND = 240;
 /** Increment whenever deterministic state evolution changes incompatibly. */
-export const PHYSICS_VERSION = 9;
+export const PHYSICS_VERSION = 10;
 
 const G = 9.81;
 // Stop means visually and mechanically settled, not merely crossing a low-
@@ -529,12 +529,10 @@ function constrainPocket(
   return true;
 }
 
-/** Resolve the tall photo-traced BX-32 corner divider as a rigid wall. The
- * old model exposed the same 16.8 mm moulding only through a smooth terrain
- * gradient, so 1.7--2.0 m/s replay trajectories simply rode over it. A real
- * near-vertical face reflects those approaches. Only a rare, substantially
- * harder strike is represented as a vault over the wall, with the climb
- * energy removed once at first contact. */
+/** Resolve a photo-traced solid loss-zone divider as a rigid wall. This covers
+ * the tall BX-32 corner wedges and the raised BX-10 side-Over barriers; each
+ * supplies its own vault threshold. A rare, substantially harder strike can
+ * cross only after the climb energy is removed once at first contact. */
 function resolvePocketGuard(
   w: WorldState,
   s: StadiumSpec,

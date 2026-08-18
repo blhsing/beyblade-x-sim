@@ -41,12 +41,22 @@ export interface PocketTracePoint {
 export interface PocketGuardSpec {
   /** Traced centerline of the molded retaining wall before the basin. */
   centerline: readonly PocketTracePoint[];
-  /** Rounded wall half-thickness and rise above the surrounding surface. */
+  /** Crest/collision half-thickness and rise above the surrounding surface. */
   halfThickness: number;
   height: number;
-  /** Tall BX-32 corner dividers are rigid obstacles, not climbable changes to
-   * the floor slope. A sufficiently violent collision may vault the wall;
-   * ordinary bowl motion is reflected by its real plan-view footprint. */
+  /** The BX-32 corner divider is not a bar: its high line sits on a broad,
+   * asymmetric molded wedge that blends into the bowl on one side and drops
+   * more steeply into the pocket on the other. These plan dimensions are
+   * independently traced/scaled from the oblique product photographs. */
+  profile?: {
+    kind: "molded-wedge";
+    bowlApron: number;
+    pocketApron: number;
+    crestHalfWidth: number;
+  };
+  /** Steep side/corner dividers are rigid obstacles, not merely climbable
+   * changes to the floor slope. A sufficiently violent collision may vault
+   * the wall; ordinary bowl motion is reflected by its real footprint. */
   collision?: {
     kind: "solid";
     vaultSpeed: number;
@@ -489,11 +499,12 @@ function pocketTrace(
   mirroredFrom?: string,
   halfThickness = 0.0048,
   collision?: PocketGuardSpec["collision"],
+  profile?: PocketGuardSpec["profile"],
 ): PocketTraceSpec {
   return {
     throat,
     basin,
-    guard: { centerline: guard, halfThickness, height, collision },
+    guard: { centerline: guard, halfThickness, height, collision, profile },
     reference: { source, calibration, mirroredFrom },
   };
 }
@@ -548,9 +559,12 @@ export const STADIUM_BX10: StadiumSpec = {
         BX10_SIDE_THROAT,
         BX10_SIDE_BASIN,
         BX10_SIDE_GUARD,
-        0.006,
+        0.0105,
         "user:codex-clipboard-ac6833d8-5c2c-480c-8005-6b05608265a5.png + TT:BX-07-manual-p7",
-        "440x455mm body; front-left molded concavity and bowl-side retaining lip",
+        "440x455mm body; front-left molded concavity and raised bowl-side retaining lip; height cross-checked against the adjacent 4.6mm X-Line",
+        undefined,
+        0.0075,
+        { kind: "solid", vaultSpeed: 1.65, restitution: 0.44, friction: 0.14 },
       ),
     },
     {
@@ -590,13 +604,16 @@ export const STADIUM_BX10: StadiumSpec = {
         BX10_SIDE_THROAT,
         BX10_SIDE_BASIN,
         BX10_SIDE_GUARD,
-        0.006,
+        0.0105,
         "user:codex-clipboard-ac6833d8-5c2c-480c-8005-6b05608265a5.png + TT:BX-07-manual-p7",
-        "440x455mm body; mirrored front-right molded concavity and retaining lip",
+        "440x455mm body; mirrored front-right molded concavity and raised retaining lip; height cross-checked against the adjacent 4.6mm X-Line",
         "front-left-over",
+        0.0075,
+        { kind: "solid", vaultSpeed: 1.65, restitution: 0.44, friction: 0.14 },
       ),
     },
   ],
+  hasSolidPocketGuards: true,
   wallRestitution: 0.52,
   exitSpeed: 0.8,
   // real body: 440 × 455 mm (docs/MODELING.md §2.1)
@@ -703,10 +720,16 @@ export const STADIUM_BX32: StadiumSpec = {
         BX32_REAR_GUARD,
         0.0168,
         "user:codex-clipboard-11c8d883-8577-4d92-aebc-4db4b34113f9.png + TT:BX-32-manual + https://m.media-amazon.com/images/I/61mev0MM2vL.jpg",
-        "600x440mm body; overhead plan trace plus oblique shadow-edge fit normalized against the adjacent 4.6mm X-Line; inferred 16.8mm rise and 21mm full width",
+        "600x440mm body; overhead centerline plus oblique shadow-edge fit normalized against the adjacent 4.6mm X-Line; inferred 16.8mm rise, 38mm asymmetric apron, 15mm crest and 21mm lower-support collision envelope",
         undefined,
         0.0105,
         { kind: "solid", vaultSpeed: 2.2, restitution: 0.44, friction: 0.12 },
+        {
+          kind: "molded-wedge",
+          bowlApron: 0.026,
+          pocketApron: 0.012,
+          crestHalfWidth: 0.0075,
+        },
       ),
     },
     {
@@ -730,10 +753,16 @@ export const STADIUM_BX32: StadiumSpec = {
         BX32_REAR_GUARD,
         0.0168,
         "user:codex-clipboard-11c8d883-8577-4d92-aebc-4db4b34113f9.png + TT:BX-32-manual + https://m.media-amazon.com/images/I/61mev0MM2vL.jpg",
-        "600x440mm body; mirrored overhead plan trace plus opposite oblique shadow-edge cross-check; inferred 16.8mm rise and 21mm full width",
+        "600x440mm body; mirrored overhead centerline plus opposite oblique shadow-edge cross-check; inferred 16.8mm rise, 38mm asymmetric apron, 15mm crest and 21mm lower-support collision envelope",
         "rear-left-xtreme",
         0.0105,
         { kind: "solid", vaultSpeed: 2.2, restitution: 0.44, friction: 0.12 },
+        {
+          kind: "molded-wedge",
+          bowlApron: 0.026,
+          pocketApron: 0.012,
+          crestHalfWidth: 0.0075,
+        },
       ),
     },
     {
@@ -1225,7 +1254,10 @@ function compiledPocketGuard(s: StadiumSpec, pocket: PocketSpec): CompiledPocket
     x: path.boundary.x + path.axis.x * point.along + path.across.x * point.across,
     y: path.boundary.y + path.axis.y * point.along + path.across.y * point.across,
   }));
-  const margin = pocket.trace.guard.halfThickness;
+  const profile = pocket.trace.guard.profile;
+  const margin = profile
+    ? Math.max(profile.bowlApron, profile.pocketApron)
+    : pocket.trace.guard.halfThickness;
   const compiled: CompiledPocketGuard = {
     worldPoints,
     bowlNormal: { x: -path.axis.x, y: -path.axis.y },
@@ -1245,9 +1277,10 @@ export function pocketGuardCenterline(s: StadiumSpec, pocket: PocketSpec): reado
 }
 
 /** Footprint-aware contact against product walls that physically divide the
- * bowl from a loss-zone basin. This deliberately differs from the low molded
- * lips: the BX-32 corner walls have a near-vertical face, so treating them as
- * a smooth heightfield lets ordinary Beys climb straight into the pockets.
+ * bowl from a loss-zone basin. This deliberately differs from the low center
+ * lips: BX-10's side-Over barriers and BX-32's rear corner dividers have a
+ * steep face, so treating either as only a smooth gradient lets ordinary Beys
+ * climb straight into the pockets.
  *
  * `clearance` is the lower support radius (Bit/Ratchet), not the full Blade
  * radius: a real Blade can lean over the wall while its lower assembly is
@@ -1339,16 +1372,49 @@ export function pocketGuardRiseAt(s: StadiumSpec, x: number, y: number): number 
       x < guard.minX || x > guard.maxX ||
       y < guard.minY || y > guard.maxY
     ) continue;
-    let distance = Infinity;
+    let distanceSq = Infinity;
+    let nearestX = 0;
+    let nearestY = 0;
     for (let index = 0; index < guard.worldPoints.length - 1; index++) {
-      distance = Math.min(distance, pointSegmentDistance(
-        x,
-        y,
-        guard.worldPoints[index]!,
-        guard.worldPoints[index + 1]!,
-      ));
+      const a = guard.worldPoints[index]!;
+      const b = guard.worldPoints[index + 1]!;
+      const segmentX = b.x - a.x;
+      const segmentY = b.y - a.y;
+      const lengthSq = segmentX * segmentX + segmentY * segmentY;
+      const t = lengthSq > 1e-14
+        ? Math.max(0, Math.min(1, ((x - a.x) * segmentX + (y - a.y) * segmentY) / lengthSq))
+        : 0;
+      const pointX = a.x + segmentX * t;
+      const pointY = a.y + segmentY * t;
+      const deltaX = x - pointX;
+      const deltaY = y - pointY;
+      const candidateDistanceSq = deltaX * deltaX + deltaY * deltaY;
+      if (candidateDistanceSq >= distanceSq) continue;
+      distanceSq = candidateDistanceSq;
+      nearestX = pointX;
+      nearestY = pointY;
     }
-    const profile = smooth01(1 - distance / pocket.trace.guard.halfThickness);
+    const distance = Math.sqrt(distanceSq);
+    const molded = pocket.trace.guard.profile;
+    if (!molded) {
+      const profile = smooth01(1 - distance / pocket.trace.guard.halfThickness);
+      rise = Math.max(rise, pocket.trace.guard.height * profile);
+      continue;
+    }
+
+    // The oblique BX-32 photographs show a broad apron blended into the bowl
+    // and a short, steep drop into the pocket. Use the signed side of the
+    // closest centerline point so this is one asymmetric molded heightfield,
+    // rather than a cosmetic skirt around a thin collision bar.
+    const deltaX = x - nearestX;
+    const deltaY = y - nearestY;
+    const bowlSide = deltaX * guard.bowlNormal.x + deltaY * guard.bowlNormal.y >= 0;
+    const apron = bowlSide ? molded.bowlApron : molded.pocketApron;
+    if (distance > apron) continue;
+    const profile = distance <= molded.crestHalfWidth
+      ? 1
+      : smooth01(1 - (distance - molded.crestHalfWidth) /
+        Math.max(1e-9, apron - molded.crestHalfWidth));
     rise = Math.max(rise, pocket.trace.guard.height * profile);
   }
   return rise;

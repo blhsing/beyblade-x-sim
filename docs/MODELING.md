@@ -146,10 +146,13 @@ geometry as their non-croppable silhouette; clear casing may crop at the edge.
   concave depression in the same one-piece battle surface—not an inserted flat
   tray with separate cheeks/backstop. The rendered basin and deterministic
   terrain share one cached outline and C1 heightfield. The supplied overhead
-  raster and official play diagram also show a low rounded retaining lip before
-  every mouth; its traced centerline is part of that same terrain and rises
-  5.5–6.5 mm in this photo-scaled model. There are no invented rear openings or
-  casing gaps.
+  raster and official play diagram also show rounded retaining lips before the
+  mouths. The broad center Xtreme lip remains a 6.5 mm climbable part of the
+  floor. The two side-Over lips rise to 10.5 mm and use a 15 mm rounded solid
+  footprint, matching their stronger molded barrier role. A regression built
+  from the exact deployed launch states verifies that the former 1.21 m/s side
+  shortcut rebounds instead of scoring. There are no invented rear openings
+  or casing gaps.
 
 ### 2.2 BX-32 Wide Xtreme Stadium
 
@@ -178,11 +181,12 @@ geometry as their non-croppable silhouette; clear casing may crop at the edge.
   oblique product photograph
   [61mev0MM2vL.jpg](https://m.media-amazon.com/images/I/61mev0MM2vL.jpg), using
   the adjacent 4.6 mm X-Line as a same-perspective scale. The resulting 16.8 mm
-  rise and 21 mm full width are explicitly photographic inferences—not
-  published factory dimensions. The visible mesh and deterministic collision
-  share that complete footprint. Because the oblique view shows a tall,
-  near-vertical divider rather than a climbable floor bulge, the rear guards
-  are closed high-line-count solids: common 1.7--2.0 m/s approaches rebound,
+  rise, 38 mm apron (26 mm on the bowl side and 12 mm on the pocket side),
+  15 mm crest and 21 mm lower-support collision envelope are explicitly
+  photographic inferences—not published factory dimensions. The renderer and
+  deterministic terrain share that entire asymmetric wedge surface, so it
+  blends into the floor like a molded feature rather than reading as an
+  extruded stick. Common 1.7--2.0 m/s approaches rebound,
   while only an exceptional 2.2 m/s impact may vault the wall after losing its
   climb energy. `tools/trace-stadium-features.py` reproduces the plan conversion,
   shadow-edge ratio, overlays, and TypeScript-value check from those source
