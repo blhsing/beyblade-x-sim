@@ -537,20 +537,12 @@ describe("progressive Ratchet Burst presentation", () => {
 
   it("contacts finite concave-basin rims and BX-32's obround casing", () => {
     const pocket = STADIUM_BX10.pockets[0]!;
-    const polygon = pocketBasinPolygon(STADIUM_BX10, pocket);
-    const inner = new THREE.Vector2(
-      (polygon[0]!.x + polygon[3]!.x) / 2,
-      (polygon[0]!.y + polygon[3]!.y) / 2,
-    );
-    const outer = new THREE.Vector2(
-      (polygon[1]!.x + polygon[2]!.x) / 2,
-      (polygon[1]!.y + polygon[2]!.y) / 2,
-    );
-    const axis = outer.clone().sub(inner).normalize();
+    const path = pocketPath(STADIUM_BX10, pocket);
+    const axis = new THREE.Vector2(path.axis.x, path.axis.y);
     const pocketCarrier = new THREE.Group();
     pocketCarrier.position.set(
-      outer.x + axis.x * 0.008,
-      outer.y + axis.y * 0.008,
+      path.boundary.x + axis.x * 0.04,
+      path.boundary.y + axis.y * 0.04,
       0.04,
     );
     const pocketBody = buildBurstDebrisBody(
@@ -563,8 +555,8 @@ describe("progressive Ratchet Burst presentation", () => {
       93,
     );
     stepBurstDebrisBody(pocketBody, STADIUM_BX10);
-    // The rising basin rim leaves the settled part outside the bowl; it
-    // must not snap to the old circular `rWall` approximation.
+    // The photo-traced concavity carries the part beyond the nominal bowl;
+    // it must not snap to the old circular `rWall` approximation.
     expect(stadiumBoundarySignedDistance(
       STADIUM_BX10,
       pocketBody.position.x,

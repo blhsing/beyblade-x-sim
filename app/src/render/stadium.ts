@@ -11,6 +11,7 @@ import {
   pocketAtPoint,
   pocketBasinPolygon,
   pocketExitTarget,
+  pocketGuardRiseAt,
   pointInConvexPolygon,
   pocketSurfaceZ as corePocketSurfaceZ,
   railPointAt,
@@ -142,7 +143,7 @@ function radialSurfaceGeometry(s: StadiumSpec, radialSegments: number, angularSe
       const radius = stadiumBoundaryRadiusAt(s, theta) * u;
       const x = Math.cos(theta) * radius;
       const y = Math.sin(theta) * radius;
-      positions.push(x, y, surfaceZAt(s, x, y));
+      positions.push(x, y, surfaceZAt(s, x, y) + pocketGuardRiseAt(s, x, y));
     }
   }
   const row = angularSegments + 1;
@@ -179,6 +180,8 @@ function radialSurfaceGeometry(s: StadiumSpec, radialSegments: number, angularSe
     apertureSource: "core:pocketAtPoint",
     apertureCount: s.pockets.length,
     omittedApertureTriangles,
+    pocketEntryGuards: s.pockets.filter((pocket) => pocket.trace?.guard).length,
+    guardSource: "core:pocketGuardRiseAt",
   };
   return geometry;
 }

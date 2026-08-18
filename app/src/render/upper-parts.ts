@@ -652,17 +652,19 @@ function referenceTexture(url: string): THREE.Texture {
   return stickerImageTexture(url);
 }
 
-function recoloredTopMaterial(
+function referenceTopMaterial(
   url: string,
   targetColor: number,
-  mode: Exclude<ReferenceRecolorMode, "none"> | "lock",
+  mode: ReferenceRecolorMode | "lock",
   stickerRadius = REFERENCE_STICKER_RADIUS_UV,
 ): THREE.ShaderMaterial {
   const material = new THREE.ShaderMaterial({
     uniforms: {
       uMap: { value: referenceTexture(url) },
       uTarget: { value: new THREE.Color(targetColor) },
-      uMode: { value: mode === "plastic" ? 1 : mode === "metal" ? 2 : 3 },
+      uMode: {
+        value: mode === "none" ? 0 : mode === "plastic" ? 1 : mode === "metal" ? 2 : 3,
+      },
       uStickerRadius: { value: stickerRadius },
     },
     vertexShader: `
@@ -688,7 +690,7 @@ function recoloredTopMaterial(
         float saturation = hi > 0.0001 ? (hi - lo) / hi : 0.0;
         float luminance = dot(color, vec3(0.2126, 0.7152, 0.0722));
         bool sticker = distance(vUv, vec2(0.5)) <= uStickerRadius;
-        if (!sticker) {
+        if (!sticker && uMode != 0) {
           // Ordinary releases recolor saturated PMMA/ABS and leave silver,
           // white highlights, black recesses, and zinc contact faces intact.
           float plasticWeight = smoothstep(0.18, 0.46, saturation)
@@ -709,6 +711,23 @@ function recoloredTopMaterial(
           vec3 relitTarget = clamp(uTarget * (luminance / targetLuminance), 0.0, 1.0);
           color = mix(color, relitTarget, weight * 0.84);
         }
+
+        // Isolated product photos already contain a large softbox reflection.
+        // Rendering that baked highlight beneath the live stadium lighting made
+        // spinning tops turn into broad white smears. Compress only the bright
+        // end, most strongly on neutral pixels, and retain hue/chroma so printed
+        // art and colored plastic stay legible instead of becoming flat grey.
+        float gradedHi = max(color.r, max(color.g, color.b));
+        float gradedLo = min(color.r, min(color.g, color.b));
+        float gradedSat = gradedHi > 0.0001 ? (gradedHi - gradedLo) / gradedHi : 0.0;
+        float gradedLum = dot(color, vec3(0.2126, 0.7152, 0.0722));
+        float neutral = 1.0 - smoothstep(0.08, 0.3, gradedSat);
+        float highlight = smoothstep(0.56, 0.96, gradedLum);
+        float glareCompression = highlight * mix(0.12, 0.34, neutral);
+        color *= 1.0 - glareCompression;
+        float postLum = dot(color, vec3(0.2126, 0.7152, 0.0722));
+        float saturationBoost = smoothstep(0.08, 0.42, gradedSat) * highlight * 0.18;
+        color = clamp(vec3(postLum) + (color - vec3(postLum)) * (1.0 + saturationBoost), 0.0, 1.0);
         gl_FragColor = vec4(color, texel.a);
         #include <tonemapping_fragment>
         #include <colorspace_fragment>
@@ -719,6 +738,9 @@ function recoloredTopMaterial(
     side: THREE.DoubleSide,
   });
   material.toneMapped = false;
+  material.userData.referenceTop = true;
+  material.userData.referenceRecolorMode = mode;
+  material.userData.bakedGlareReduction = 0.34;
   return material;
 }
 
@@ -730,19 +752,8 @@ function topMaterial(
 ): THREE.Material {
   if (!url) return new THREE.MeshBasicMaterial({ color: fallbackColor, side: THREE.DoubleSide });
   const mode = referenceRecolorMode(part, reference);
-  if (mode !== "none") {
-    const target = parseColor(part?.colors?.[0] ?? part?.color) ?? fallbackColor;
-    return recoloredTopMaterial(url, target, mode);
-  }
-  return new THREE.MeshBasicMaterial({
-    map: referenceTexture(url),
-    color: 0xffffff,
-    transparent: true,
-    alphaTest: 0.045,
-    depthWrite: true,
-    side: THREE.DoubleSide,
-    toneMapped: false,
-  });
+  const target = parseColor(part?.colors?.[0] ?? part?.color) ?? fallbackColor;
+  return referenceTopMaterial(url, target, mode);
 }
 
 interface LayerDetail {
@@ -896,7 +907,7 @@ function buildLockChip(
   if (referenceTop) {
     const url = upperReferenceUrl(part);
     const lockTopMaterial = url && part.variantColorOverride
-      ? recoloredTopMaterial(url, color, "lock", 0.3)
+      ? referenceTopMaterial(url, color, "lock", 0.3)
       : topMaterial(url, color);
     const top = new THREE.Mesh(
       profiledTopGeometry(profile, radiusM, 192),

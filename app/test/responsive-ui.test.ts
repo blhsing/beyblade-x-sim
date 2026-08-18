@@ -32,6 +32,8 @@ describe("responsive mobile UI contract", () => {
     expect(rule(".gstrip.ggrid")).toContain("max-width: 100%");
     expect(rule(".gstrip.ggrid")).toContain("repeat(auto-fill, minmax(124px, 1fr))");
     expect(rule(".gstrip.ggrid")).toContain("overflow-y: auto");
+    expect(rule(".gstrip.ggrid")).toContain("background: rgba(8,12,28,.96)");
+    expect(rule(".gstrip.ggrid")).toContain("isolation: isolate");
   });
 
   it("has an explicit compact-landscape layout with safe-area padding", () => {

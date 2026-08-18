@@ -134,8 +134,11 @@ Lock Chip + Main + Assist, or Expand Lock Chip + Metal + Over + Assist.
   a broad center Xtreme Zone flanked by two Over Zones. Each is a real 2-D
   concave depression in the same one-piece battle surface—not an inserted flat
   tray with separate cheeks/backstop. The rendered basin and deterministic
-  terrain share one cached outline and C1 heightfield. There are no invented
-  rear openings or casing gaps.
+  terrain share one cached outline and C1 heightfield. The supplied overhead
+  raster and official play diagram also show a low rounded retaining lip before
+  every mouth; its traced centerline is part of that same terrain and rises
+  5.5–6.5 mm in this photo-scaled model. There are no invented rear openings or
+  casing gaps.
 
 ### 2.2 BX-32 Wide Xtreme Stadium
 
@@ -156,7 +159,10 @@ Lock Chip + Main + Assist, or Expand Lock Chip + Metal + Over + Assist.
 - The official diagram shows exactly two narrow, rounded and tangential rear
   Xtreme openings plus one broad front-center trapezoidal Over opening. The
   narrow mouths continue into broader rounded concavities in the same molded
-  battle surface; they are not separate catch trays. The
+  battle surface; they are not separate catch trays. Their pocket outlines and
+  the low entry lips are traced independently from the supplied BX-32 overhead
+  and cross-checked against the official manual, rather than reusing BX-10
+  sectors. The
   cover has two red triangular shoot marks and a distinct rear molded shoot
   indicator. BX-32 plastic chemistry is left explicitly unspecified because
   the cited public material does not identify the resin.

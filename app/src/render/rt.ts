@@ -32,7 +32,7 @@ export function markReflective(obj: THREE.Object3D, reflectivity: number): void 
  * contain the product photograph's highlights; reflecting the stadium over
  * that baked image a second time washes the sticker and plastic islands white.
  * Bare metal keeps a restrained dynamic reflection, coated metal keeps less,
- * and ordinary plastic only receives a faint grazing response.
+ * and ordinary plastic relies on the forward material without a second pass.
  */
 export function markBeyReflective(obj: THREE.Object3D): void {
   obj.userData.rtReflect = 0;
@@ -59,7 +59,7 @@ export function markBeyReflective(obj: THREE.Object3D): void {
       const value = (material as THREE.MeshStandardMaterial).metalness;
       if (Number.isFinite(value)) metalness = Math.max(metalness, value);
     }
-    child.userData.rtReflect = metalness >= 0.8 ? 0.38 : metalness >= 0.35 ? 0.24 : 0.06;
+    child.userData.rtReflect = metalness >= 0.8 ? 0.12 : metalness >= 0.35 ? 0.06 : 0;
   });
 }
 

@@ -40,9 +40,9 @@ describe("Bey reflection masks", () => {
 
     markBeyReflective(root);
 
-    expect(bareMetal.userData.rtReflect).toBe(0.38);
-    expect(coatedMetal.userData.rtReflect).toBe(0.24);
-    expect(plastic.userData.rtReflect).toBe(0.06);
-    expect(bareMetal.userData.rtReflect).toBeLessThan(0.72);
+    expect(bareMetal.userData.rtReflect).toBe(0.12);
+    expect(coatedMetal.userData.rtReflect).toBe(0.06);
+    expect(plastic.userData.rtReflect).toBe(0);
+    expect(bareMetal.userData.rtReflect).toBeLessThan(0.2);
   });
 });

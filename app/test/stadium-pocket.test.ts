@@ -4,6 +4,8 @@ import {
   pocketAtPoint,
   pocketBasinPolygon,
   pocketExitTarget,
+  pocketGuardCenterline,
+  pocketGuardRiseAt,
   pocketPath,
   pocketPolygon,
   pocketSecureAtPoint,
@@ -28,6 +30,7 @@ import {
   hashWorld,
   POCKET_DWELL_TICKS,
   POCKET_REST_DISPLACEMENT,
+  POCKET_SUPPORT_CLEARANCE_M,
   step,
 } from "../src/core/sim";
 import type { BeyParams, WorldConfig } from "../src/core/types";
@@ -154,15 +157,37 @@ describe("product-accurate stadium openings", () => {
     }
   });
 
-  it.each([STADIUM_BX10, STADIUM_BX32])("securely contains the widest authored Bey at every basin target in %s", (stadium) => {
+  it.each([STADIUM_BX10, STADIUM_BX32])("contains the lower support of the widest authored Bey at every basin target in %s", (stadium) => {
     for (const pocket of stadium.pockets) {
       const target = pocketExitTarget(stadium, pocket);
       expect(pocketAtPoint(stadium, target.x, target.y)).toBe(pocket);
-      expect(pocketSecureAtPoint(stadium, pocket, target.x, target.y, params.radiusM)).toBe(true);
+      // A real Blade may lean across the lip; the pocket cheek contacts the
+      // Bit/lower assembly rather than an impossible full-diameter disk.
+      expect(pocketSecureAtPoint(
+        stadium,
+        pocket,
+        target.x,
+        target.y,
+        POCKET_SUPPORT_CLEARANCE_M,
+      )).toBe(true);
       for (const vertex of pocketBasinPolygon(stadium, pocket)) {
         const angle = Math.atan2(vertex.y, vertex.x);
         expect(Math.hypot(vertex.x, vertex.y)).toBeLessThanOrEqual(stadiumBodyRadiusAt(stadium, angle) + 1e-8);
       }
+    }
+  });
+
+  it.each([STADIUM_BX10, STADIUM_BX32])("uses dense traced pocket silhouettes and a rounded retaining lip in %s", (stadium) => {
+    for (const pocket of stadium.pockets) {
+      expect(pocket.trace?.reference.source).toMatch(/user:codex-clipboard/);
+      expect(pocketPolygon(stadium, pocket).length).toBeGreaterThanOrEqual(96);
+      expect(pocketBasinPolygon(stadium, pocket).length).toBeGreaterThanOrEqual(160);
+      const guard = pocketGuardCenterline(stadium, pocket);
+      expect(guard.length).toBeGreaterThanOrEqual(26);
+      let peak = 0;
+      for (const point of guard) peak = Math.max(peak, pocketGuardRiseAt(stadium, point.x, point.y));
+      expect(peak).toBeGreaterThanOrEqual(0.0054);
+      expect(peak).toBeLessThanOrEqual(0.0066);
     }
   });
 
@@ -558,7 +583,7 @@ describe("reversible live pocket simulation", () => {
     expect(bey.omega).toBeGreaterThan(239);
   });
 
-  it("lets a realistic hit cross the low rack and continue into the BX-10 center throat", () => {
+  it("lets a hard 1.1 m/s hit cross the rack and retaining lip into the BX-10 center pocket", () => {
     const cfg = { ...config(), xtremeDashEnabled: true };
     const world = createWorld(cfg);
     const bey = world.beys[0]!;
@@ -569,8 +594,8 @@ describe("reversible live pocket simulation", () => {
     Object.assign(bey, {
       x: rail.point.x + rail.normal.x * startSide,
       y: rail.point.y + rail.normal.y * startSide,
-      vx: rail.normal.x * 0.9,
-      vy: rail.normal.y * 0.9,
+      vx: rail.normal.x * 1.1,
+      vy: rail.normal.y * 1.1,
       airborne: false,
       pendingTicks: 0,
       omega: 240,
@@ -831,19 +856,21 @@ describe("reversible live pocket simulation", () => {
     expect(Math.hypot(bey.vx, bey.vy)).toBeGreaterThan(0);
   });
 
-  it("does not score while only the center, not the whole footprint, is retained", () => {
+  it("scores a visibly stationary pocketed Bey even when its Blade overhangs the lip", () => {
     const cfg = config();
     const { world, bey, pocket } = groundBey(cfg, STADIUM_BX10, 1, 180);
     const path = pocketPath(STADIUM_BX10, pocket);
     bey.x = path.boundary.x + path.axis.x * (pocket.throat.outwardDepth - 0.004);
     bey.y = path.boundary.y + path.axis.y * (pocket.throat.outwardDepth - 0.004);
+    bey.pocketLastX = bey.x;
+    bey.pocketLastY = bey.y;
     bey.pocketDwell = POCKET_DWELL_TICKS - 1;
     expect(pocketAtPoint(STADIUM_BX10, bey.x, bey.y)).toBe(pocket);
     expect(pocketSecureAtPoint(STADIUM_BX10, pocket, bey.x, bey.y, params.radiusM)).toBe(false);
     step(world, cfg, STADIUM_BX10, true);
-    expect(bey.exited).toBeNull();
-    expect(bey.pocketDwell).toBe(0);
-    expect(bey.pocketDisturbedTick).toBe(world.tick);
+    expect(bey.exited).toBe("xtreme");
+    expect(bey.alive).toBe(false);
+    expect(Math.abs(bey.omega)).toBeGreaterThan(170);
   });
 
   it("resets a nearly complete zone dwell while vertical motion remains", () => {

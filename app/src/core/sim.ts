@@ -10,6 +10,7 @@ import {
   inArc,
   pocketAtPoint,
   pocketBasinPolygon,
+  pocketGuardGradientAt,
   pocketPath,
   pocketSecureAtPoint,
   pocketThroatAtPoint,
@@ -33,7 +34,7 @@ import type {
 export const DT = 1 / 240;
 export const TICKS_PER_SECOND = 240;
 /** Increment whenever deterministic state evolution changes incompatibly. */
-export const PHYSICS_VERSION = 6;
+export const PHYSICS_VERSION = 7;
 
 const G = 9.81;
 // Stop means visually and mechanically settled, not merely crossing a low-
@@ -48,6 +49,9 @@ export const POCKET_DWELL_TICKS = 24; // 0.1 s, evaluated after collisions
 /** Maximum center movement per fixed tick that is visually/mechanically at
  * rest. Over the complete confirmation this permits under 0.5 mm of drift. */
 export const POCKET_REST_DISPLACEMENT = 0.00002;
+/** Effective lower-body/support clearance against pocket cheeks. The Blade
+ * may overhang a real pocket while the Bit and Ratchet continue inside. */
+export const POCKET_SUPPORT_CLEARANCE_M = 0.008;
 
 const T = {
   // launch — bowl escape speed is ~0.77 m/s, so entries stay below it and
@@ -464,6 +468,12 @@ function constrainPocket(
   clearance: number,
   tick: number,
 ): boolean {
+  // A pocket wall constrains the Bit/lower support area, not an upright
+  // Blade-sized disk. Real Beys can lean and overhang the lip while their tip
+  // continues around the concavity; using the full 49--52 mm Blade footprint
+  // made the narrow BX-32 Xtreme pockets mathematically impossible to enter
+  // or settle. Keep a conservative 8 mm lower-body clearance instead.
+  const supportClearance = Math.min(POCKET_SUPPORT_CLEARANCE_M, clearance * 0.35);
   const path = pocketPath(s, pocket);
   const dx = b.x - path.boundary.x;
   const dy = b.y - path.boundary.y;
@@ -474,7 +484,7 @@ function constrainPocket(
     // basin applies a full horizontal footprint constraint.
     return true;
   }
-  if (inside && pocketSecureAtPoint(s, pocket, b.x, b.y, clearance)) return true;
+  if (inside && pocketSecureAtPoint(s, pocket, b.x, b.y, supportClearance)) return true;
   if (
     !inside &&
     along < -pocket.throat.inwardDepth * 0.55 &&
@@ -508,7 +518,7 @@ function constrainPocket(
     b.vy -= tangentDelta * tangentY;
   }
   b.pocketDisturbedTick = tick;
-  const inset = inside ? Math.max(0.0002, clearance) : 0.0002;
+  const inset = inside ? Math.max(0.0002, supportClearance) : 0.0002;
   b.x = nearest.point.x + inwardX * inset;
   b.y = nearest.point.y + inwardY * inset;
   return true;
@@ -577,6 +587,11 @@ function stepBey(
         y: -pocketTerrain.normalY / pocketTerrain.normalZ,
       }
     : surfaceGradientAt(s, b.x, b.y);
+  if (!activePocket) {
+    const guardGradient = pocketGuardGradientAt(s, b.x, b.y);
+    gradient.x += guardGradient.x;
+    gradient.y += guardGradient.y;
+  }
   const slope = Math.sqrt(gradient.x * gradient.x + gradient.y * gradient.y);
   // Low-speed contact enters static friction instead of endlessly micro-
   // sliding. The bowl still requires zero spin before sleeping; a retained
@@ -926,14 +941,6 @@ function updatePocketStates(w: WorldState, cfg: WorldConfig, s: StadiumSpec): vo
       b.pocketLastY = b.y;
       continue;
     }
-    const params = cfg.beys[i]!;
-    const secure = pocketSecureAtPoint(
-      s,
-      pocket,
-      b.x,
-      b.y,
-      params.radiusM,
-    );
     // Judge what the Bey actually did after basin constraints and collisions,
     // not a residual velocity vector pressing into a solid molded wall. This
     // matches the visible/physical meaning of "not moving" while still letting
@@ -947,7 +954,14 @@ function updatePocketStates(w: WorldState, cfg: WorldConfig, s: StadiumSpec): vo
     b.pocketLastX = b.x;
     b.pocketLastY = b.y;
     const uninterrupted = b.pocketBlockingTick < w.tick;
-    if (!secure || !translationallySettled || !uninterrupted) {
+    // Continued pocket identity already proves that the center remains in the
+    // authored concave zone. Requiring the *entire circular footprint* here
+    // stranded real-looking edge rests forever: the reported BX-10 replay had
+    // a Bey motionless for more than ten seconds because part of its Blade
+    // overhung a sloped basin edge. A stopped occupant cannot climb back out,
+    // so translational rest—not spin or an artificial clearance inset—is the
+    // terminal condition.
+    if (!translationallySettled || !uninterrupted) {
       b.pocketDwell = 0;
       continue;
     }

@@ -118,6 +118,9 @@ export const UI_CSS = `
   box-sizing: border-box; align-items: start; gap: 10px;
   width: min(94vw, 960px); max-width: 100%;
   max-height: min(52dvh, 540px); padding: 8px;
+  background: rgba(8,12,28,.96); border: 1px solid rgba(53,64,138,.72);
+  border-radius: 14px; box-shadow: 0 14px 40px rgba(0,0,0,.48);
+  isolation: isolate;
   overflow-x: hidden; overflow-y: auto; scroll-snap-type: none;
   overscroll-behavior: contain; touch-action: pan-y; }
 .gchips { display: flex; gap: 6px; flex-wrap: wrap; justify-content: center;

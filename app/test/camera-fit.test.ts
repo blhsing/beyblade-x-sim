@@ -1,52 +1,64 @@
 import { describe, expect, it } from "vitest";
 
-import { STADIUM_BX10, STADIUM_BX32, surfaceZ, type StadiumSpec } from "../src/core/stadium";
-import { stadiumOrbitFitDistance } from "../src/render/camera-fit";
+import { STADIUM_BX10, STADIUM_BX32 } from "../src/core/stadium";
+import {
+  stadiumOrbitFitDistance,
+  stadiumProjectedBounds,
+  type OrbitFitOptions,
+} from "../src/render/camera-fit";
+import {
+  GYRO_HOLD_Y,
+  GYRO_HOLD_Z,
+  framedGyroHoldPosition,
+} from "../src/sensors/gyro";
 
-function projectedBounds(stadium: StadiumSpec, aspect: number, distance: number) {
-  const yaw = -Math.PI / 2;
-  const pitch = 0.9;
-  const targetZ = 0.02;
-  const tanV = Math.tan(55 * Math.PI / 360);
-  const tanH = tanV * aspect;
-  const cy = Math.cos(yaw);
-  const sy = Math.sin(yaw);
-  const cp = Math.cos(pitch);
-  const sp = Math.sin(pitch);
-  const right = { x: -sy, y: cy, z: 0 };
-  const up = { x: -cy * sp, y: -sy * sp, z: cp };
-  const forward = { x: -cy * cp, y: -sy * cp, z: -sp };
-  const top = surfaceZ(stadium, stadium.rWall) + stadium.coverHeight;
-  let maxX = 0;
-  let maxY = 0;
-  for (const x of [-stadium.deckW / 2, stadium.deckW / 2]) {
-    for (const y of [-stadium.deckH / 2, stadium.deckH / 2]) {
-      for (const z of [0, top]) {
-        const dz = z - targetZ;
-        const depth = distance + x * forward.x + y * forward.y + dz * forward.z;
-        maxX = Math.max(maxX, Math.abs(x * right.x + y * right.y) / (depth * tanH));
-        maxY = Math.max(maxY, Math.abs(x * up.x + y * up.y + dz * up.z) / (depth * tanV));
+const ORBIT: OrbitFitOptions = {
+  yaw: -Math.PI / 2,
+  pitch: 0.9,
+  targetZ: 0.02,
+};
+const GYRO: OrbitFitOptions = {
+  yaw: -Math.PI / 2,
+  pitch: Math.atan2(GYRO_HOLD_Z - 0.02, -GYRO_HOLD_Y),
+  targetZ: 0.02,
+};
+const VIEWS = [
+  ["portrait", 390 / 844],
+  ["landscape", 844 / 390],
+] as const;
+
+describe("responsive stadium camera framing", () => {
+  it.each([STADIUM_BX10, STADIUM_BX32])(
+    "fits the complete $name shell tightly in fixed and dynamic views",
+    (stadium) => {
+      for (const [, aspect] of VIEWS) {
+        for (const options of [ORBIT, GYRO]) {
+          const distance = stadiumOrbitFitDistance(stadium, aspect, options);
+          const bounds = stadiumProjectedBounds(stadium, aspect, distance, options);
+          const limitingAxis = Math.max(bounds.maxX, bounds.maxY);
+
+          // Keep only a 3% antialias/refraction guard around the actual shell,
+          // rather than shrinking it to fit an impossible shipping-box corner.
+          expect(bounds.maxX).toBeLessThanOrEqual(1 / 1.03 + 1e-10);
+          expect(bounds.maxY).toBeLessThanOrEqual(1 / 1.03 + 1e-10);
+          expect(limitingAxis).toBeGreaterThan(0.969);
+
+          // Pulling this carefully fitted camera just 3% closer must clip.
+          const tooClose = stadiumProjectedBounds(stadium, aspect, distance * 0.97, options);
+          expect(Math.max(tooClose.maxX, tooClose.maxY)).toBeGreaterThan(1);
+        }
       }
-    }
-  }
-  return { maxX, maxY };
-}
+    },
+  );
 
-describe("responsive stadium orbit framing", () => {
-  it.each([STADIUM_BX10, STADIUM_BX32])("fits the complete %s shell in a 390x844 portrait view", (stadium) => {
-    const aspect = 390 / 844;
-    const distance = stadiumOrbitFitDistance(stadium, aspect);
-    const bounds = projectedBounds(stadium, aspect, distance);
-    expect(bounds.maxX).toBeLessThanOrEqual(1 / 1.2 + 1e-10);
-    expect(bounds.maxY).toBeLessThanOrEqual(1 / 1.2 + 1e-10);
-    expect(distance).toBeGreaterThan(1);
-  });
+  it("keeps the dynamic camera on its calibrated ray at the fitted distance", () => {
+    const distance = stadiumOrbitFitDistance(STADIUM_BX32, 390 / 844, GYRO);
+    const position = framedGyroHoldPosition(distance, 0.02);
+    const relative = position.clone();
+    relative.z -= 0.02;
 
-  it("pulls the wider BX-32 farther back without shrinking normal landscape framing", () => {
-    const portrait = 390 / 844;
-    expect(stadiumOrbitFitDistance(STADIUM_BX32, portrait))
-      .toBeGreaterThan(stadiumOrbitFitDistance(STADIUM_BX10, portrait));
-    expect(stadiumOrbitFitDistance(STADIUM_BX10, 16 / 9)).toBeCloseTo(0.56, 8);
-    expect(stadiumOrbitFitDistance(STADIUM_BX32, 16 / 9)).toBeLessThan(0.7);
+    expect(relative.length()).toBeCloseTo(distance, 10);
+    expect(relative.x).toBeCloseTo(0, 12);
+    expect(relative.z / -relative.y).toBeCloseTo((GYRO_HOLD_Z - 0.02) / -GYRO_HOLD_Y, 10);
   });
 });

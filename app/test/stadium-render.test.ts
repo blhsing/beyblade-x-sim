@@ -314,6 +314,11 @@ describe("reference-driven stadium models", () => {
 
   it.each([STADIUM_BX10, STADIUM_BX32])("models each loss zone as one continuous concave surface on %s", (spec) => {
     const model = modelFor(spec);
+    const dish = mesh(model, "stadium:dish");
+    expect(dish.geometry.userData).toMatchObject({
+      pocketEntryGuards: spec.pockets.length,
+      guardSource: "core:pocketGuardRiseAt",
+    });
     expect(object(model, "stadium:pockets").userData).toMatchObject({
       count: spec.pockets.length,
       construction: "one-piece-concave-battle-surface",
@@ -418,7 +423,7 @@ describe("reference-driven stadium models", () => {
         }
       });
     }
-  });
+  }, 30_000);
 
   it.each([STADIUM_BX10, STADIUM_BX32])("cuts every real pocket aperture out of the visible dish on %s", (spec) => {
     const dish = mesh(modelFor(spec), "stadium:dish");

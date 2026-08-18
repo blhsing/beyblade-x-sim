@@ -29,6 +29,38 @@ export interface PocketThroatSpec {
   basinDepth?: number;
 }
 
+/** Product-top-view coordinates in a pocket's local frame. `along` points
+ * out through the bowl wall and `across` follows the mouth from left to
+ * right. Values are metres after perspective rectification of the supplied
+ * overhead photographs. */
+export interface PocketTracePoint {
+  along: number;
+  across: number;
+}
+
+export interface PocketGuardSpec {
+  /** Traced centerline of the low molded retaining wall before the basin. */
+  centerline: readonly PocketTracePoint[];
+  /** Rounded wall half-thickness and rise above the surrounding surface. */
+  halfThickness: number;
+  height: number;
+}
+
+export interface PocketTraceSpec {
+  /** Narrow wall aperture through which a Bey enters or returns. */
+  throat: readonly PocketTracePoint[];
+  /** Complete concave loss-zone outline in the one-piece floor. */
+  basin: readonly PocketTracePoint[];
+  /** Low entry wall visible immediately before the pocket. */
+  guard: PocketGuardSpec;
+  /** Audit provenance. Images are references only and are not shipped. */
+  reference: {
+    source: string;
+    calibration: string;
+    mirroredFrom?: string;
+  };
+}
+
 export interface PocketSpec {
   id: string;
   angleCenter: number;
@@ -37,6 +69,9 @@ export interface PocketSpec {
   halfWidth: number;
   kind: "over" | "xtreme";
   throat: PocketThroatSpec;
+  /** Exact product silhouette. When present this supersedes the legacy
+   * trapezoid/capsule construction above. */
+  trace?: PocketTraceSpec;
 }
 
 export interface RailArc {
@@ -309,6 +344,143 @@ const BX10_RAIL_SOURCE: readonly RailVectorPoint[] = [
 // measured curvature instead of fitting a spline through a spline.
 const BX10_RAIL_TRACE = buildVectorRailTrace(BX10_RAIL_SOURCE, 1);
 
+/** Pocket vectors traced from the user-supplied straight-on retail overheads
+ * and rectified against each product body. The official TT play diagrams were
+ * used to disambiguate transparent-casing reflections from molded floor
+ * edges. Controls deliberately describe the product-specific concavities,
+ * not interchangeable radial trapezoids. `pocketPolygon`/`pocketBasinPolygon`
+ * apply a deterministic Chaikin subdivision before core or rendering sees
+ * them, so these sparse audit anchors become a high-line-count molded curve. */
+const BX10_SIDE_THROAT: readonly PocketTracePoint[] = [
+  { along: -0.024, across: 0.022 },
+  { along: -0.010, across: 0.034 },
+  { along: 0.015, across: 0.038 },
+  { along: 0.021, across: -0.031 },
+  { along: -0.008, across: -0.034 },
+  { along: -0.024, across: -0.021 },
+];
+const BX10_SIDE_BASIN: readonly PocketTracePoint[] = [
+  { along: -0.024, across: 0.022 },
+  { along: -0.010, across: 0.038 },
+  { along: 0.018, across: 0.051 },
+  { along: 0.050, across: 0.046 },
+  { along: 0.063, across: 0.024 },
+  { along: 0.061, across: -0.018 },
+  { along: 0.043, across: -0.043 },
+  { along: 0.012, across: -0.046 },
+  { along: -0.015, across: -0.033 },
+  { along: -0.026, across: -0.016 },
+];
+const BX10_SIDE_GUARD: readonly PocketTracePoint[] = [
+  { along: -0.021, across: -0.030 },
+  { along: -0.015, across: -0.016 },
+  { along: -0.012, across: 0 },
+  { along: -0.015, across: 0.016 },
+  { along: -0.021, across: 0.030 },
+];
+const BX10_CENTER_THROAT: readonly PocketTracePoint[] = [
+  { along: -0.023, across: 0.060 },
+  { along: -0.008, across: 0.071 },
+  { along: 0.018, across: 0.068 },
+  { along: 0.018, across: -0.068 },
+  { along: -0.008, across: -0.071 },
+  { along: -0.023, across: -0.060 },
+];
+const BX10_CENTER_BASIN: readonly PocketTracePoint[] = [
+  { along: -0.023, across: 0.060 },
+  { along: -0.008, across: 0.074 },
+  { along: 0.020, across: 0.072 },
+  { along: 0.045, across: 0.060 },
+  { along: 0.054, across: 0.040 },
+  { along: 0.057, across: 0 },
+  { along: 0.054, across: -0.040 },
+  { along: 0.045, across: -0.060 },
+  { along: 0.020, across: -0.072 },
+  { along: -0.008, across: -0.074 },
+  { along: -0.023, across: -0.060 },
+];
+const BX10_CENTER_GUARD: readonly PocketTracePoint[] = [
+  { along: -0.022, across: -0.060 },
+  { along: -0.016, across: -0.032 },
+  { along: -0.012, across: 0 },
+  { along: -0.016, across: 0.032 },
+  { along: -0.022, across: 0.060 },
+];
+
+const BX32_REAR_THROAT: readonly PocketTracePoint[] = [
+  { along: -0.018, across: 0.014 },
+  { along: -0.008, across: 0.021 },
+  { along: 0.020, across: 0.022 },
+  { along: 0.025, across: -0.019 },
+  { along: -0.007, across: -0.021 },
+  { along: -0.018, across: -0.012 },
+];
+const BX32_REAR_BASIN: readonly PocketTracePoint[] = [
+  { along: -0.018, across: 0.012 },
+  { along: -0.010, across: 0.019 },
+  { along: 0.004, across: 0.023 },
+  { along: 0.057, across: 0.023 },
+  { along: 0.071, across: 0.015 },
+  { along: 0.077, across: 0.003 },
+  { along: 0.073, across: -0.012 },
+  { along: 0.059, across: -0.021 },
+  { along: 0.004, across: -0.022 },
+  { along: -0.011, across: -0.017 },
+  { along: -0.018, across: -0.008 },
+];
+const BX32_REAR_GUARD: readonly PocketTracePoint[] = [
+  { along: -0.019, across: -0.019 },
+  { along: -0.014, across: -0.010 },
+  { along: -0.012, across: 0 },
+  { along: -0.014, across: 0.010 },
+  { along: -0.019, across: 0.019 },
+];
+const BX32_FRONT_THROAT: readonly PocketTracePoint[] = [
+  { along: -0.021, across: 0.052 },
+  { along: -0.009, across: 0.065 },
+  { along: 0.018, across: 0.071 },
+  { along: 0.018, across: -0.071 },
+  { along: -0.009, across: -0.065 },
+  { along: -0.021, across: -0.052 },
+];
+const BX32_FRONT_BASIN: readonly PocketTracePoint[] = [
+  { along: -0.021, across: 0.052 },
+  { along: -0.010, across: 0.067 },
+  { along: 0.012, across: 0.078 },
+  { along: 0.042, across: 0.071 },
+  { along: 0.055, across: 0.051 },
+  { along: 0.060, across: 0 },
+  { along: 0.055, across: -0.051 },
+  { along: 0.042, across: -0.071 },
+  { along: 0.012, across: -0.078 },
+  { along: -0.010, across: -0.067 },
+  { along: -0.021, across: -0.052 },
+];
+const BX32_FRONT_GUARD: readonly PocketTracePoint[] = [
+  { along: -0.022, across: -0.058 },
+  { along: -0.016, across: -0.030 },
+  { along: -0.012, across: 0 },
+  { along: -0.016, across: 0.030 },
+  { along: -0.022, across: 0.058 },
+];
+
+function pocketTrace(
+  throat: readonly PocketTracePoint[],
+  basin: readonly PocketTracePoint[],
+  guard: readonly PocketTracePoint[],
+  height: number,
+  source: string,
+  calibration: string,
+  mirroredFrom?: string,
+): PocketTraceSpec {
+  return {
+    throat,
+    basin,
+    guard: { centerline: guard, halfThickness: 0.0048, height },
+    reference: { source, calibration, mirroredFrom },
+  };
+}
+
 /** BX-10 Xtreme Stadium — the official 1v1 tournament stadium. */
 export const STADIUM_BX10: StadiumSpec = {
   name: "bx10",
@@ -355,6 +527,14 @@ export const STADIUM_BX10: StadiumSpec = {
         inwardDepth: 0.026,
         outwardDepth: 0.036,
       },
+      trace: pocketTrace(
+        BX10_SIDE_THROAT,
+        BX10_SIDE_BASIN,
+        BX10_SIDE_GUARD,
+        0.006,
+        "user:codex-clipboard-ac6833d8-5c2c-480c-8005-6b05608265a5.png + TT:BX-07-manual-p7",
+        "440x455mm body; front-left molded concavity and bowl-side retaining lip",
+      ),
     },
     {
       id: "front-center-xtreme",
@@ -368,6 +548,14 @@ export const STADIUM_BX10: StadiumSpec = {
         inwardDepth: 0.026,
         outwardDepth: 0.036,
       },
+      trace: pocketTrace(
+        BX10_CENTER_THROAT,
+        BX10_CENTER_BASIN,
+        BX10_CENTER_GUARD,
+        0.0065,
+        "user:codex-clipboard-ac6833d8-5c2c-480c-8005-6b05608265a5.png + TT:BX-07-manual-p7",
+        "440x455mm body; broad central Xtreme concavity and curved retaining lip",
+      ),
     },
     {
       id: "front-right-over",
@@ -381,6 +569,15 @@ export const STADIUM_BX10: StadiumSpec = {
         inwardDepth: 0.026,
         outwardDepth: 0.036,
       },
+      trace: pocketTrace(
+        BX10_SIDE_THROAT,
+        BX10_SIDE_BASIN,
+        BX10_SIDE_GUARD,
+        0.006,
+        "user:codex-clipboard-ac6833d8-5c2c-480c-8005-6b05608265a5.png + TT:BX-07-manual-p7",
+        "440x455mm body; mirrored front-right molded concavity and retaining lip",
+        "front-left-over",
+      ),
     },
   ],
   wallRestitution: 0.52,
@@ -483,6 +680,14 @@ export const STADIUM_BX32: StadiumSpec = {
         basinHalfWidth: 0.05,
         basinDepth: 0.095,
       },
+      trace: pocketTrace(
+        BX32_REAR_THROAT,
+        BX32_REAR_BASIN,
+        BX32_REAR_GUARD,
+        0.0055,
+        "user:codex-clipboard-11c8d883-8577-4d92-aebc-4db4b34113f9.png + TT:BX-32-manual",
+        "600x440mm body; upper-left rounded Xtreme concavity and entrance wall",
+      ),
     },
     {
       id: "rear-right-xtreme",
@@ -499,6 +704,15 @@ export const STADIUM_BX32: StadiumSpec = {
         basinHalfWidth: 0.05,
         basinDepth: 0.095,
       },
+      trace: pocketTrace(
+        BX32_REAR_THROAT,
+        BX32_REAR_BASIN,
+        BX32_REAR_GUARD,
+        0.0055,
+        "user:codex-clipboard-11c8d883-8577-4d92-aebc-4db4b34113f9.png + TT:BX-32-manual",
+        "600x440mm body; mirrored upper-right rounded Xtreme concavity and entrance wall",
+        "rear-left-xtreme",
+      ),
     },
     {
       id: "front-center-over",
@@ -512,6 +726,14 @@ export const STADIUM_BX32: StadiumSpec = {
         inwardDepth: 0.028,
         outwardDepth: 0.028,
       },
+      trace: pocketTrace(
+        BX32_FRONT_THROAT,
+        BX32_FRONT_BASIN,
+        BX32_FRONT_GUARD,
+        0.006,
+        "user:codex-clipboard-11c8d883-8577-4d92-aebc-4db4b34113f9.png + TT:BX-32-manual",
+        "600x440mm body; front-center broad Over concavity and curved entrance wall",
+      ),
     },
   ],
   wallRestitution: 0.52,
@@ -641,6 +863,72 @@ const POCKET_PATH_CACHE = new WeakMap<StadiumSpec, WeakMap<PocketSpec, PocketPat
 const POCKET_THROAT_CACHE = new WeakMap<StadiumSpec, WeakMap<PocketSpec, readonly Point2[]>>();
 const POCKET_BASIN_CACHE = new WeakMap<StadiumSpec, WeakMap<PocketSpec, readonly Point2[]>>();
 
+function smoothClosedPocketTrace(
+  control: readonly PocketTracePoint[],
+  passes = 4,
+): PocketTracePoint[] {
+  let points = control.map((point) => ({ ...point }));
+  for (let pass = 0; pass < passes; pass++) {
+    const next: PocketTracePoint[] = [];
+    for (let index = 0; index < points.length; index++) {
+      const a = points[index]!;
+      const b = points[(index + 1) % points.length]!;
+      next.push(
+        { along: a.along * 0.75 + b.along * 0.25, across: a.across * 0.75 + b.across * 0.25 },
+        { along: a.along * 0.25 + b.along * 0.75, across: a.across * 0.25 + b.across * 0.75 },
+      );
+    }
+    points = next;
+  }
+  return points;
+}
+
+function smoothOpenPocketTrace(
+  control: readonly PocketTracePoint[],
+  passes = 3,
+): PocketTracePoint[] {
+  let points = control.map((point) => ({ ...point }));
+  for (let pass = 0; pass < passes; pass++) {
+    const next: PocketTracePoint[] = [points[0]!];
+    for (let index = 0; index < points.length - 1; index++) {
+      const a = points[index]!;
+      const b = points[index + 1]!;
+      next.push(
+        { along: a.along * 0.75 + b.along * 0.25, across: a.across * 0.75 + b.across * 0.25 },
+        { along: a.along * 0.25 + b.along * 0.75, across: a.across * 0.25 + b.across * 0.75 },
+      );
+    }
+    next.push(points[points.length - 1]!);
+    points = next;
+  }
+  return points;
+}
+
+function tracedPocketPoints(
+  s: StadiumSpec,
+  pocket: PocketSpec,
+  control: readonly PocketTracePoint[],
+): Point2[] {
+  const path = pocketPath(s, pocket);
+  return smoothClosedPocketTrace(control).map((point) => {
+    let x = path.boundary.x + path.axis.x * point.along + path.across.x * point.across;
+    let y = path.boundary.y + path.axis.y * point.along + path.across.y * point.across;
+    // Perspective rectification can put an antialiased source pixel a few
+    // tenths of a millimetre beyond the physical shell. Keep the traced shape
+    // while clipping that sub-pixel uncertainty to the inside of the actual
+    // product body, so neither physics nor rendering invents an overhang.
+    const radius = Math.sqrt(x * x + y * y);
+    if (radius > 1e-12) {
+      const bodyRadius = stadiumBodyRadiusAt(s, datan2(y, x)) - 0.0002;
+      if (radius > bodyRadius) {
+        x *= bodyRadius / radius;
+        y *= bodyRadius / radius;
+      }
+    }
+    return { x, y };
+  });
+}
+
 function pocketCache<T>(
   cache: WeakMap<StadiumSpec, WeakMap<PocketSpec, T>>,
   stadium: StadiumSpec,
@@ -694,6 +982,11 @@ export function pocketPolygon(s: StadiumSpec, pocket: PocketSpec): readonly Poin
   const entries = pocketCache(POCKET_THROAT_CACHE, s);
   const cached = entries.get(pocket);
   if (cached) return cached;
+  if (pocket.trace) {
+    const traced = tracedPocketPoints(s, pocket, pocket.trace.throat);
+    entries.set(pocket, traced);
+    return traced;
+  }
   const f = pocketPath(s, pocket);
   const iw = pocket.throat.innerHalfWidth;
   const ow = pocket.throat.outerHalfWidth;
@@ -782,6 +1075,11 @@ export function pocketBasinPolygon(s: StadiumSpec, pocket: PocketSpec): readonly
   const entries = pocketCache(POCKET_BASIN_CACHE, s);
   const cached = entries.get(pocket);
   if (cached) return cached;
+  if (pocket.trace) {
+    const traced = tracedPocketPoints(s, pocket, pocket.trace.basin);
+    entries.set(pocket, traced);
+    return traced;
+  }
   const throat = pocketPolygon(s, pocket);
   const basinHalfWidth = pocket.throat.basinHalfWidth;
   const basinDepth = pocket.throat.basinDepth;
@@ -853,6 +1151,88 @@ function pointSegmentDistance(x: number, y: number, a: Point2, b: Point2): numbe
   return Math.sqrt((x - px) ** 2 + (y - py) ** 2);
 }
 
+interface CompiledPocketGuard {
+  points: readonly PocketTracePoint[];
+  minAlong: number;
+  maxAlong: number;
+  minAcross: number;
+  maxAcross: number;
+}
+
+const POCKET_GUARD_CACHE = new WeakMap<StadiumSpec, WeakMap<PocketSpec, CompiledPocketGuard>>();
+
+function compiledPocketGuard(s: StadiumSpec, pocket: PocketSpec): CompiledPocketGuard | null {
+  if (!pocket.trace) return null;
+  const entries = pocketCache(POCKET_GUARD_CACHE, s);
+  const cached = entries.get(pocket);
+  if (cached) return cached;
+  const points = smoothOpenPocketTrace(pocket.trace.guard.centerline);
+  const margin = pocket.trace.guard.halfThickness;
+  const compiled: CompiledPocketGuard = {
+    points,
+    minAlong: Math.min(...points.map((point) => point.along)) - margin,
+    maxAlong: Math.max(...points.map((point) => point.along)) + margin,
+    minAcross: Math.min(...points.map((point) => point.across)) - margin,
+    maxAcross: Math.max(...points.map((point) => point.across)) + margin,
+  };
+  entries.set(pocket, compiled);
+  return compiled;
+}
+
+/** World-space high-line-count centerline of the molded pocket-entry wall. */
+export function pocketGuardCenterline(s: StadiumSpec, pocket: PocketSpec): readonly Point2[] {
+  const guard = compiledPocketGuard(s, pocket);
+  if (!guard) return [];
+  const path = pocketPath(s, pocket);
+  return guard.points.map((point) => ({
+    x: path.boundary.x + path.axis.x * point.along + path.across.x * point.across,
+    y: path.boundary.y + path.axis.y * point.along + path.across.y * point.across,
+  }));
+}
+
+/** Smooth raised lip before each official loss zone. Its dimensions are
+ * photo-scaled inferences because TT does not publish mold sections. */
+export function pocketGuardRiseAt(s: StadiumSpec, x: number, y: number): number {
+  let rise = 0;
+  for (const pocket of s.pockets) {
+    const guard = compiledPocketGuard(s, pocket);
+    if (!guard || !pocket.trace) continue;
+    const path = pocketPath(s, pocket);
+    const dx = x - path.boundary.x;
+    const dy = y - path.boundary.y;
+    const along = dx * path.axis.x + dy * path.axis.y;
+    const across = dx * path.across.x + dy * path.across.y;
+    if (
+      along < guard.minAlong || along > guard.maxAlong ||
+      across < guard.minAcross || across > guard.maxAcross
+    ) continue;
+    let distance = Infinity;
+    for (let index = 0; index < guard.points.length - 1; index++) {
+      const a = guard.points[index]!;
+      const b = guard.points[index + 1]!;
+      distance = Math.min(distance, pointSegmentDistance(
+        along,
+        across,
+        { x: a.along, y: a.across },
+        { x: b.along, y: b.across },
+      ));
+    }
+    const profile = smooth01(1 - distance / pocket.trace.guard.halfThickness);
+    rise = Math.max(rise, pocket.trace.guard.height * profile);
+  }
+  return rise;
+}
+
+/** Heightfield gradient of the pocket-entry lips, kept separate from the
+ * gear rail so ordinary bowl motion does not inherit rack-tooth normals. */
+export function pocketGuardGradientAt(s: StadiumSpec, x: number, y: number): Point2 {
+  const h = 0.0002;
+  return {
+    x: (pocketGuardRiseAt(s, x + h, y) - pocketGuardRiseAt(s, x - h, y)) / (2 * h),
+    y: (pocketGuardRiseAt(s, x, y + h) - pocketGuardRiseAt(s, x, y - h)) / (2 * h),
+  };
+}
+
 /** True only when the Bey's complete footprint is retained by the concave
  * basin rather than balancing across its open inner mouth. */
 export function pocketSecureAtPoint(
@@ -882,7 +1262,15 @@ export function surfaceZAt(s: StadiumSpec, x: number, y: number): number {
   const radius = Math.sqrt(x * x + y * y);
   if (radius <= 1e-12) return 0;
   const boundaryRadius = boundaryRadiusAlongUnit(s, x / radius, y / radius);
-  return surfaceZ(s, radius * s.rWall / boundaryRadius);
+  const mappedRadius = Math.min(s.rWall, radius * s.rWall / boundaryRadius);
+  const bowlZ = surfaceZ(s, mappedRadius);
+  // The molded bowl rolls smoothly into the flat rim rather than meeting it
+  // at a mathematical crease. Keep this shared by ordinary dish and pocket
+  // terrain so a traced concavity has no lighting/physics seam where it
+  // crosses the nominal wall boundary.
+  const rimBlendWidth = 0.008;
+  const blend = smooth01(1 - (s.rWall - mappedRadius) / rimBlendWidth);
+  return bowlZ + (surfaceZ(s, s.rWall) - bowlZ) * blend;
 }
 
 export function surfaceGradientAt(s: StadiumSpec, x: number, y: number): Point2 {
@@ -907,11 +1295,36 @@ interface PocketSurfaceFrame {
 
 const POCKET_SURFACE_CACHE = new WeakMap<StadiumSpec, WeakMap<PocketSpec, PocketSurfaceFrame>>();
 
+function pocketBasinCenter(s: StadiumSpec, pocket: PocketSpec): Point2 {
+  const path = pocketPath(s, pocket);
+  if (pocket.trace) {
+    const points = smoothClosedPocketTrace(pocket.trace.basin);
+    let along = 0;
+    let across = 0;
+    for (const point of points) {
+      along += point.along;
+      across += point.across;
+    }
+    return {
+      x: path.boundary.x + path.axis.x * along / points.length + path.across.x * across / points.length,
+      y: path.boundary.y + path.axis.y * along / points.length + path.across.y * across / points.length,
+    };
+  }
+  const basinDepth = pocket.throat.basinDepth;
+  const along = basinDepth === undefined
+    ? (pocket.throat.outwardDepth - pocket.throat.inwardDepth) / 2
+    : (pocket.throat.outwardDepth * 0.2 + basinDepth) / 2;
+  return {
+    x: path.boundary.x + path.axis.x * along,
+    y: path.boundary.y + path.axis.y * along,
+  };
+}
+
 function pocketSurfaceFrame(s: StadiumSpec, pocket: PocketSpec): PocketSurfaceFrame {
   const entries = pocketCache(POCKET_SURFACE_CACHE, s);
   const cached = entries.get(pocket);
   if (cached) return cached;
-  const target = pocketExitTarget(s, pocket);
+  const target = pocketBasinCenter(s, pocket);
   const path = pocketPath(s, pocket);
   let halfAlong = 0;
   let halfAcross = 0;
@@ -941,17 +1354,9 @@ function pocketBoundaryDistance(s: StadiumSpec, pocket: PocketSpec, x: number, y
 }
 
 function pocketSurroundingZ(s: StadiumSpec, x: number, y: number): number {
-  const boundaryDistance = stadiumBoundarySignedDistance(s, x, y);
-  const rimZ = surfaceZ(s, s.rWall);
-  if (boundaryDistance >= 0) return rimZ;
-  const bowlZ = surfaceZAt(s, x, y);
-  const blendWidth = 0.008;
-  if (boundaryDistance <= -blendWidth) return bowlZ;
-  // Flatten the last 8 mm of the basin mouth into the coplanar deck. The
-  // smoothstep has zero derivative at both ends, giving C1 continuity at the
-  // raw bowl boundary rather than the former 0.5 mm step/slope kink.
-  const flatten = smooth01((boundaryDistance + blendWidth) / blendWidth);
-  return bowlZ + (rimZ - bowlZ) * flatten;
+  // `surfaceZAt` already clamps outside points to the rim and applies the same
+  // molded roll-off on the ordinary battle surface.
+  return surfaceZAt(s, x, y);
 }
 
 /** Height of the one-piece concave loss-zone surface. It meets the bowl/deck
@@ -968,20 +1373,68 @@ export function pocketSurfaceZ(s: StadiumSpec, pocket: PocketSpec, x: number, y:
   const across = (dx * frame.path.across.x + dy * frame.path.across.y) / Math.max(frame.halfAcross, 1e-6);
   const centerBias = smooth01(1 - Math.min(1, along * along + across * across));
   const depression = STADIUM_GEOMETRY.pocketBasinDepthM * shoulder * (0.82 + centerBias * 0.18);
-  return rimZ - depression;
+  return rimZ - depression + pocketGuardRiseAt(s, x, y);
 }
 
-/** Deterministic visual/rigid-body rest target at the concave basin center. */
+const POCKET_REST_TARGET_CACHE = new WeakMap<StadiumSpec, WeakMap<PocketSpec, Point2>>();
+
+/** Deterministic visual/rigid-body rest target at the actual low point of the
+ * concavity. The depression is superimposed on a sloped bowl, so its traced
+ * geometric centroid is not generally where a stationary Bey comes to rest. */
 export function pocketExitTarget(s: StadiumSpec, pocket: PocketSpec): Point2 {
-  const path = pocketPath(s, pocket);
-  const basinDepth = pocket.throat.basinDepth;
-  const along = basinDepth === undefined
-    ? (pocket.throat.outwardDepth - pocket.throat.inwardDepth) / 2
-    : (pocket.throat.outwardDepth * 0.2 + basinDepth) / 2;
-  return {
-    x: path.boundary.x + path.axis.x * along,
-    y: path.boundary.y + path.axis.y * along,
-  };
+  const entries = pocketCache(POCKET_REST_TARGET_CACHE, s);
+  const cached = entries.get(pocket);
+  if (cached) return cached;
+  const polygon = pocketBasinPolygon(s, pocket);
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  for (const point of polygon) {
+    minX = Math.min(minX, point.x);
+    minY = Math.min(minY, point.y);
+    maxX = Math.max(maxX, point.x);
+    maxY = Math.max(maxY, point.y);
+  }
+  let best = pocketBasinCenter(s, pocket);
+  let bestHeight = pocketSurfaceZ(s, pocket, best.x, best.y);
+  const divisions = 24;
+  for (let iy = 0; iy <= divisions; iy++) {
+    const y = minY + (maxY - minY) * iy / divisions;
+    for (let ix = 0; ix <= divisions; ix++) {
+      const x = minX + (maxX - minX) * ix / divisions;
+      if (!pointInConvexPolygon(polygon, x, y)) continue;
+      const height = pocketSurfaceZ(s, pocket, x, y);
+      if (height < bestHeight) {
+        best = { x, y };
+        bestHeight = height;
+      }
+    }
+  }
+  let stepX = (maxX - minX) / divisions;
+  let stepY = (maxY - minY) / divisions;
+  for (let refinement = 0; refinement < 14; refinement++) {
+    let next = best;
+    let nextHeight = bestHeight;
+    for (let oy = -1; oy <= 1; oy++) {
+      for (let ox = -1; ox <= 1; ox++) {
+        const x = best.x + ox * stepX;
+        const y = best.y + oy * stepY;
+        if (!pointInConvexPolygon(polygon, x, y)) continue;
+        const height = pocketSurfaceZ(s, pocket, x, y);
+        if (height < nextHeight) {
+          next = { x, y };
+          nextHeight = height;
+        }
+      }
+    }
+    best = next;
+    bestHeight = nextHeight;
+    stepX *= 0.5;
+    stepY *= 0.5;
+  }
+  entries.set(pocket, best);
+  return best;
 }
 
 /** Canonical basin-bottom height used by presentation/tests. */
@@ -1005,7 +1458,7 @@ function terrainHeightAt(s: StadiumSpec, x: number, y: number): Pick<StadiumTerr
     sampleX = x * boundaryRadius / radius;
     sampleY = y * boundaryRadius / radius;
   }
-  let height = surfaceZAt(s, sampleX, sampleY);
+  let height = surfaceZAt(s, sampleX, sampleY) + pocketGuardRiseAt(s, x, y);
   let region: StadiumTerrainSample["region"] = boundaryDistance > 0 ? "outside" : "bowl";
   if (boundaryDistance <= 0) {
     const closestRail = railClosestPoint(s, x, y);

@@ -238,7 +238,7 @@ export interface BeyState {
   exited: "over" | "xtreme" | "top" | "launchMiss" | null;
   /** Index of the live catch zone currently occupied; -1 while in the bowl. */
   pocketIndex: number;
-  /** Consecutive translationally-settled ticks securely inside the same catch zone. */
+  /** Consecutive translationally-settled ticks inside the same catch zone. */
   pocketDwell: number;
   /** Last fixed tick on which entry, a basin-rim contact, or another Bey
    * disturbed this pocket occupant; retained for deterministic diagnostics. */

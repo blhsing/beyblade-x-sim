@@ -15,7 +15,7 @@ import { normalizeLauncherForSpin } from "../core/launcher";
 import { launchKinematics } from "../core/sim";
 import type { BeyParams, BeyState, LauncherKind, LaunchParams, WorldState } from "../core/types";
 import type { ResolvedCombo } from "../core/derive";
-import { gyro } from "../sensors/gyro";
+import { GYRO_HOLD_Y, GYRO_HOLD_Z, gyro } from "../sensors/gyro";
 import { sfx } from "../audio/sfx";
 import { studioEnvironment, tableMaps } from "./materials";
 import { buildBeyMesh, partRadiusM } from "./parts";
@@ -174,6 +174,7 @@ export class BattleView {
   private orbitYaw = -Math.PI / 2;
   private orbitPitch = 0.9;
   private orbitDist = 0.56; // frames the true-scale (wider) bowls
+  private gyroFitDist = 0.56;
   /** Resize keeps the full product framed until the player explicitly zooms. */
   private orbitZoomAdjusted = false;
   /** look-at point, moved by two-finger pan */
@@ -945,12 +946,14 @@ export class BattleView {
   private fitOrbitToStadium(): void {
     if (!this.stadium) {
       this.orbitDist = 0.56;
+      this.gyroFitDist = 0.56;
       return;
     }
     const viewport = renderViewportSize(window.visualViewport, window.innerWidth, window.innerHeight);
+    const aspect = viewport.width / viewport.height;
     this.orbitDist = stadiumOrbitFitDistance(
       this.stadium,
-      viewport.width / viewport.height,
+      aspect,
       {
         fovDeg: this.camera.fov,
         yaw: this.orbitYaw,
@@ -958,6 +961,13 @@ export class BattleView {
         targetZ: this.orbitTarget.z,
       },
     );
+    const gyroTargetZ = 0.02;
+    this.gyroFitDist = stadiumOrbitFitDistance(this.stadium, aspect, {
+      fovDeg: this.camera.fov,
+      yaw: -Math.PI / 2,
+      pitch: Math.atan2(GYRO_HOLD_Z - gyroTargetZ, -GYRO_HOLD_Y),
+      targetZ: gyroTargetZ,
+    });
   }
 
   resize(): void {
@@ -1467,7 +1477,7 @@ export class BattleView {
       return;
     }
     if (this.mode === "gyro" && gyro.active) {
-      gyro.apply(this.camera);
+      gyro.apply(this.camera, this.gyroFitDist, 0.02);
       return;
     }
     if (this.mode === "launch") {

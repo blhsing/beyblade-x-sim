@@ -152,6 +152,16 @@ describe("high-polygon upper geometry", () => {
     expect(names).toContain("upper:blade:DRANSWORD:reference-top");
     expect(triangleCount(upper)).toBeGreaterThan(60_000);
     expect(triangleCount(upper)).toBeLessThan(64_000);
+    const referenceTop = upper.getObjectByName(
+      "upper:blade:DRANSWORD:reference-top",
+    ) as THREE.Mesh;
+    const material = referenceTop.material as THREE.ShaderMaterial;
+    expect(material).toBeInstanceOf(THREE.ShaderMaterial);
+    expect(material.uniforms.uMode?.value).toBe(0);
+    expect(material.userData.referenceTop).toBe(true);
+    expect(material.userData.bakedGlareReduction).toBe(0.34);
+    expect(material.fragmentShader)
+      .toContain("glareCompression");
     upper.traverse((object) => {
       if (!(object instanceof THREE.Mesh)) return;
       const positions = object.geometry.getAttribute("position");

@@ -6,8 +6,13 @@ part stats, and *bit-exact determinism* across devices.
 
 ## Determinism contract
 
-Current deterministic replay/lockstep version: **6**. Version 6 makes retained
-zone settlement depend on the Bey's actual post-constraint center movement,
+Current deterministic replay/lockstep version: **7**. Version 7 removes the
+full-Blade clearance inset from terminal pocket judgment: after a valid entry,
+continued occupancy plus actual translational rest is enough even when the
+Blade overhangs a sloped basin edge and even while the Bey spins. It also adds
+the product-traced low retaining lips in front of every pocket to the shared
+terrain/entry dynamics. Version 6
+makes retained zone settlement depend on the Bey's actual post-constraint center movement,
 so a visually motionless Bey pressed against a molded basin rim is scored even
 if the solver still carries an unobservable residual velocity. Real movement,
 impacts and escape still reset the confirmation. Version 5 replaced the
@@ -87,7 +92,9 @@ own-finish rule), visual phase.
    wall outward through the real mouth with sufficient speed to enter. Its
    linear and angular momentum continue into the basin; it can circulate,
    collide, climb or rebound from the molded rim, and return through the open
-   mouth when it carries enough momentum uphill. Entry alone is not a finish.
+   mouth when it carries enough momentum uphill. A traced low retaining lip
+   precedes each mouth, so weak approaches deflect while strong ones climb it
+   and pay the corresponding energy. Entry alone is not a finish.
    Official stadiums have no invented angular side gaps.
 7. **Collisions** (circle-circle): normal impulse (restitution 0.25,
    mass-weighted) + two directed "smash" impulses derived from **rim slip**
@@ -117,18 +124,19 @@ frame-rate-dependent scatter.
 ## Finishes (official scoring, stricter simulation authorization)
 
 Takara Tomy's retained-zone standard is that the complete Bey remains in the
-Over/Xtreme Zone and cannot return. The simulation confirms this from the
-complete circular footprint and a short uninterrupted translational-rest
-dwell. Spin does not prevent retention: a Bey may remain upright and rotating
-in a concave basin after its center of mass and Bit contact have come to rest.
+Over/Xtreme Zone and cannot return. Per the requested simulation rule, a Bey
+that validly entered and remains in the authored concave pocket is confirmed
+lost after a short uninterrupted translational-rest dwell; its Blade may
+overhang the sloped edge. Spin does not prevent retention: a Bey may remain
+upright and rotating after its center of mass and Bit contact have come to rest.
 
 `spin` requires ω = 0 (the decay integrator clamps exactly) **and** speed
 < 0.005 m/s continuously for 0.6 s; toppled-body kinetic friction first removes
 the visible slide and static friction then sleeps genuinely low-speed contact,
 so the qualifying dwell cannot begin while the Bey is still crossing the bowl ·
-`over` (2 pts) / `xtreme` (3 pts) require the complete Bey footprint to be
-securely inside the same concave basin with exactly slept planar/vertical
-center motion for 24 uninterrupted ticks (under 0.5 mm total tolerance); ω is
+`over` (2 pts) / `xtreme` (3 pts) require continued occupancy of the same
+concave basin with slept planar/vertical center motion for 24 uninterrupted
+ticks (under 0.5 mm total tolerance); ω is
 deliberately not part of this test.
 Motion, wall/Bey impact, leaving or changing a pocket resets that dwell ·
 `burst` (2 pts) · own-finish flag when a bey exits

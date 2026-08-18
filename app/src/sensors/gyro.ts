@@ -36,6 +36,23 @@ const TABLE_DISTANCE = 0.35;
 /** assumed hand-held camera position in W once the phone is picked up */
 const HOLD_POS = new THREE.Vector3(0, -TABLE_DISTANCE - 0.05, 0.36);
 
+/** Initial anchored-view direction, shared with responsive camera fitting. */
+export const GYRO_HOLD_Y = -TABLE_DISTANCE - 0.05;
+export const GYRO_HOLD_Z = 0.36;
+
+export function framedGyroHoldPosition(
+  distance: number,
+  targetZ = 0.02,
+): THREE.Vector3 {
+  const relative = new THREE.Vector3(0, GYRO_HOLD_Y, GYRO_HOLD_Z - targetZ);
+  const length = relative.length();
+  if (Number.isFinite(distance) && distance > 0 && length > 1e-9) {
+    relative.multiplyScalar(distance / length);
+  }
+  relative.z += targetZ;
+  return relative;
+}
+
 const EULER_ORDER = "YXZ";
 const Q_SCREEN_TILT = new THREE.Quaternion(-Math.SQRT1_2, 0, 0, Math.SQRT1_2); // -90° X
 const Q_SWAP = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), Math.PI / 2); // F(Y-up)→W(Z-up)
@@ -197,13 +214,17 @@ export class GyroCamera {
   }
 
   /** Applies the anchored pose to the camera (stadium is at the origin). */
-  apply(camera: THREE.PerspectiveCamera): void {
+  apply(camera: THREE.PerspectiveCamera, framingDistance?: number, targetZ = 0.02): void {
     if (!this.active || !this.qAlign) return;
     camera.quaternion.copy(this.qAlign).multiply(this.qF);
     // smooth the estimated offset for presentation only — the estimate
     // itself stays raw so it never lags behind a real movement
     this.smooth.lerp(this.off, 0.25);
-    camera.position.copy(HOLD_POS).add(this.smooth);
+    camera.position.copy(
+      framingDistance === undefined
+        ? HOLD_POS
+        : framedGyroHoldPosition(framingDistance, targetZ),
+    ).add(this.smooth);
   }
 }
 

@@ -80,8 +80,9 @@ list at bottom. Items marked ⚠ need re-verification against the official PDFs
   broad front-center trapezoidal Over opening, as shown in its official
   diagram. Entering either product's concave loss-zone basin is reversible. The official
   rule is retained/cannot-return; the game intentionally applies the user's
-  stricter visual gate and announces the zone finish only after the complete
-  Bey is retained there and literally stops.
+  stricter visual gate and announces the zone finish only after the Bey's
+  center has become translationally motionless there. Continued in-place spin
+  does not delay the loss.
 - Other stadiums: Wide Xtreme (BX-32, 3-player), Double Xtreme (BX-37),
   legacy Burst stadium (no rail → xtreme finish impossible).
 - **Launchers:** Winder Launcher (baseline), String Launcher (BX-17, UX-02…),
