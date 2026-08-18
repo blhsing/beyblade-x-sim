@@ -38,6 +38,7 @@ BX32_HALF_STRAIGHT_M = 0.055
 REAR_RIGHT_ANGLE = 0.71
 REAR_RIGHT_SKEW = -1.02
 X_LINE_ENVELOPE_MM = 4.6
+GUARD_VAULT_SPEED_MPS = 2.2
 
 # Traced on the unobstructed upper half, mirrored from the packet-obscured
 # lower guard. The small search corridor is intentionally kept in the source
@@ -179,6 +180,8 @@ def check_typescript(path: Path, result: dict[str, object]) -> None:
     height = float(result["heightFit"]["heightM"])
     if f"{height:.4f}" not in source:
         raise SystemExit(f"TypeScript does not contain derived height {height:.4f} m")
+    if 'kind: "solid"' not in source or f"vaultSpeed: {GUARD_VAULT_SPEED_MPS:.1f}" not in source:
+        raise SystemExit("TypeScript does not contain the solid BX-32 guard collision contract")
 
 
 def main() -> None:
@@ -197,12 +200,17 @@ def main() -> None:
         raise SystemExit(f"expected the high-resolution oblique product image, got {oblique.size}")
     fit = height_fit(oblique)
     result = {
-        "schemaVersion": 1,
+        "schemaVersion": 2,
         "product": "BX-32",
         "method": "mirrored-overhead-plan+oblique-shadow-edge-ratio",
         "planControlPoints": plan_trace(),
         "halfThicknessM": GUARD_FULL_THICKNESS_PX * SHORT_AXIS_M_PER_PX / 2,
         "heightFit": fit,
+        "collisionModel": {
+            "kind": "solid",
+            "vaultSpeedMps": GUARD_VAULT_SPEED_MPS,
+            "qualification": "simulation calibration; ordinary deployed 1.7-2.0 m/s approaches must rebound",
+        },
         "sources": {
             "overhead": args.overhead.name,
             "oblique": "https://m.media-amazon.com/images/I/61mev0MM2vL.jpg",

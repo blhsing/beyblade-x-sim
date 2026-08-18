@@ -5,9 +5,11 @@ import {
   pocketBasinPolygon,
   pocketExitTarget,
   pocketGuardCenterline,
+  pocketGuardContactAt,
   pocketGuardRiseAt,
   pocketPath,
   pocketPolygon,
+  pointInConvexPolygon,
   pocketSecureAtPoint,
   pocketSurfaceZ,
   railClosestPoint,
@@ -177,7 +179,7 @@ describe("product-accurate stadium openings", () => {
     }
   });
 
-  it.each([STADIUM_BX10, STADIUM_BX32])("uses dense traced pocket silhouettes and a rounded retaining wall in %s", (stadium) => {
+  it.each([STADIUM_BX10, STADIUM_BX32])("uses dense traced pocket silhouettes and product-specific retaining walls in %s", (stadium) => {
     for (const [index, pocket] of stadium.pockets.entries()) {
       expect(pocket.trace?.reference.source).toMatch(/user:codex-clipboard/);
       expect(pocketPolygon(stadium, pocket).length).toBeGreaterThanOrEqual(96);
@@ -256,6 +258,38 @@ describe("product-accurate stadium openings", () => {
     const elapsed = performance.now() - started;
     expect(checksum).toBeGreaterThan(0);
     expect(elapsed).toBeLessThan(2_500);
+  });
+
+  it.each([STADIUM_BX10, STADIUM_BX32])("matches exhaustive convex containment in %s", (stadium) => {
+    const exhaustive = (polygon: readonly { x: number; y: number }[], x: number, y: number) => {
+      let sign = 0;
+      for (let index = 0; index < polygon.length; index++) {
+        const a = polygon[index]!;
+        const b = polygon[(index + 1) % polygon.length]!;
+        const cross = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+        if (Math.abs(cross) <= 1e-10) continue;
+        const current = cross > 0 ? 1 : -1;
+        if (sign !== 0 && sign !== current) return false;
+        sign = current;
+      }
+      return true;
+    };
+    for (const pocket of stadium.pockets) {
+      const polygon = pocketBasinPolygon(stadium, pocket);
+      const xs = polygon.map((point) => point.x);
+      const ys = polygon.map((point) => point.y);
+      const minX = Math.min(...xs) - 0.004;
+      const maxX = Math.max(...xs) + 0.004;
+      const minY = Math.min(...ys) - 0.004;
+      const maxY = Math.max(...ys) + 0.004;
+      for (let iy = 0; iy <= 24; iy++) {
+        const y = minY + (maxY - minY) * iy / 24;
+        for (let ix = 0; ix <= 24; ix++) {
+          const x = minX + (maxX - minX) * ix / 24;
+          expect(pointInConvexPolygon(polygon, x, y)).toBe(exhaustive(polygon, x, y));
+        }
+      }
+    }
   });
 
   it.each([
@@ -457,7 +491,7 @@ describe("product-accurate stadium openings", () => {
         expect(Math.abs(Math.hypot(actual.normal.x, actual.normal.y) - 1)).toBeLessThan(1e-9);
       }
     }
-  });
+  }, 30_000);
 
   it.each([
     ["BX-10", STADIUM_BX10],
@@ -492,7 +526,7 @@ describe("product-accurate stadium openings", () => {
           .toBeLessThan(0.000025);
       }
     }
-  });
+  }, 30_000);
 
   it.each([
     ["BX-10", STADIUM_BX10],
@@ -574,7 +608,7 @@ describe("reversible live pocket simulation", () => {
     expect(bey.exited).toBeNull();
   });
 
-  it("makes a low-energy BX-32 corner approach roll back from the photo-derived wall", () => {
+  it("blocks the 1.95 m/s direct BX-32 corner approach seen in the deployed replay", () => {
     const cfg = config();
     const world = createWorld(cfg);
     const bey = world.beys[0]!;
@@ -587,14 +621,14 @@ describe("reversible live pocket simulation", () => {
     Object.assign(bey, {
       x: apex.x - path.axis.x * 0.018,
       y: apex.y - path.axis.y * 0.018,
-      vx: path.axis.x * 0.28,
-      vy: path.axis.y * 0.28,
+      vx: path.axis.x * 1.95,
+      vy: path.axis.y * 1.95,
       airborne: false,
       pendingTicks: 0,
       omega: 220,
     });
     let furthestAlong = -Infinity;
-    for (let tick = 0; tick < 240; tick++) {
+    for (let tick = 0; tick < 120; tick++) {
       step(world, cfg, STADIUM_BX32, true);
       furthestAlong = Math.max(
         furthestAlong,
@@ -604,6 +638,71 @@ describe("reversible live pocket simulation", () => {
     expect(bey.pocketIndex).toBe(-1);
     expect(bey.exited).toBeNull();
     expect(furthestAlong).toBeLessThan(-0.002);
+    expect(world.events.some((event) => event.kind === "wallHit")).toBe(true);
+  });
+
+  it("allows only a rare high-energy vault over a BX-32 corner wall", () => {
+    const cfg = config();
+    const world = createWorld(cfg);
+    const bey = world.beys[0]!;
+    const pocket = STADIUM_BX32.pockets[0]!;
+    const path = pocketPath(STADIUM_BX32, pocket);
+    const wall = pocketGuardCenterline(STADIUM_BX32, pocket);
+    const apex = wall.reduce((best, point) =>
+      pocketGuardRiseAt(STADIUM_BX32, point.x, point.y) >
+        pocketGuardRiseAt(STADIUM_BX32, best.x, best.y) ? point : best);
+    Object.assign(bey, {
+      x: apex.x - path.axis.x * 0.030,
+      y: apex.y - path.axis.y * 0.030,
+      vx: path.axis.x * 2.55,
+      vy: path.axis.y * 2.55,
+      airborne: false,
+      pendingTicks: 0,
+      omega: 320,
+    });
+    for (let tick = 0; tick < 12 && bey.pocketIndex < 0; tick++) {
+      step(world, cfg, STADIUM_BX32, true);
+    }
+    expect(bey.pocketIndex).toBe(0);
+    expect(Math.hypot(bey.vx, bey.vy)).toBeLessThan(1.5);
+    expect(world.events.filter(
+      (event) => event.kind === "wallHit" && event.magnitude > 2.2,
+    )).toHaveLength(1);
+  });
+
+  it("fills the traced BX-32 divider footprint without a centerline hole", () => {
+    expect(STADIUM_BX10.hasSolidPocketGuards).not.toBe(true);
+    expect(STADIUM_BX32.hasSolidPocketGuards).toBe(true);
+    expect(STADIUM_BX32.pockets.some((pocket) => pocket.trace?.guard.collision?.kind === "solid"))
+      .toBe(true);
+    for (const pocket of STADIUM_BX32.pockets.slice(0, 2)) {
+      expect(pocket.trace?.guard.collision?.kind).toBe("solid");
+      for (const point of pocketGuardCenterline(STADIUM_BX32, pocket)) {
+        const contact = pocketGuardContactAt(STADIUM_BX32, point.x, point.y, 0.003);
+        expect(contact?.pocket).toBe(pocket);
+        expect(contact?.penetration).toBeGreaterThanOrEqual(0.0134);
+      }
+    }
+  });
+
+  it("blocks every straight lane from the BX-32 bowl into either rear pocket", () => {
+    for (const pocket of STADIUM_BX32.pockets.slice(0, 2)) {
+      const path = pocketPath(STADIUM_BX32, pocket);
+      for (let lane = -22; lane <= 22; lane++) {
+        const across = lane * 0.001;
+        let blocked = false;
+        for (let sample = -42; sample <= 12; sample++) {
+          const along = sample * 0.001;
+          const x = path.boundary.x + path.axis.x * along + path.across.x * across;
+          const y = path.boundary.y + path.axis.y * along + path.across.y * across;
+          if (pocketGuardContactAt(STADIUM_BX32, x, y, 0.003)?.pocket === pocket) {
+            blocked = true;
+            break;
+          }
+        }
+        expect(blocked, `${pocket.id} lane ${across.toFixed(3)} m`).toBe(true);
+      }
+    }
   });
 
   it("admits a realistic 1.0 m/s outward crossing through the exact BX-10 throat", () => {

@@ -10,6 +10,7 @@ import {
   inArc,
   pocketAtPoint,
   pocketBasinPolygon,
+  pocketGuardContactAt,
   pocketGuardGradientAt,
   pocketPath,
   pocketSecureAtPoint,
@@ -34,7 +35,7 @@ import type {
 export const DT = 1 / 240;
 export const TICKS_PER_SECOND = 240;
 /** Increment whenever deterministic state evolution changes incompatibly. */
-export const PHYSICS_VERSION = 8;
+export const PHYSICS_VERSION = 9;
 
 const G = 9.81;
 // Stop means visually and mechanically settled, not merely crossing a low-
@@ -52,6 +53,10 @@ export const POCKET_REST_DISPLACEMENT = 0.00002;
 /** Effective lower-body/support clearance against pocket cheeks. The Blade
  * may overhang a real pocket while the Bit and Ratchet continue inside. */
 export const POCKET_SUPPORT_CLEARANCE_M = 0.008;
+/** The tall divider's traced 21 mm width already includes its physical
+ * footprint. Only the lower joint radius is added here; inflating it by the
+ * full Blade radius would consume the entire narrow corner basin. */
+export const POCKET_GUARD_CLEARANCE_M = 0.003;
 
 const T = {
   // launch — bowl escape speed is ~0.77 m/s, so entries stay below it and
@@ -524,6 +529,69 @@ function constrainPocket(
   return true;
 }
 
+/** Resolve the tall photo-traced BX-32 corner divider as a rigid wall. The
+ * old model exposed the same 16.8 mm moulding only through a smooth terrain
+ * gradient, so 1.7--2.0 m/s replay trajectories simply rode over it. A real
+ * near-vertical face reflects those approaches. Only a rare, substantially
+ * harder strike is represented as a vault over the wall, with the climb
+ * energy removed once at first contact. */
+function resolvePocketGuard(
+  w: WorldState,
+  s: StadiumSpec,
+  b: BeyState,
+  beyIndex: number,
+  previousX: number,
+  previousY: number,
+  clearance: number,
+): PocketSpec | null {
+  const contact = pocketGuardContactAt(s, b.x, b.y, clearance);
+  if (!contact) return null;
+  const previousContact = pocketGuardContactAt(s, previousX, previousY, clearance);
+  const normalVelocity = b.vx * contact.normal.x + b.vy * contact.normal.y;
+  const impactSpeed = Math.max(0, -normalVelocity);
+  const firstContact = !previousContact || previousContact.pocket !== contact.pocket;
+
+  if (firstContact && impactSpeed >= contact.collision.vaultSpeed) {
+    const retainedNormal = Math.sqrt(Math.max(
+      0,
+      impactSpeed * impactSpeed - contact.collision.vaultSpeed * contact.collision.vaultSpeed,
+    ));
+    // Move to the opposite face in one deterministic step. This represents
+    // the brief unmodelled vertical hop and prevents the next 240 Hz tick from
+    // charging the same wall energy a second time.
+    b.x = contact.point.x - contact.normal.x * (contact.contactRadius + 0.0002);
+    b.y = contact.point.y - contact.normal.y * (contact.contactRadius + 0.0002);
+    b.vx += contact.normal.x * (impactSpeed - retainedNormal);
+    b.vy += contact.normal.y * (impactSpeed - retainedNormal);
+    b.omega *= 0.96;
+    b.pocketDisturbedTick = w.tick;
+    b.pocketBlockingTick = w.tick;
+    b.stopDwell = 0;
+    pushEvent(w, "wallHit", beyIndex, impactSpeed);
+    return contact.pocket;
+  }
+
+  if (normalVelocity < 0) {
+    b.vx -= (1 + contact.collision.restitution) * normalVelocity * contact.normal.x;
+    b.vy -= (1 + contact.collision.restitution) * normalVelocity * contact.normal.y;
+    const tangentX = -contact.normal.y;
+    const tangentY = contact.normal.x;
+    const tangentVelocity = b.vx * tangentX + b.vy * tangentY;
+    const maxTangentDelta = impactSpeed * contact.collision.friction;
+    const tangentDelta = clamp(tangentVelocity, -maxTangentDelta, maxTangentDelta);
+    b.vx -= tangentDelta * tangentX;
+    b.vy -= tangentDelta * tangentY;
+    b.omega *= 0.985;
+    pushEvent(w, "wallHit", beyIndex, impactSpeed);
+  }
+  b.x = contact.point.x + contact.normal.x * (contact.contactRadius + 0.0002);
+  b.y = contact.point.y + contact.normal.y * (contact.contactRadius + 0.0002);
+  b.pocketDisturbedTick = w.tick;
+  b.pocketBlockingTick = w.tick;
+  b.stopDwell = 0;
+  return null;
+}
+
 function stepBey(
   w: WorldState,
   s: StadiumSpec,
@@ -771,6 +839,18 @@ function stepBey(
   b.y += b.vy * DT;
   b.phase += b.omega * DT;
 
+  const vaultedGuardPocket = s.hasSolidPocketGuards
+    ? resolvePocketGuard(
+      w,
+      s,
+      b,
+      i,
+      previousX,
+      previousY,
+      Math.min(POCKET_GUARD_CLEARANCE_M, p.radiusM * 0.12),
+    )
+    : null;
+
   // the gear rack is a PHYSICAL ridge even when not meshed (cooldown, slow
   // or dying beys): crossing outward needs real speed, otherwise the teeth
   // hold the bey inside the bowl — only hard knockbacks hop over
@@ -817,18 +897,20 @@ function stepBey(
   // through the open inner edge, and remains collidable while there.
   const pocketHere = pocketAtPoint(s, b.x, b.y);
   const throatHere = pocketThroatAtPoint(s, b.x, b.y);
-  const contactClearance = p.radiusM * 0.6;
+  const wallContactClearance = p.radiusM * 0.6;
   const crossedOutward =
-    stadiumBoundarySignedDistance(s, previousX, previousY, contactClearance) <= 0 &&
-    stadiumBoundarySignedDistance(s, b.x, b.y, contactClearance) > 0;
+    stadiumBoundarySignedDistance(s, previousX, previousY, wallContactClearance) <= 0 &&
+    stadiumBoundarySignedDistance(s, b.x, b.y, wallContactClearance) > 0;
   const entryNormal = stadiumBoundaryNormalAt(s, b.x, b.y);
   const entrySpeed = b.vx * entryNormal.x + b.vy * entryNormal.y;
   if (
     !activePocket &&
     pocketHere &&
     throatHere === pocketHere &&
-    crossedOutward &&
-    entrySpeed >= Math.min(s.exitSpeed, T.pocketEntrySpeed)
+    (
+      vaultedGuardPocket === pocketHere ||
+      (crossedOutward && entrySpeed >= Math.min(s.exitSpeed, T.pocketEntrySpeed))
+    )
   ) {
     b.pocketIndex = s.pockets.indexOf(pocketHere);
     b.pocketDwell = 0;
@@ -849,7 +931,7 @@ function stepBey(
 
   // Solid circular/obround bowl wall. Its only official holes are the live
   // pocket throats above; no wall bounce is applied while a Bey occupies one.
-  const wallPenetration = stadiumBoundarySignedDistance(s, b.x, b.y, contactClearance);
+  const wallPenetration = stadiumBoundarySignedDistance(s, b.x, b.y, wallContactClearance);
   if (!activePocket && wallPenetration > 0) {
     const u = stadiumBoundaryNormalAt(s, b.x, b.y);
     const vr = b.vx * u.x + b.vy * u.y;

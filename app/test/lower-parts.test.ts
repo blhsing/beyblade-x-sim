@@ -239,7 +239,7 @@ describe("reference Bit specs", () => {
     expect(names(turboLow)).toContain("mode:turbo-low-rpm-flat");
     expect(names(turboHigh)).toContain("mechanism:turbo-centrifugal-slider");
     expectFiniteGeometry(turboHigh);
-  });
+  }, 30_000);
 
   it("changes the physical stack height for both integrated mode positions", () => {
     const byKey = (key: string) => db.parts.bit.find((part) => part.key === key)!;

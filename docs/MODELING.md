@@ -179,8 +179,12 @@ geometry as their non-croppable silhouette; clear casing may crop at the edge.
   [61mev0MM2vL.jpg](https://m.media-amazon.com/images/I/61mev0MM2vL.jpg), using
   the adjacent 4.6 mm X-Line as a same-perspective scale. The resulting 16.8 mm
   rise and 21 mm full width are explicitly photographic inferences—not
-  published factory dimensions—and are shared by the visible mesh and terrain
-  collision. `tools/trace-stadium-features.py` reproduces the plan conversion,
+  published factory dimensions. The visible mesh and deterministic collision
+  share that complete footprint. Because the oblique view shows a tall,
+  near-vertical divider rather than a climbable floor bulge, the rear guards
+  are closed high-line-count solids: common 1.7--2.0 m/s approaches rebound,
+  while only an exceptional 2.2 m/s impact may vault the wall after losing its
+  climb energy. `tools/trace-stadium-features.py` reproduces the plan conversion,
   shadow-edge ratio, overlays, and TypeScript-value check from those source
   images. The
   cover has two red triangular shoot marks and a distinct rear molded shoot

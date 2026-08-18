@@ -6,11 +6,16 @@ part stats, and *bit-exact determinism* across devices.
 
 ## Determinism contract
 
-Current deterministic replay/lockstep version: **8**. Version 8 replaces the
-generic BX-32 rear-pocket lips with the broader, taller molded wedges derived
-from the supplied overhead trace and oblique shadow-bearing product view. The
-same rounded heightfield now controls both their visible geometry and the
-energy needed to climb them. Version 7 removes the
+Current deterministic replay/lockstep version: **9**. Version 9 makes the two
+photo-traced BX-32 rear-pocket dividers true solid obstacles. Their complete
+21 mm-wide plan footprint and near-vertical 16.8 mm face are shared by live
+Beys, debris and rendering; ordinary 1.7--2.0 m/s approaches rebound into the
+bowl instead of riding a smooth hill straight into a corner pocket. Only an
+exceptional impact above the calibrated 2.2 m/s vault threshold crosses the
+divider, and that crossing pays the wall-climb energy once. Version 8 replaced
+the generic rear-pocket lips with the broader, taller molded forms derived
+from the supplied overhead trace and oblique shadow-bearing product view.
+Version 7 removes the
 full-Blade clearance inset from terminal pocket judgment: after a valid entry,
 continued occupancy plus actual translational rest is enough even when the
 Blade overhangs a sloped basin edge and even while the Bey spins. It also adds
@@ -97,10 +102,12 @@ own-finish rule), visual phase.
    linear and angular momentum continue into the basin; it can circulate,
    collide, climb or rebound from the molded rim, and return through the open
    mouth when it carries enough momentum uphill. A traced retaining wall
-   precedes each mouth, so weak approaches deflect while strong ones climb it
-   and pay the corresponding energy. BX-32's two rear walls use the broad,
-   tall rounded wedges measured from overhead plan and oblique shadow-bearing
-   reference views; they are not generic low lips. Entry alone is not a finish.
+   precedes each mouth. Low BX-10 lips remain climbable terrain; BX-32's two
+   rear dividers instead use their full photo-derived solid footprint and
+   near-vertical face, so ordinary approaches rebound. A rare impact above
+   2.2 m/s can vault one only after paying the climb energy. These broad, tall
+   dividers come from the overhead plan and oblique shadow-bearing reference
+   views; they are not generic low lips. Entry alone is not a finish.
    Official stadiums have no invented angular side gaps.
 7. **Collisions** (circle-circle): normal impulse (restitution 0.25,
    mass-weighted) + two directed "smash" impulses derived from **rim slip**

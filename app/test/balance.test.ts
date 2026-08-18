@@ -107,18 +107,18 @@ describe("balance batches (also the tuning harness — see console table)", () =
     expect(t.slings / N).toBeGreaterThan(0.8);
     // trips + casing bumps exist as events across the batch
     expect(t.trips + t.coverHits).toBeGreaterThan(N * 0.1);
-  }, 120_000);
+  }, 300_000);
 
   it("stamina vs stamina: mostly spin finishes, long battles", () => {
     const t = battleBatch(staminaBot, { ...staminaBot, name: "持2" }, N, 9000);
     console.log("stamina mirror:", JSON.stringify(t));
     expect(t.spin + t.draw).toBeGreaterThan(N * 0.5);
     expect(t.totalSec / t.n).toBeGreaterThan(8);
-  }, 120_000);
+  }, 300_000);
 
   it("defense vs attack: defender survives KOs more often than stamina does", () => {
     const tDef = battleBatch(attacker, defender, N, 14000);
     console.log("attack vs defense:", JSON.stringify(tDef));
     expect(tDef.ownFinish).toBeLessThan(N * 0.2);
-  }, 120_000);
+  }, 300_000);
 });

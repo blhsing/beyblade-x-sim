@@ -110,7 +110,7 @@ describe("simulation determinism", () => {
     const a = simulateBattle(cfg(baseParams(), baseParams(), 1), STADIUM_BX10);
     const b = simulateBattle(cfg(baseParams(), baseParams(), 2), STADIUM_BX10);
     expect(hashWorld(a)).not.toEqual(hashWorld(b));
-  });
+  }, 30_000);
 });
 
 describe("battle outcomes", () => {

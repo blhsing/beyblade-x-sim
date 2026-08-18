@@ -8,6 +8,7 @@ import type { ResolvedCombo } from "../core/derive";
 import {
   pocketAtPoint,
   pocketBasinPolygon,
+  pocketGuardContactAt,
   stadiumBoundaryNormalAt,
   stadiumBoundarySignedDistance,
   stadiumTerrainAt,
@@ -667,6 +668,13 @@ function planarWallContactAt(
   x: number,
   y: number,
 ): PlanarWallContact | null {
+  const guard = pocketGuardContactAt(stadium, x, y);
+  if (guard) {
+    return {
+      penetration: guard.penetration,
+      inward: new THREE.Vector3(guard.normal.x, guard.normal.y, 0),
+    };
+  }
   const bowlDistance = stadiumBoundarySignedDistance(stadium, x, y);
   if (bowlDistance <= 0 || pocketAtPoint(stadium, x, y)) return null;
 

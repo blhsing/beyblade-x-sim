@@ -39,11 +39,20 @@ export interface PocketTracePoint {
 }
 
 export interface PocketGuardSpec {
-  /** Traced centerline of the low molded retaining wall before the basin. */
+  /** Traced centerline of the molded retaining wall before the basin. */
   centerline: readonly PocketTracePoint[];
   /** Rounded wall half-thickness and rise above the surrounding surface. */
   halfThickness: number;
   height: number;
+  /** Tall BX-32 corner dividers are rigid obstacles, not climbable changes to
+   * the floor slope. A sufficiently violent collision may vault the wall;
+   * ordinary bowl motion is reflected by its real plan-view footprint. */
+  collision?: {
+    kind: "solid";
+    vaultSpeed: number;
+    restitution: number;
+    friction: number;
+  };
 }
 
 export interface PocketTraceSpec {
@@ -135,6 +144,10 @@ export interface StadiumSpec {
   railTraceReference?: RailTraceReference;
   railColor: number; // render hint
   pockets: PocketSpec[];
+  /** Cached hot-path capability bit. Must be true when any pocket guard has
+   * rigid `collision` metadata; avoids probing absent walls millions of times
+   * in BX-10 endurance battles. */
+  hasSolidPocketGuards?: boolean;
   wallRestitution: number;
   exitSpeed: number; // min outward radial speed to fall into a pocket (m/s)
   deckW: number; // outer body width (m, render)
@@ -475,11 +488,12 @@ function pocketTrace(
   calibration: string,
   mirroredFrom?: string,
   halfThickness = 0.0048,
+  collision?: PocketGuardSpec["collision"],
 ): PocketTraceSpec {
   return {
     throat,
     basin,
-    guard: { centerline: guard, halfThickness, height },
+    guard: { centerline: guard, halfThickness, height, collision },
     reference: { source, calibration, mirroredFrom },
   };
 }
@@ -692,6 +706,7 @@ export const STADIUM_BX32: StadiumSpec = {
         "600x440mm body; overhead plan trace plus oblique shadow-edge fit normalized against the adjacent 4.6mm X-Line; inferred 16.8mm rise and 21mm full width",
         undefined,
         0.0105,
+        { kind: "solid", vaultSpeed: 2.2, restitution: 0.44, friction: 0.12 },
       ),
     },
     {
@@ -718,6 +733,7 @@ export const STADIUM_BX32: StadiumSpec = {
         "600x440mm body; mirrored overhead plan trace plus opposite oblique shadow-edge cross-check; inferred 16.8mm rise and 21mm full width",
         "rear-left-xtreme",
         0.0105,
+        { kind: "solid", vaultSpeed: 2.2, restitution: 0.44, friction: 0.12 },
       ),
     },
     {
@@ -742,6 +758,7 @@ export const STADIUM_BX32: StadiumSpec = {
       ),
     },
   ],
+  hasSolidPocketGuards: true,
   wallRestitution: 0.52,
   exitSpeed: 0.8,
   // real body: 600 × 440 mm, the largest X stadium (docs/MODELING.md §2.2)
@@ -1116,17 +1133,35 @@ export function pocketBasinPolygon(s: StadiumSpec, pocket: PocketSpec): readonly
 /** Allocation-free convex containment used with precomputed product polygons
  * by core, renderer and debris/contact audits. */
 export function pointInConvexPolygon(polygon: readonly Point2[], x: number, y: number): boolean {
-  let sign = 0;
-  for (let i = 0; i < polygon.length; i++) {
-    const a = polygon[i]!;
-    const b = polygon[(i + 1) % polygon.length]!;
-    const cross = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
-    if (Math.abs(cross) <= 1e-10) continue;
-    const current = cross > 0 ? 1 : -1;
-    if (sign !== 0 && sign !== current) return false;
-    sign = current;
+  const count = polygon.length;
+  if (count < 3) return false;
+  const origin = polygon[0]!;
+  const first = polygon[1]!;
+  const last = polygon[count - 1]!;
+  const crossFromOrigin = (point: Point2) =>
+    (point.x - origin.x) * (y - origin.y) - (point.y - origin.y) * (x - origin.x);
+  const windingCross =
+    (first.x - origin.x) * (last.y - origin.y) -
+    (first.y - origin.y) * (last.x - origin.x);
+  const winding = windingCross >= 0 ? 1 : -1;
+  const epsilon = 1e-10;
+  if (winding * crossFromOrigin(first) < -epsilon) return false;
+  if (winding * crossFromOrigin(last) > epsilon) return false;
+
+  // Binary-search the triangle fan rooted at vertex zero. Official pocket
+  // outlines are cached strict convex hulls, so this is O(log n) rather than
+  // scanning all ~176 high-line-count rim edges for every terrain derivative.
+  let lower = 1;
+  let upper = count - 1;
+  while (upper - lower > 1) {
+    const middle = Math.floor((lower + upper) / 2);
+    if (winding * crossFromOrigin(polygon[middle]!) >= 0) lower = middle;
+    else upper = middle;
   }
-  return true;
+  const a = polygon[lower]!;
+  const b = polygon[(lower + 1) % count]!;
+  const edgeCross = (b.x - a.x) * (y - a.y) - (b.y - a.y) * (x - a.x);
+  return winding * edgeCross >= -epsilon;
 }
 
 /** Narrow product throat containing a point (used to cut the bowl wall). */
@@ -1158,11 +1193,23 @@ function pointSegmentDistance(x: number, y: number, a: Point2, b: Point2): numbe
 }
 
 interface CompiledPocketGuard {
-  points: readonly PocketTracePoint[];
-  minAlong: number;
-  maxAlong: number;
-  minAcross: number;
-  maxAcross: number;
+  worldPoints: readonly Point2[];
+  bowlNormal: Point2;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+export interface PocketGuardContact {
+  pocket: PocketSpec;
+  point: Point2;
+  /** Unit normal from the wall centreline toward the queried point. */
+  normal: Point2;
+  distance: number;
+  penetration: number;
+  contactRadius: number;
+  collision: NonNullable<PocketGuardSpec["collision"]>;
 }
 
 const POCKET_GUARD_CACHE = new WeakMap<StadiumSpec, WeakMap<PocketSpec, CompiledPocketGuard>>();
@@ -1173,13 +1220,19 @@ function compiledPocketGuard(s: StadiumSpec, pocket: PocketSpec): CompiledPocket
   const cached = entries.get(pocket);
   if (cached) return cached;
   const points = smoothOpenPocketTrace(pocket.trace.guard.centerline);
+  const path = pocketPath(s, pocket);
+  const worldPoints = points.map((point) => ({
+    x: path.boundary.x + path.axis.x * point.along + path.across.x * point.across,
+    y: path.boundary.y + path.axis.y * point.along + path.across.y * point.across,
+  }));
   const margin = pocket.trace.guard.halfThickness;
   const compiled: CompiledPocketGuard = {
-    points,
-    minAlong: Math.min(...points.map((point) => point.along)) - margin,
-    maxAlong: Math.max(...points.map((point) => point.along)) + margin,
-    minAcross: Math.min(...points.map((point) => point.across)) - margin,
-    maxAcross: Math.max(...points.map((point) => point.across)) + margin,
+    worldPoints,
+    bowlNormal: { x: -path.axis.x, y: -path.axis.y },
+    minX: Math.min(...worldPoints.map((point) => point.x)) - margin,
+    maxX: Math.max(...worldPoints.map((point) => point.x)) + margin,
+    minY: Math.min(...worldPoints.map((point) => point.y)) - margin,
+    maxY: Math.max(...worldPoints.map((point) => point.y)) + margin,
   };
   entries.set(pocket, compiled);
   return compiled;
@@ -1188,12 +1241,91 @@ function compiledPocketGuard(s: StadiumSpec, pocket: PocketSpec): CompiledPocket
 /** World-space high-line-count centerline of the molded pocket-entry wall. */
 export function pocketGuardCenterline(s: StadiumSpec, pocket: PocketSpec): readonly Point2[] {
   const guard = compiledPocketGuard(s, pocket);
-  if (!guard) return [];
-  const path = pocketPath(s, pocket);
-  return guard.points.map((point) => ({
-    x: path.boundary.x + path.axis.x * point.along + path.across.x * point.across,
-    y: path.boundary.y + path.axis.y * point.along + path.across.y * point.across,
-  }));
+  return guard?.worldPoints ?? [];
+}
+
+/** Footprint-aware contact against product walls that physically divide the
+ * bowl from a loss-zone basin. This deliberately differs from the low molded
+ * lips: the BX-32 corner walls have a near-vertical face, so treating them as
+ * a smooth heightfield lets ordinary Beys climb straight into the pockets.
+ *
+ * `clearance` is the lower support radius (Bit/Ratchet), not the full Blade
+ * radius: a real Blade can lean over the wall while its lower assembly is
+ * still the part constrained by the floor moulding. */
+export function pocketGuardContactAt(
+  s: StadiumSpec,
+  x: number,
+  y: number,
+  clearance = 0,
+): PocketGuardContact | null {
+  let best: PocketGuardContact | null = null;
+  for (const pocket of s.pockets) {
+    const collision = pocket.trace?.guard.collision;
+    if (!collision || !pocket.trace) continue;
+    const guard = compiledPocketGuard(s, pocket);
+    if (!guard) continue;
+    const contactRadius = pocket.trace.guard.halfThickness + Math.max(0, clearance);
+    if (
+      x < guard.minX - clearance || x > guard.maxX + clearance ||
+      y < guard.minY - clearance || y > guard.maxY + clearance
+    ) continue;
+
+    let nearestX = 0;
+    let nearestY = 0;
+    let nearestDistanceSq = Infinity;
+    let fallbackNormalX = guard.bowlNormal.x;
+    let fallbackNormalY = guard.bowlNormal.y;
+    for (let index = 0; index < guard.worldPoints.length - 1; index++) {
+      const a = guard.worldPoints[index]!;
+      const b = guard.worldPoints[index + 1]!;
+      const segmentX = b.x - a.x;
+      const segmentY = b.y - a.y;
+      const lengthSq = segmentX * segmentX + segmentY * segmentY;
+      const t = lengthSq > 1e-14
+        ? Math.max(0, Math.min(1,
+          ((x - a.x) * segmentX + (y - a.y) * segmentY) / lengthSq,
+        ))
+        : 0;
+      const pointX = a.x + segmentX * t;
+      const pointY = a.y + segmentY * t;
+      const deltaX = x - pointX;
+      const deltaY = y - pointY;
+      const distanceSq = deltaX * deltaX + deltaY * deltaY;
+      if (distanceSq >= nearestDistanceSq) continue;
+      nearestDistanceSq = distanceSq;
+      nearestX = pointX;
+      nearestY = pointY;
+      if (lengthSq > 1e-14) {
+        const inverseLength = 1 / Math.sqrt(lengthSq);
+        fallbackNormalX = segmentY * inverseLength;
+        fallbackNormalY = -segmentX * inverseLength;
+        // The normal used at an exact centreline hit must point back toward
+        // the bowl, otherwise a symmetric collision could be corrected into
+        // the pocket.
+        if (fallbackNormalX * guard.bowlNormal.x + fallbackNormalY * guard.bowlNormal.y < 0) {
+          fallbackNormalX *= -1;
+          fallbackNormalY *= -1;
+        }
+      }
+    }
+    if (nearestDistanceSq > contactRadius * contactRadius) continue;
+    const distance = Math.sqrt(Math.max(0, nearestDistanceSq));
+    const normal = {
+      x: distance > 1e-10 ? (x - nearestX) / distance : fallbackNormalX,
+      y: distance > 1e-10 ? (y - nearestY) / distance : fallbackNormalY,
+    };
+    const contact: PocketGuardContact = {
+      pocket,
+      point: { x: nearestX, y: nearestY },
+      normal,
+      distance,
+      penetration: contactRadius - distance,
+      contactRadius,
+      collision,
+    };
+    if (!best || contact.penetration > best.penetration) best = contact;
+  }
+  return best;
 }
 
 /** Smooth raised lip before each official loss zone. Its dimensions are
@@ -1203,24 +1335,17 @@ export function pocketGuardRiseAt(s: StadiumSpec, x: number, y: number): number 
   for (const pocket of s.pockets) {
     const guard = compiledPocketGuard(s, pocket);
     if (!guard || !pocket.trace) continue;
-    const path = pocketPath(s, pocket);
-    const dx = x - path.boundary.x;
-    const dy = y - path.boundary.y;
-    const along = dx * path.axis.x + dy * path.axis.y;
-    const across = dx * path.across.x + dy * path.across.y;
     if (
-      along < guard.minAlong || along > guard.maxAlong ||
-      across < guard.minAcross || across > guard.maxAcross
+      x < guard.minX || x > guard.maxX ||
+      y < guard.minY || y > guard.maxY
     ) continue;
     let distance = Infinity;
-    for (let index = 0; index < guard.points.length - 1; index++) {
-      const a = guard.points[index]!;
-      const b = guard.points[index + 1]!;
+    for (let index = 0; index < guard.worldPoints.length - 1; index++) {
       distance = Math.min(distance, pointSegmentDistance(
-        along,
-        across,
-        { x: a.along, y: a.across },
-        { x: b.along, y: b.across },
+        x,
+        y,
+        guard.worldPoints[index]!,
+        guard.worldPoints[index + 1]!,
       ));
     }
     const profile = smooth01(1 - distance / pocket.trace.guard.halfThickness);
@@ -1299,6 +1424,131 @@ interface PocketSurfaceFrame {
   halfAcross: number;
 }
 
+interface PocketBoundarySegment {
+  a: Point2;
+  b: Point2;
+  index: number;
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+}
+
+interface PocketBoundaryNode {
+  minX: number;
+  maxX: number;
+  minY: number;
+  maxY: number;
+  left: PocketBoundaryNode | null;
+  right: PocketBoundaryNode | null;
+  segments: readonly PocketBoundarySegment[] | null;
+}
+
+const POCKET_BOUNDARY_CACHE = new WeakMap<StadiumSpec, WeakMap<PocketSpec, PocketBoundaryNode>>();
+
+function buildPocketBoundaryNode(segments: readonly PocketBoundarySegment[]): PocketBoundaryNode {
+  let minX = Infinity;
+  let maxX = -Infinity;
+  let minY = Infinity;
+  let maxY = -Infinity;
+  for (const segment of segments) {
+    minX = Math.min(minX, segment.minX);
+    maxX = Math.max(maxX, segment.maxX);
+    minY = Math.min(minY, segment.minY);
+    maxY = Math.max(maxY, segment.maxY);
+  }
+  if (segments.length <= 4) {
+    return { minX, maxX, minY, maxY, left: null, right: null, segments };
+  }
+  const splitX = maxX - minX >= maxY - minY;
+  const sorted = [...segments].sort((first, second) => {
+    const firstCenter = splitX
+      ? first.minX + first.maxX
+      : first.minY + first.maxY;
+    const secondCenter = splitX
+      ? second.minX + second.maxX
+      : second.minY + second.maxY;
+    return firstCenter - secondCenter || first.index - second.index;
+  });
+  const middle = Math.floor(sorted.length / 2);
+  return {
+    minX,
+    maxX,
+    minY,
+    maxY,
+    left: buildPocketBoundaryNode(sorted.slice(0, middle)),
+    right: buildPocketBoundaryNode(sorted.slice(middle)),
+    segments: null,
+  };
+}
+
+function pocketBoundaryNode(s: StadiumSpec, pocket: PocketSpec): PocketBoundaryNode {
+  const entries = pocketCache(POCKET_BOUNDARY_CACHE, s);
+  const cached = entries.get(pocket);
+  if (cached) return cached;
+  const polygon = pocketBasinPolygon(s, pocket);
+  const segments = polygon.map((a, index) => {
+    const b = polygon[(index + 1) % polygon.length]!;
+    return {
+      a,
+      b,
+      index,
+      minX: Math.min(a.x, b.x),
+      maxX: Math.max(a.x, b.x),
+      minY: Math.min(a.y, b.y),
+      maxY: Math.max(a.y, b.y),
+    };
+  });
+  const root = buildPocketBoundaryNode(segments);
+  entries.set(pocket, root);
+  return root;
+}
+
+function boxDistanceSq(node: PocketBoundaryNode, x: number, y: number): number {
+  const dx = x < node.minX ? node.minX - x : x > node.maxX ? x - node.maxX : 0;
+  const dy = y < node.minY ? node.minY - y : y > node.maxY ? y - node.maxY : 0;
+  return dx * dx + dy * dy;
+}
+
+function pointSegmentDistanceSq(x: number, y: number, a: Point2, b: Point2): number {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  const denominator = dx * dx + dy * dy;
+  const t = denominator > 1e-14
+    ? Math.max(0, Math.min(1, ((x - a.x) * dx + (y - a.y) * dy) / denominator))
+    : 0;
+  const px = a.x + dx * t;
+  const py = a.y + dy * t;
+  const ex = x - px;
+  const ey = y - py;
+  return ex * ex + ey * ey;
+}
+
+function nearestPocketBoundaryDistanceSq(
+  node: PocketBoundaryNode,
+  x: number,
+  y: number,
+  best: number,
+): number {
+  if (boxDistanceSq(node, x, y) >= best) return best;
+  if (node.segments) {
+    for (const segment of node.segments) {
+      best = Math.min(best, pointSegmentDistanceSq(x, y, segment.a, segment.b));
+    }
+    return best;
+  }
+  const left = node.left!;
+  const right = node.right!;
+  const leftDistance = boxDistanceSq(left, x, y);
+  const rightDistance = boxDistanceSq(right, x, y);
+  if (leftDistance <= rightDistance) {
+    best = nearestPocketBoundaryDistanceSq(left, x, y, best);
+    return nearestPocketBoundaryDistanceSq(right, x, y, best);
+  }
+  best = nearestPocketBoundaryDistanceSq(right, x, y, best);
+  return nearestPocketBoundaryDistanceSq(left, x, y, best);
+}
+
 const POCKET_SURFACE_CACHE = new WeakMap<StadiumSpec, WeakMap<PocketSpec, PocketSurfaceFrame>>();
 
 function pocketBasinCenter(s: StadiumSpec, pocket: PocketSpec): Point2 {
@@ -1346,17 +1596,7 @@ function pocketSurfaceFrame(s: StadiumSpec, pocket: PocketSpec): PocketSurfaceFr
 }
 
 function pocketBoundaryDistance(s: StadiumSpec, pocket: PocketSpec, x: number, y: number): number {
-  const polygon = pocketBasinPolygon(s, pocket);
-  let distance = Infinity;
-  for (let index = 0; index < polygon.length; index++) {
-    distance = Math.min(distance, pointSegmentDistance(
-      x,
-      y,
-      polygon[index]!,
-      polygon[(index + 1) % polygon.length]!,
-    ));
-  }
-  return distance;
+  return Math.sqrt(nearestPocketBoundaryDistanceSq(pocketBoundaryNode(s, pocket), x, y, Infinity));
 }
 
 function pocketSurroundingZ(s: StadiumSpec, x: number, y: number): number {
@@ -1392,6 +1632,53 @@ export function pocketExitTarget(s: StadiumSpec, pocket: PocketSpec): Point2 {
   const cached = entries.get(pocket);
   if (cached) return cached;
   const polygon = pocketBasinPolygon(s, pocket);
+  if (pocket.trace?.guard.collision?.kind === "solid") {
+    // A tall divider makes the absolute lowest raster-grid sample an invalid
+    // resting pose on its steep side face. The physical catch bottom runs
+    // along the basin's longitudinal centre; solve that one-dimensional
+    // trough directly so a stationary occupant is neither embedded in the
+    // wall nor balanced on a slope.
+    const path = pocketPath(s, pocket);
+    const minAlong = Math.min(...pocket.trace.basin.map((point) => point.along));
+    const maxAlong = Math.max(...pocket.trace.basin.map((point) => point.along));
+    let bestAlong = (minAlong + maxAlong) * 0.5;
+    let bestHeight = Infinity;
+    const divisions = 128;
+    for (let index = 0; index <= divisions; index++) {
+      const along = minAlong + (maxAlong - minAlong) * index / divisions;
+      const x = path.boundary.x + path.axis.x * along;
+      const y = path.boundary.y + path.axis.y * along;
+      if (!pointInConvexPolygon(polygon, x, y)) continue;
+      if (pocketGuardContactAt(s, x, y, 0.003)?.pocket === pocket) continue;
+      const height = pocketSurfaceZ(s, pocket, x, y);
+      if (height < bestHeight) {
+        bestAlong = along;
+        bestHeight = height;
+      }
+    }
+    let step = (maxAlong - minAlong) / divisions;
+    for (let refinement = 0; refinement < 18; refinement++) {
+      for (const direction of [-1, 1]) {
+        const along = bestAlong + direction * step;
+        const x = path.boundary.x + path.axis.x * along;
+        const y = path.boundary.y + path.axis.y * along;
+        if (!pointInConvexPolygon(polygon, x, y)) continue;
+        if (pocketGuardContactAt(s, x, y, 0.003)?.pocket === pocket) continue;
+        const height = pocketSurfaceZ(s, pocket, x, y);
+        if (height < bestHeight) {
+          bestAlong = along;
+          bestHeight = height;
+        }
+      }
+      step *= 0.5;
+    }
+    const best = {
+      x: path.boundary.x + path.axis.x * bestAlong,
+      y: path.boundary.y + path.axis.y * bestAlong,
+    };
+    entries.set(pocket, best);
+    return best;
+  }
   let minX = Infinity;
   let minY = Infinity;
   let maxX = -Infinity;

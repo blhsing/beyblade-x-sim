@@ -1052,10 +1052,14 @@ function pocketBasinGeometry(
  * visible instead of disappearing into the coarse pale floor grid. */
 function pocketGuardGeometry(s: StadiumSpec, pocket: PocketSpec): THREE.BufferGeometry {
   const centerline = pocketGuardCenterline(s, pocket);
-  const halfThickness = pocket.trace?.guard.halfThickness ?? 0;
+  const guard = pocket.trace?.guard;
+  const halfThickness = guard?.halfThickness ?? 0;
+  const solid = guard?.collision?.kind === "solid";
   const acrossSegments = 32;
   const positions: number[] = [];
   const indices: number[] = [];
+  const baseHeight = (x: number, y: number) =>
+    stadiumTerrainAt(s, x, y).height - pocketGuardRiseAt(s, x, y);
   for (let pathIndex = 0; pathIndex < centerline.length; pathIndex++) {
     const previous = centerline[Math.max(0, pathIndex - 1)]!;
     const next = centerline[Math.min(centerline.length - 1, pathIndex + 1)]!;
@@ -1070,7 +1074,17 @@ function pocketGuardGeometry(s: StadiumSpec, pocket: PocketSpec): THREE.BufferGe
       const offset = (across / acrossSegments * 2 - 1) * halfThickness;
       const x = centerline[pathIndex]!.x + normalX * offset;
       const y = centerline[pathIndex]!.y + normalY * offset;
-      positions.push(x, y, stadiumTerrainAt(s, x, y).height + 0.00003);
+      if (solid && guard) {
+        // The oblique reference shows a near-vertical retaining face. Keep a
+        // gently crowned top for the moulded plastic, but do not turn its
+        // 16.8 mm height into the broad climbable hill that caused the replay
+        // regressions.
+        const normalized = Math.abs(offset) / Math.max(halfThickness, 1e-9);
+        const crown = (1 - normalized * normalized) * 0.00035;
+        positions.push(x, y, baseHeight(x, y) + guard.height + crown + 0.00003);
+      } else {
+        positions.push(x, y, stadiumTerrainAt(s, x, y).height + 0.00003);
+      }
     }
   }
   const row = acrossSegments + 1;
@@ -1083,17 +1097,78 @@ function pocketGuardGeometry(s: StadiumSpec, pocket: PocketSpec): THREE.BufferGe
       indices.push(a, c, b, b, c, d);
     }
   }
+  let verticalFaceTriangles = 0;
+  if (solid && guard && centerline.length >= 2) {
+    const appendSide = (edgeAcross: number, reverse: boolean) => {
+      const bottomStart = positions.length / 3;
+      for (let pathIndex = 0; pathIndex < centerline.length; pathIndex++) {
+        const previous = centerline[Math.max(0, pathIndex - 1)]!;
+        const next = centerline[Math.min(centerline.length - 1, pathIndex + 1)]!;
+        let tangentX = next.x - previous.x;
+        let tangentY = next.y - previous.y;
+        const tangentLength = Math.sqrt(tangentX * tangentX + tangentY * tangentY) || 1;
+        tangentX /= tangentLength;
+        tangentY /= tangentLength;
+        const x = centerline[pathIndex]!.x - tangentY * edgeAcross;
+        const y = centerline[pathIndex]!.y + tangentX * edgeAcross;
+        positions.push(x, y, baseHeight(x, y) + 0.00002);
+      }
+      const topAcross = edgeAcross < 0 ? 0 : acrossSegments;
+      for (let pathIndex = 0; pathIndex < centerline.length - 1; pathIndex++) {
+        const topA = pathIndex * row + topAcross;
+        const topB = (pathIndex + 1) * row + topAcross;
+        const bottomA = bottomStart + pathIndex;
+        const bottomB = bottomA + 1;
+        if (reverse) indices.push(topA, bottomA, topB, topB, bottomA, bottomB);
+        else indices.push(topA, topB, bottomA, topB, bottomB, bottomA);
+        verticalFaceTriangles += 2;
+      }
+    };
+    appendSide(-halfThickness, false);
+    appendSide(halfThickness, true);
+
+    const appendEnd = (pathIndex: number, reverse: boolean) => {
+      const bottomStart = positions.length / 3;
+      const previous = centerline[Math.max(0, pathIndex - 1)]!;
+      const next = centerline[Math.min(centerline.length - 1, pathIndex + 1)]!;
+      let tangentX = next.x - previous.x;
+      let tangentY = next.y - previous.y;
+      const tangentLength = Math.sqrt(tangentX * tangentX + tangentY * tangentY) || 1;
+      tangentX /= tangentLength;
+      tangentY /= tangentLength;
+      for (let across = 0; across <= acrossSegments; across++) {
+        const offset = (across / acrossSegments * 2 - 1) * halfThickness;
+        const x = centerline[pathIndex]!.x - tangentY * offset;
+        const y = centerline[pathIndex]!.y + tangentX * offset;
+        positions.push(x, y, baseHeight(x, y) + 0.00002);
+      }
+      for (let across = 0; across < acrossSegments; across++) {
+        const topA = pathIndex * row + across;
+        const topB = topA + 1;
+        const bottomA = bottomStart + across;
+        const bottomB = bottomA + 1;
+        if (reverse) indices.push(topA, topB, bottomA, topB, bottomB, bottomA);
+        else indices.push(topA, bottomA, topB, topB, bottomA, bottomB);
+        verticalFaceTriangles += 2;
+      }
+    };
+    appendEnd(0, true);
+    appendEnd(centerline.length - 1, false);
+  }
   const geometry = new THREE.BufferGeometry();
   geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
   geometry.setIndex(indices);
   geometry.computeVertexNormals();
   geometry.userData = {
-    shape: "rounded-pocket-entry-wall",
+    shape: solid ? "solid-pocket-retaining-wall" : "rounded-pocket-entry-wall",
     source: "core:pocketGuardCenterline+pocketGuardRiseAt",
     pathSamples: centerline.length,
     acrossSegments,
     halfThicknessM: halfThickness,
     heightM: pocket.trace?.guard.height ?? 0,
+    solidBarrier: solid,
+    verticalFaceTriangles,
+    vaultSpeedMps: guard?.collision?.vaultSpeed ?? null,
     photoDerived: true,
   };
   return geometry;
@@ -1165,6 +1240,8 @@ function createPockets(s: StadiumSpec, bodyMat: THREE.Material): THREE.Group {
         source: "core:pocketGuardCenterline+pocketGuardRiseAt",
         heightM: pocket.trace.guard.height,
         halfThicknessM: pocket.trace.guard.halfThickness,
+        solidBarrier: pocket.trace.guard.collision?.kind === "solid",
+        vaultSpeedMps: pocket.trace.guard.collision?.vaultSpeed ?? null,
         reference: pocket.trace.reference.source,
       });
       markReflective(guard, 0.12);
