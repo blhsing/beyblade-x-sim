@@ -241,6 +241,8 @@ describe("battle outcomes", () => {
     b0.omega = 0;
     b0.pocketIndex = 1;
     b0.pocketDwell = POCKET_DWELL_TICKS - 1;
+    b0.pocketLastX = target.x;
+    b0.pocketLastY = target.y;
     b0.railTicks = -1;
     step(w, c, STADIUM_BX10);
     expect(w.finish?.type).toBe("xtreme");

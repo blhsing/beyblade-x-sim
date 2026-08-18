@@ -6,7 +6,11 @@ part stats, and *bit-exact determinism* across devices.
 
 ## Determinism contract
 
-Current deterministic replay/lockstep version: **5**. Version 5 replaces the
+Current deterministic replay/lockstep version: **6**. Version 6 makes retained
+zone settlement depend on the Bey's actual post-constraint center movement,
+so a visually motionless Bey pressed against a molded basin rim is scored even
+if the solver still carries an unobservable residual velocity. Real movement,
+impacts and escape still reset the confirmation. Version 5 replaced the
 separate throat/catch-tray model with one cached product outline and a
 continuous concave loss-zone heightfield shared by motion, debris and rendering.
 It retains real entry momentum and possible escape, authorizes a retained-zone
@@ -34,7 +38,8 @@ hash-compared.
 `x y vx vy` (m, m/s in the stadium plane), signed spin `ω` (rad/s, sign =
 spin direction), discrete `burstDamage` detents, last distinct latch-impact
 tick, deterministic terminal `burstRelease` snapshot, rail state, live-pocket
-identity, settle dwell and last disturbance tick, contact flag (for the
+identity, settle dwell, previous constrained center, rim-disturbance tick and
+blocking entry/Bey-contact tick, contact flag (for the
 own-finish rule), visual phase.
 
 ## Forces & behaviours per tick
@@ -123,7 +128,8 @@ the visible slide and static friction then sleeps genuinely low-speed contact,
 so the qualifying dwell cannot begin while the Bey is still crossing the bowl ·
 `over` (2 pts) / `xtreme` (3 pts) require the complete Bey footprint to be
 securely inside the same concave basin with exactly slept planar/vertical
-motion for 24 uninterrupted ticks; ω is deliberately not part of this test.
+center motion for 24 uninterrupted ticks (under 0.5 mm total tolerance); ω is
+deliberately not part of this test.
 Motion, wall/Bey impact, leaving or changing a pocket resets that dwell ·
 `burst` (2 pts) · own-finish flag when a bey exits
 without ever touching the opponent (1 pt to opponent). Simultaneous terminal

@@ -241,9 +241,15 @@ export interface BeyState {
   /** Consecutive translationally-settled ticks securely inside the same catch zone. */
   pocketDwell: number;
   /** Last fixed tick on which entry, a basin-rim contact, or another Bey
-   * disturbed this pocket occupant. It prevents an impact tick itself from
-   * counting toward the retained-zone confirmation. */
+   * disturbed this pocket occupant; retained for deterministic diagnostics. */
   pocketDisturbedTick: number;
+  /** Entry or another-Bey contact tick. Unlike a molded-rim correction, this
+   * always blocks the current tick from counting as retained rest. */
+  pocketBlockingTick: number;
+  /** Previous post-constraint center used to distinguish real visible motion
+   * from residual velocity that points into a molded pocket wall. */
+  pocketLastX: number;
+  pocketLastY: number;
   stoppedTick: number; // tick when fully settled (-1 = still in play)
   /** consecutive ticks with zero spin AND settled linear motion */
   stopDwell: number;

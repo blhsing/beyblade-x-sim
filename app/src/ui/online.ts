@@ -717,6 +717,7 @@ async function ffaSession(
 
       app.view.setBeysList(order.map((_, i) => ({ rc: rcs[i]!, params: params[i]! })));
       await app.view.stageLaunchers(order.map((s) => launches.get(s)!));
+      app.view.resetView();
       app.view.beginCameraEase(0.9);
       app.view.mode = app.view.mode === "gyro" ? "gyro" : "orbit";
       const wcfg: WorldConfig = {

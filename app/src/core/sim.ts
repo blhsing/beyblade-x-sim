@@ -33,7 +33,7 @@ import type {
 export const DT = 1 / 240;
 export const TICKS_PER_SECOND = 240;
 /** Increment whenever deterministic state evolution changes incompatibly. */
-export const PHYSICS_VERSION = 5;
+export const PHYSICS_VERSION = 6;
 
 const G = 9.81;
 // Stop means visually and mechanically settled, not merely crossing a low-
@@ -45,6 +45,9 @@ export const STOP_DWELL_TICKS = 144; // 0.6 s at 240 Hz
 /** Zone loss needs a short confirmation after translational rest. Spin is
  * deliberately irrelevant: a retained Bey can still rotate in the basin. */
 export const POCKET_DWELL_TICKS = 24; // 0.1 s, evaluated after collisions
+/** Maximum center movement per fixed tick that is visually/mechanically at
+ * rest. Over the complete confirmation this permits under 0.5 mm of drift. */
+export const POCKET_REST_DISPLACEMENT = 0.00002;
 
 const T = {
   // launch — bowl escape speed is ~0.77 m/s, so entries stay below it and
@@ -368,6 +371,9 @@ function makeBey(
     pocketIndex: -1,
     pocketDwell: 0,
     pocketDisturbedTick: -999,
+    pocketBlockingTick: -999,
+    pocketLastX: kinematics.x,
+    pocketLastY: kinematics.y,
     stoppedTick: -1,
     stopDwell: 0,
     contacted: false,
@@ -501,7 +507,6 @@ function constrainPocket(
     b.vx -= tangentDelta * tangentX;
     b.vy -= tangentDelta * tangentY;
   }
-  b.pocketDwell = 0;
   b.pocketDisturbedTick = tick;
   const inset = inside ? Math.max(0.0002, clearance) : 0.0002;
   b.x = nearest.point.x + inwardX * inset;
@@ -813,6 +818,9 @@ function stepBey(
     b.pocketIndex = s.pockets.indexOf(pocketHere);
     b.pocketDwell = 0;
     b.pocketDisturbedTick = w.tick;
+    b.pocketBlockingTick = w.tick;
+    b.pocketLastX = b.x;
+    b.pocketLastY = b.y;
     b.stopDwell = 0;
     b.railTicks = -T.railCooldownTicks;
     activePocket = pocketHere;
@@ -906,12 +914,16 @@ function updatePocketStates(w: WorldState, cfg: WorldConfig, s: StadiumSpec): vo
     const b = w.beys[i]!;
     if (!b.alive || b.exited !== null || b.pendingTicks > 0 || b.airborne || b.pocketIndex < 0) {
       b.pocketDwell = 0;
+      b.pocketLastX = b.x;
+      b.pocketLastY = b.y;
       continue;
     }
     const pocket = s.pockets[b.pocketIndex];
     if (!pocket || pocketAtPoint(s, b.x, b.y) !== pocket) {
       b.pocketIndex = -1;
       b.pocketDwell = 0;
+      b.pocketLastX = b.x;
+      b.pocketLastY = b.y;
       continue;
     }
     const params = cfg.beys[i]!;
@@ -922,12 +934,19 @@ function updatePocketStates(w: WorldState, cfg: WorldConfig, s: StadiumSpec): vo
       b.y,
       params.radiusM,
     );
+    // Judge what the Bey actually did after basin constraints and collisions,
+    // not a residual velocity vector pressing into a solid molded wall. This
+    // matches the visible/physical meaning of "not moving" while still letting
+    // a circulating or rebounding Bey retain momentum and escape.
+    const dx = b.x - b.pocketLastX;
+    const dy = b.y - b.pocketLastY;
     const translationallySettled =
-      b.vx === 0 &&
-      b.vy === 0 &&
+      dx * dx + dy * dy <= POCKET_REST_DISPLACEMENT * POCKET_REST_DISPLACEMENT &&
       b.vz === 0 &&
       b.railTicks <= 0;
-    const uninterrupted = b.pocketDisturbedTick < w.tick;
+    b.pocketLastX = b.x;
+    b.pocketLastY = b.y;
+    const uninterrupted = b.pocketBlockingTick < w.tick;
     if (!secure || !translationallySettled || !uninterrupted) {
       b.pocketDwell = 0;
       continue;
@@ -987,10 +1006,12 @@ function collidePair(w: WorldState, cfg: WorldConfig, i: number, j: number): voi
   if (b1.pocketIndex >= 0) {
     b1.pocketDwell = 0;
     b1.pocketDisturbedTick = w.tick;
+    b1.pocketBlockingTick = w.tick;
   }
   if (b2.pocketIndex >= 0) {
     b2.pocketDwell = 0;
     b2.pocketDisturbedTick = w.tick;
+    b2.pocketBlockingTick = w.tick;
   }
 
   const n = { x: dx / dist, y: dy / dist };
@@ -1329,6 +1350,9 @@ export function hashWorld(w: WorldState): string {
       b.pocketIndex,
       b.pocketDwell,
       b.pocketDisturbedTick,
+      b.pocketBlockingTick,
+      b.pocketLastX,
+      b.pocketLastY,
       b.stoppedTick,
       b.stopDwell,
       b.contacted ? 1 : 0,

@@ -24,8 +24,10 @@ import {
 } from "../src/core/stadium";
 import {
   createWorld,
+  DT,
   hashWorld,
   POCKET_DWELL_TICKS,
+  POCKET_REST_DISPLACEMENT,
   step,
 } from "../src/core/sim";
 import type { BeyParams, WorldConfig } from "../src/core/types";
@@ -83,6 +85,8 @@ function groundBey(cfg: WorldConfig, stadium: StadiumSpec, pocketIndex: number, 
     omega,
     pocketIndex,
     pocketDwell: 0,
+    pocketLastX: target.x,
+    pocketLastY: target.y,
     railTicks: -1,
   });
   return { world, bey, pocket, target };
@@ -756,6 +760,24 @@ describe("reversible live pocket simulation", () => {
     expect(Math.abs(bey.omega)).toBeGreaterThan(70);
   });
 
+  it("scores from actual positional rest despite an unobservable residual velocity", () => {
+    const cfg = config();
+    const { world, bey } = groundBey(cfg, STADIUM_BX32, 0, 140);
+    bey.pocketDwell = POCKET_DWELL_TICKS - 1;
+    // This residual is below one rendered/physical displacement quantum but
+    // used to block the exact vx===0 test indefinitely in a constrained basin.
+    bey.vx = POCKET_REST_DISPLACEMENT / DT * 0.5;
+    bey.vy = 0;
+    bey.pocketDisturbedTick = world.tick + 1; // repeated molded-rim correction
+    const before = { x: bey.x, y: bey.y };
+    step(world, cfg, STADIUM_BX32, true);
+    expect(Math.hypot(bey.x - before.x, bey.y - before.y)).toBeLessThanOrEqual(
+      POCKET_REST_DISPLACEMENT,
+    );
+    expect(bey.exited).toBe("xtreme");
+    expect(Math.abs(bey.omega)).toBeGreaterThan(130);
+  });
+
   it.each([
     [STADIUM_BX10, 1, "xtreme"],
     [STADIUM_BX32, 2, "over"],
@@ -856,6 +878,8 @@ describe("reversible live pocket simulation", () => {
     const cfg = config(2);
     const { world, bey } = groundBey(cfg, STADIUM_BX10, 1, 300);
     bey.pocketDwell = POCKET_DWELL_TICKS - 1;
+    bey.vx = POCKET_REST_DISPLACEMENT / DT * 0.5;
+    bey.pocketDisturbedTick = world.tick + 1;
     const rival = world.beys[1]!;
     Object.assign(rival, {
       x: 0,

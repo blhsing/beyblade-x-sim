@@ -32,6 +32,7 @@ export async function playReplay(app: GameApp, rec: MatchRecord, onDone: () => v
   app.view.setStadium(app.stadium());
   app.setScreen(null);
   app.view.mode = "orbit";
+  app.view.resetView();
 
   const names: [string, string] = [rec.players[0]?.name ?? "A", rec.players[1]?.name ?? "B"];
   const scores: [number, number] = [0, 0];

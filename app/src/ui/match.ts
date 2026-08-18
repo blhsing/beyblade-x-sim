@@ -613,6 +613,7 @@ export async function runMatch(
             rc1.parts.blade?.type ?? rc1.parts.mainBlade?.type,
           ]),
     );
+    app.view.resetView();
     app.view.beginCameraEase(0.9); // launcher pulls away → full stadium view
     app.view.mode = app.view.mode === "gyro" ? "gyro" : "orbit";
     const cfg: WorldConfig = {

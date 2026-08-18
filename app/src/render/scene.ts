@@ -53,6 +53,7 @@ import {
 } from "./launcher";
 import { RT_PRESETS, RayMarchComposer, markBeyReflective } from "./rt";
 import { buildStadiumModel, disposeStadiumModel } from "./stadium";
+import { stadiumOrbitFitDistance } from "./camera-fit";
 import {
   applyBalanceTopplePose,
   balanceTopplePose,
@@ -173,6 +174,8 @@ export class BattleView {
   private orbitYaw = -Math.PI / 2;
   private orbitPitch = 0.9;
   private orbitDist = 0.56; // frames the true-scale (wider) bowls
+  /** Resize keeps the full product framed until the player explicitly zooms. */
+  private orbitZoomAdjusted = false;
   /** look-at point, moved by two-finger pan */
   private orbitTarget = new THREE.Vector3(0, 0, 0.02);
   /** per-bey knock-out flights, so a KO'd bey lands and stays visible */
@@ -914,7 +917,8 @@ export class BattleView {
 
   /** factor > 1 pulls the camera back */
   zoomBy(factor: number): void {
-    this.orbitDist = Math.min(1.6, Math.max(0.09, this.orbitDist * factor));
+    this.orbitZoomAdjusted = true;
+    this.orbitDist = Math.min(3, Math.max(0.09, this.orbitDist * factor));
   }
 
   /** Drag the look-at point across the stadium plane, in screen axes. */
@@ -934,7 +938,26 @@ export class BattleView {
   /** Recentre the touch camera (used when a new battle starts). */
   resetView(): void {
     this.orbitTarget.set(0, 0, 0.02);
-    this.orbitDist = 0.56;
+    this.orbitZoomAdjusted = false;
+    this.fitOrbitToStadium();
+  }
+
+  private fitOrbitToStadium(): void {
+    if (!this.stadium) {
+      this.orbitDist = 0.56;
+      return;
+    }
+    const viewport = renderViewportSize(window.visualViewport, window.innerWidth, window.innerHeight);
+    this.orbitDist = stadiumOrbitFitDistance(
+      this.stadium,
+      viewport.width / viewport.height,
+      {
+        fovDeg: this.camera.fov,
+        yaw: this.orbitYaw,
+        pitch: this.orbitPitch,
+        targetZ: this.orbitTarget.z,
+      },
+    );
   }
 
   resize(): void {
@@ -945,6 +968,7 @@ export class BattleView {
     // The ray-march composer owns independent color/normal/depth targets;
     // resizing only the WebGLRenderer leaves those targets stretched and stale.
     this.rt.setSize(viewport.width, viewport.height, this.renderer.getPixelRatio());
+    if (!this.orbitZoomAdjusted) this.fitOrbitToStadium();
   }
 
   setStadium(s: StadiumSpec): void {
@@ -962,6 +986,7 @@ export class BattleView {
       productCode: model.userData.productCode,
       triangleCount: model.userData.triangleCount,
     };
+    if (!this.orbitZoomAdjusted) this.fitOrbitToStadium();
   }
   /** side accents (free-for-all can hold many beys) */
   static readonly SIDE_COLORS = [0x3f7bff, 0xff5b4d, 0x3cb26a, 0xd8c22e, 0x8a4ad8, 0x2eb8c2, 0xd8802e, 0xd85f9e];
